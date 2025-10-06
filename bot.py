@@ -1,5 +1,7 @@
 import os
 import asyncio
+import sys
+import getpass
 from typing import List, Set
 
 import discord
@@ -11,10 +13,55 @@ import time
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
+if TOKEN:
+    TOKEN = TOKEN.strip()
 GUILD_ID = os.getenv("GUILD_ID")
 APPLICATION_ID = os.getenv("APPLICATION_ID")
 PUBLIC_KEY = os.getenv("PUBLIC_KEY")
 BOT_PERMISSIONS = os.getenv("BOT_PERMISSIONS", "3941734153713728")
+
+# If no token found in environment, and we're in an interactive terminal, prompt the user
+if not TOKEN:
+    # Only prompt when running interactively
+    if sys.stdin.isatty():
+        print("DISCORD_TOKEN not set in environment.")
+        print("You can paste your bot token now. It will be saved to a local .env file (not printed). Press Enter to cancel.")
+        try:
+            entered = getpass.getpass("DISCORD_TOKEN: ")
+        except Exception:
+            entered = None
+        if entered:
+            # write or update .env in project root
+            env_path = os.path.join(os.path.dirname(__file__), ".env")
+            lines = []
+            if os.path.exists(env_path):
+                try:
+                    with open(env_path, "r") as f:
+                        lines = f.readlines()
+                except Exception:
+                    lines = []
+            # update existing DISCORD_TOKEN line if present
+            updated = False
+            for i, line in enumerate(lines):
+                if line.strip().startswith("DISCORD_TOKEN="):
+                    lines[i] = f"DISCORD_TOKEN={entered.strip()}\n"
+                    updated = True
+                    break
+            if not updated:
+                lines.append(f"DISCORD_TOKEN={entered.strip()}\n")
+            try:
+                with open(env_path, "w") as f:
+                    f.writelines(lines)
+                print(f"Saved token to {env_path}.")
+            except Exception as e:
+                print("Failed to save .env file:", e)
+            TOKEN = entered
+        else:
+            print("No token entered. Exiting.")
+            raise SystemExit(1)
+    else:
+        print("DISCORD_TOKEN not set in environment and input is not interactive. Copy .env.example to .env and set your token.")
+        raise SystemExit(1)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -71,6 +118,16 @@ def init_db():
 
 init_db()
 
+# Load available furby images (assets)
+FURBY_ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets", "furbys")
+def load_furby_images():
+    if not os.path.isdir(FURBY_ASSETS_DIR):
+        return []
+    files = [os.path.join(FURBY_ASSETS_DIR, f) for f in os.listdir(FURBY_ASSETS_DIR) if f.lower().endswith((".png", ".jpg", ".jpeg", ".gif"))]
+    return files
+
+furby_image_files = load_furby_images()
+
 class TournamentView(discord.ui.View):
     def __init__(self, host: discord.Member | None = None, timeout: int = 60 * 60):
         super().__init__(timeout=timeout)
@@ -84,11 +141,18 @@ class TournamentView(discord.ui.View):
     async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         msg_id = interaction.message.id
         participants = tournaments.setdefault(msg_id, set())
+        meta = tournaments_meta.get(msg_id, {})
+        maxp = meta.get("max_participants", 50)
         if interaction.user.id in participants:
-            await interaction.response.send_message("You're already joined.", ephemeral=True)
+            await interaction.response.send_message("you're in.", ephemeral=True)
+            return
+        if len(participants) >= maxp:
+            await interaction.response.send_message(f"Tournament is fulle ({maxp} participants). you can't join.", ephemeral=True)
             return
         participants.add(interaction.user.id)
-        await interaction.response.send_message(f"{interaction.user.mention} joined the Furby tournament!", ephemeral=True)
+        # build a small participant preview
+        preview = "\n".join([f"<@{uid}>" for uid in list(participants)[:20]])
+        await interaction.response.send_message(f"{interaction.user.mention} just joined tournament.\nParticipantes: {len(participants)}/{maxp}\n\n{preview}", ephemeral=True)
         await update_tournament_message(interaction.message)
 
     @discord.ui.button(label="Leave Tournament", style=discord.ButtonStyle.danger, emoji="🚪")
@@ -96,10 +160,13 @@ class TournamentView(discord.ui.View):
         msg_id = interaction.message.id
         participants = tournaments.setdefault(msg_id, set())
         if interaction.user.id not in participants:
-            await interaction.response.send_message("You're not in the tournament.", ephemeral=True)
+            await interaction.response.send_message("No estás en el torneo.", ephemeral=True)
             return
         participants.remove(interaction.user.id)
-        await interaction.response.send_message(f"{interaction.user.mention} left the Furby tournament.", ephemeral=True)
+        meta = tournaments_meta.get(msg_id, {})
+        maxp = meta.get("max_participants", 50)
+        preview = "\n".join([f"<@{uid}>" for uid in list(participants)[:20]])
+        await interaction.response.send_message(f"{interaction.user.mention} left tournament.\nParticipants: {len(participants)}/{maxp}\n\n{preview if preview else 'No hay participantes.'}", ephemeral=True)
         await update_tournament_message(interaction.message)
 
     @discord.ui.button(label="Start Tournament", style=discord.ButtonStyle.primary, emoji="▶️")
@@ -114,10 +181,121 @@ class TournamentView(discord.ui.View):
             await interaction.response.send_message("Need at least 2 furbys to start.", ephemeral=True)
             return
 
-        # Simulate selecting a winner randomly from participants
+        # Start a fun battle simulation with messages in the channel.
         import random
 
-        winner_id = random.choice(list(participants))
+        channel = interaction.channel
+
+        # Acknowledge the interaction quickly
+        try:
+            await interaction.response.send_message("The tournament battle begins! 🔥", ephemeral=False)
+        except Exception:
+            # If we've already responded, ignore
+            pass
+
+        # Prepare battle state
+        alive = list(participants)
+        eliminated = []
+        revived_once = set()
+        meta = tournaments_meta.get(msg_id, {})
+        max_revives = max(1, len(alive) // 10)  # limited number of revives (at least 1)
+        revives_used = 0
+
+        # Predefined goofy messages (English)
+        attacks = [
+            "{a} charges in and absolutely annihilates {d} with a glittery headbutt!",
+            "{a} uses a supersonic squeak — {d} doesn't even see it coming.",
+            "{a} performs the legendary Furby-Flick: {d} is flung into the void.",
+            "{a} whispers 'tickle' and {d} mysteriously collapses laughing.",
+        ]
+        revives_msgs = [
+            "But wait! {d} coughs up a spare battery and springs back to life!",
+            "A mysterious fairy grants {d} a second chance — back in the fight!",
+            "{d} finds a hidden extra life under its fluff and returns, enraged!",
+        ]
+        taunts = [
+            "{a} taunts {d} with an evil giggle.",
+            "{a} does a victory dance over {d}.",
+        ]
+
+        # Battle loop: pairwise eliminations until one remains
+        while len(alive) > 1:
+            # pick two distinct combatants
+            a, d = random.sample(alive, 2)
+            # choose an attack message and maybe an image for attacker or defender
+            msg_text = random.choice(attacks).format(a=f"<@{a}>", d=f"<@{d}>")
+            # pick an image for the attacker if available
+            attach_file = None
+            if furby_image_files:
+                # select a file based on participant id for some consistency
+                attach_file = random.choice(furby_image_files)
+            try:
+                if attach_file:
+                    # send with embed showing the image
+                    embed_msg = discord.Embed(description=msg_text)
+                    try:
+                        file = discord.File(attach_file)
+                        embed_msg.set_image(url=f"attachment://{os.path.basename(attach_file)}")
+                        await channel.send(embed=embed_msg, file=file)
+                    except Exception:
+                        # fallback to plain text if file sending fails
+                        await channel.send(msg_text)
+                else:
+                    await channel.send(msg_text)
+            except discord.Forbidden:
+                print(f"Warning: cannot send battle message in channel {getattr(channel, 'id', None)} - missing permissions.")
+            except discord.HTTPException as e:
+                print(f"Warning: failed to send battle message: {e}")
+
+            # random cooldown between messages (5 to 10 seconds)
+            await asyncio.sleep(random.uniform(5, 10))
+
+            # determine outcome: d has a chance to be revived after death
+            # For flavor, randomly decide who wins this encounter (attacker or defender)
+            killer, victim = (a, d) if random.random() < 0.6 else (d, a)
+            # victim is 'killed'
+            if victim in alive:
+                alive.remove(victim)
+                eliminated.append(victim)
+            # announce kill
+            kill_texts = [
+                f"{f'<@{killer}>'} lands the final blow — {f'<@{victim}>'} is out!",
+                f"With dramatic flair, {f'<@{killer}>'} defeats {f'<@{victim}>'}.",
+                f"{f'<@{victim}>'} was fluffed to bits by {f'<@{killer}>'}.",
+            ]
+            try:
+                await channel.send(random.choice(kill_texts))
+            except discord.Forbidden:
+                print(f"Warning: cannot send kill message in channel {getattr(channel, 'id', None)} - missing permissions.")
+            except discord.HTTPException as e:
+                print(f"Warning: failed to send kill message: {e}")
+
+            # chance to revive (60%) if revives left and the furby hasn't revived before
+            if revives_used < max_revives and victim not in revived_once and random.random() < 0.6:
+                revived_once.add(victim)
+                revives_used += 1
+                alive.append(victim)
+                try:
+                    await channel.send(random.choice(revives_msgs).format(d=f"<@{victim}>"))
+                except discord.Forbidden:
+                    print(f"Warning: cannot send revive message in channel {getattr(channel, 'id', None)} - missing permissions.")
+                except discord.HTTPException as e:
+                    print(f"Warning: failed to send revive message: {e}")
+            else:
+                # sometimes add a taunt or short comment
+                if random.random() < 0.3:
+                    try:
+                        await channel.send(random.choice(taunts).format(a=f"<@{killer}>", d=f"<@{victim}>"))
+                    except discord.Forbidden:
+                        pass
+                    except discord.HTTPException:
+                        pass
+
+            # short cooldown before next encounter
+            await asyncio.sleep(random.uniform(5, 10))
+
+        # Winner determined
+        winner_id = alive[0]
         guild = interaction.guild
 
         # Save stats to SQLite
@@ -151,13 +329,23 @@ class TournamentView(discord.ui.View):
         winner_mention = f"<@{winner_id}>"
         host_mention = f"<@{self.host.id}>" if self.host else "(unknown)"
 
-        # Notify channel and update embed with winner, stats and duration
-        await interaction.response.send_message(f"Tournament finished! Winner: {winner_mention}. Host: {host_mention}")
+        # Announce the winner and update UI
+        try:
+            await channel.send(f"Tournament finished! Winner: {winner_mention}. Host: {host_mention}")
+        except discord.Forbidden:
+            print(f"Warning: cannot send final announcement in channel {getattr(channel, 'id', None)} - missing permissions.")
+        except discord.HTTPException as e:
+            print(f"Warning: failed to send final announcement: {e}")
 
         # Optionally disable buttons after start
         for child in self.children:
             child.disabled = True
-        await interaction.message.edit(view=self)
+        try:
+            await interaction.message.edit(view=self)
+        except discord.Forbidden:
+            print(f"Warning: cannot edit view for message {interaction.message.id} - missing permissions.")
+        except discord.HTTPException as e:
+            print(f"Warning: failed to edit view for message {interaction.message.id}: {e}")
 
         # Edit embed to include results
         try:
@@ -174,7 +362,12 @@ class TournamentView(discord.ui.View):
         )
         new_embed = embed.copy()
         new_embed.add_field(name="Results", value=results_field, inline=False)
-        await interaction.message.edit(embed=new_embed)
+        try:
+            await interaction.message.edit(embed=new_embed)
+        except discord.Forbidden:
+            print(f"Warning: cannot edit message {interaction.message.id} to add results - missing permissions.")
+        except discord.HTTPException as e:
+            print(f"Warning: failed to edit message {interaction.message.id} to add results: {e}")
 
     @discord.ui.button(label="Cancel Tournament", style=discord.ButtonStyle.secondary, emoji="❌")
     async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -188,7 +381,12 @@ class TournamentView(discord.ui.View):
         # Disable all buttons
         for child in self.children:
             child.disabled = True
-        await interaction.message.edit(view=self)
+        try:
+            await interaction.message.edit(view=self)
+        except discord.Forbidden:
+            print(f"Warning: cannot edit view for message {interaction.message.id} - missing permissions.")
+        except discord.HTTPException as e:
+            print(f"Warning: failed to edit view for message {interaction.message.id}: {e}")
 
 async def update_tournament_message(message: discord.Message):
     """Update the embed of the tournament message to reflect current participants."""
@@ -199,17 +397,35 @@ async def update_tournament_message(message: discord.Message):
     base_description = embed.description.split("\n\n", 1)[0]
     # create a small participants list
     if participants:
+        # show up to 50 in the embed, but cap visual list to 50
         part_lines = []
-        for uid in list(participants)[:20]:
+        for uid in list(participants)[:50]:
             part_lines.append(f"<@{uid}>")
         participants_text = "\n".join(part_lines)
     else:
         participants_text = "No furbys joined yet."
 
-    new_description = f"{base_description}\n\nParticipants ({len(participants)}):\n{participants_text}" 
+    # include max participants info if available
+    meta = tournaments_meta.get(msg_id, {})
+    maxp = meta.get("max_participants")
+    if maxp:
+        full_text = " (FULL)" if len(participants) >= maxp else ""
+        new_description = f"{base_description}\n\nParticipants ({len(participants)}/{maxp}){full_text}:\n{participants_text}"
+    else:
+        new_description = f"{base_description}\n\nParticipants ({len(participants)}):\n{participants_text}"
     new_embed = embed.copy()
     new_embed.description = new_description
-    await message.edit(embed=new_embed)
+    # Attempt to edit the message but handle missing permissions or HTTP errors gracefully
+    try:
+        # If message.author is available and not the bot, editing may fail with Forbidden
+        # We still attempt to edit and catch exceptions to avoid crashing the view task
+        await message.edit(embed=new_embed)
+    except discord.Forbidden:
+        # Bot lacks permission to edit this message (maybe original author is not the bot or channel perms)
+        print(f"Warning: cannot edit message {msg_id} - missing permissions (403 Forbidden). Skipping embed update.")
+    except discord.HTTPException as e:
+        # Generic HTTP error from Discord
+        print(f"Warning: failed to edit message {msg_id} due to HTTP error: {e}")
 
 @bot.event
 async def on_ready():
@@ -245,7 +461,7 @@ async def furbytournament(interaction: discord.Interaction, title: str = "Furby 
         "• All Furbys will have max stats during battles\n"
         "• The host can start the tournament when ready\n"
         "• At least 2 Furbys of the same level are needed for that bracket\n"
-        "• Maximum 75 participants allowed\n\n"
+        "• Maximum 50 participants allowed\n\n"
         "⚡ Revival System ⚡\n"
         "• Eliminated Furbys may get a second chance!\n"
         "• Revival checks occur at specific rounds\n"
@@ -265,9 +481,63 @@ async def furbytournament(interaction: discord.Interaction, title: str = "Furby 
     # so instead we use followup to get the message object
     sent = await interaction.original_response()
     tournaments[sent.id] = set()
+    # store metadata: host id, start timestamp, and max participants
+    tournaments_meta[sent.id] = {
+        "host": host.id,
+        "start": int(time.time()),
+        "max_participants": 50,
+    }
 
 if __name__ == "__main__":
-    if not TOKEN:
-        print("DISCORD_TOKEN not set in environment. Copy .env.example to .env and set your token.")
-        raise SystemExit(1)
-    bot.run(TOKEN)
+    # Try to run the bot, but if the token is invalid prompt up to 3 times to re-enter
+    import discord as _discord
+
+    max_attempts = 3
+    attempts = 0
+    while attempts < max_attempts:
+        if not TOKEN:
+            print("DISCORD_TOKEN not set. Please enter a token now (or set DISCORD_TOKEN in env/.env):")
+            try:
+                entered = getpass.getpass("DISCORD_TOKEN: ")
+            except Exception:
+                entered = None
+            if not entered:
+                print("No token entered. Exiting.")
+                raise SystemExit(1)
+            TOKEN = entered.strip()
+            # persist to .env
+            env_path = os.path.join(os.path.dirname(__file__), ".env")
+            lines = []
+            if os.path.exists(env_path):
+                try:
+                    with open(env_path, "r") as f:
+                        lines = f.readlines()
+                except Exception:
+                    lines = []
+            updated = False
+            for i, line in enumerate(lines):
+                if line.strip().startswith("DISCORD_TOKEN="):
+                    lines[i] = f"DISCORD_TOKEN={TOKEN}\n"
+                    updated = True
+                    break
+            if not updated:
+                lines.append(f"DISCORD_TOKEN={TOKEN}\n")
+            try:
+                with open(env_path, "w") as f:
+                    f.writelines(lines)
+                print(f"Saved token to {env_path}.")
+            except Exception as e:
+                print("Failed to save .env file:", e)
+
+        try:
+            bot.run(TOKEN)
+            break
+        except _discord.errors.LoginFailure:
+            attempts += 1
+            print(f"Login failed (invalid token). Attempts left: {max_attempts - attempts}")
+            # Clear TOKEN to force re-prompt
+            TOKEN = None
+            if attempts >= max_attempts:
+                print("Maximum login attempts reached. Exiting.")
+                raise SystemExit(1)
+            # loop will prompt again
