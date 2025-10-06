@@ -35,11 +35,6 @@ Create a file named `.env` in the project root and define the following variable
 Example `.env`:
 
 ```
-DISCORD_TOKEN=your_bot_token_here
-GUILD_ID=123456789012345678
-APPLICATION_ID=1424779352008298537
-PUBLIC_KEY=68188c9db80ddaa08f7b6540149c93bf4cfae9e38361018a093e245cd7db71f9
-BOT_PERMISSIONS=3941734153713728
 
 Invite URL
 ----------
