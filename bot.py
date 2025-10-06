@@ -163,7 +163,16 @@ def ensure_participant_images(msg_id: int, participants: list[int]):
                 except Exception:
                     font = ImageFont.load_default()
                 label = f"F-{str(uid)[-4:]}"
-                w, h = draw.textsize(label, font=font)
+                # Compute text size robustly: prefer draw.textbbox, fall back to font.getsize
+                try:
+                    bbox = draw.textbbox((0, 0), label, font=font)
+                    w = bbox[2] - bbox[0]
+                    h = bbox[3] - bbox[1]
+                except Exception:
+                    try:
+                        w, h = font.getsize(label)
+                    except Exception:
+                        w, h = (0, 0)
                 draw.text(((400-w)/2, 320), label, fill=(0,0,0), font=font)
                 out_path = os.path.join(FURBY_ASSETS_DIR, f"furby_user_{uid}.png")
                 try:
