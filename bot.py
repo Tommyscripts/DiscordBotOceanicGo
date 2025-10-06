@@ -10,6 +10,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 import sqlite3
 import time
+import random
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
