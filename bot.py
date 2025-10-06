@@ -128,6 +128,54 @@ def load_furby_images():
 
 furby_image_files = load_furby_images()
 
+def ensure_participant_images(msg_id: int, participants: list[int]):
+    """Ensure each participant has an assigned image file. Returns a dict user_id -> image_path."""
+    meta = tournaments_meta.setdefault(msg_id, {})
+    image_map = meta.get("image_map") or {}
+    # refresh available assets
+    assets = load_furby_images()
+    # assign for each participant if not already assigned
+    for uid in participants:
+        if uid in image_map and os.path.isfile(image_map[uid]):
+            continue
+        # prefer to reuse an asset if available
+        chosen = None
+        if assets:
+            chosen = random.choice(assets)
+        # else generate a placeholder image for this user
+        if not chosen:
+            # generate a simple placeholder image and save
+            try:
+                from PIL import Image, ImageDraw, ImageFont
+            except Exception:
+                chosen = None
+            else:
+                img = Image.new("RGBA", (400, 400), tuple([random.randint(100, 255) for _ in range(3)]))
+                draw = ImageDraw.Draw(img)
+                # draw simple eyes
+                draw.ellipse((100-30, 120-30, 100+30, 120+30), fill=(255,255,255))
+                draw.ellipse((300-30, 120-30, 300+30, 120+30), fill=(255,255,255))
+                draw.ellipse((115-15, 135-15, 115+15, 135+15), fill=(0,0,0))
+                draw.ellipse((315-15, 135-15, 315+15, 135+15), fill=(0,0,0))
+                try:
+                    font = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
+                except Exception:
+                    font = ImageFont.load_default()
+                label = f"F-{str(uid)[-4:]}"
+                w, h = draw.textsize(label, font=font)
+                draw.text(((400-w)/2, 320), label, fill=(0,0,0), font=font)
+                out_path = os.path.join(FURBY_ASSETS_DIR, f"furby_user_{uid}.png")
+                try:
+                    os.makedirs(FURBY_ASSETS_DIR, exist_ok=True)
+                    img.save(out_path)
+                    chosen = out_path
+                except Exception:
+                    chosen = None
+        image_map[uid] = chosen
+    meta["image_map"] = image_map
+    tournaments_meta[msg_id] = meta
+    return image_map
+
 class TournamentView(discord.ui.View):
     def __init__(self, host: discord.Member | None = None, timeout: int = 60 * 60):
         super().__init__(timeout=timeout)
@@ -217,6 +265,8 @@ class TournamentView(discord.ui.View):
             "{a} taunts {d} with an evil giggle.",
             "{a} does a victory dance over {d}.",
         ]
+        # Ensure each participant has an image assigned (consistent across the tournament)
+        image_map = ensure_participant_images(msg_id, alive)
 
         # Battle loop: pairwise eliminations until one remains
         while len(alive) > 1:
@@ -224,21 +274,17 @@ class TournamentView(discord.ui.View):
             a, d = random.sample(alive, 2)
             # choose an attack message and maybe an image for attacker or defender
             msg_text = random.choice(attacks).format(a=f"<@{a}>", d=f"<@{d}>")
-            # pick an image for the attacker if available
-            attach_file = None
-            if furby_image_files:
-                # select a file based on participant id for some consistency
-                attach_file = random.choice(furby_image_files)
+            # select images for attacker and defender if available
+            attacker_img = image_map.get(a)
+            defender_img = image_map.get(d)
             try:
-                if attach_file:
-                    # send with embed showing the image
+                if attacker_img:
                     embed_msg = discord.Embed(description=msg_text)
                     try:
-                        file = discord.File(attach_file)
-                        embed_msg.set_image(url=f"attachment://{os.path.basename(attach_file)}")
+                        file = discord.File(attacker_img)
+                        embed_msg.set_image(url=f"attachment://{os.path.basename(attacker_img)}")
                         await channel.send(embed=embed_msg, file=file)
                     except Exception:
-                        # fallback to plain text if file sending fails
                         await channel.send(msg_text)
                 else:
                     await channel.send(msg_text)
@@ -264,7 +310,19 @@ class TournamentView(discord.ui.View):
                 f"{f'<@{victim}>'} was fluffed to bits by {f'<@{killer}>'}.",
             ]
             try:
-                await channel.send(random.choice(kill_texts))
+                # use killer's image if available
+                killer_img = image_map.get(killer)
+                text = random.choice(kill_texts)
+                if killer_img:
+                    embed_kill = discord.Embed(description=text)
+                    try:
+                        file = discord.File(killer_img)
+                        embed_kill.set_image(url=f"attachment://{os.path.basename(killer_img)}")
+                        await channel.send(embed=embed_kill, file=file)
+                    except Exception:
+                        await channel.send(text)
+                else:
+                    await channel.send(text)
             except discord.Forbidden:
                 print(f"Warning: cannot send kill message in channel {getattr(channel, 'id', None)} - missing permissions.")
             except discord.HTTPException as e:
@@ -276,7 +334,18 @@ class TournamentView(discord.ui.View):
                 revives_used += 1
                 alive.append(victim)
                 try:
-                    await channel.send(random.choice(revives_msgs).format(d=f"<@{victim}>"))
+                    rev_msg = random.choice(revives_msgs).format(d=f"<@{victim}>")
+                    victim_img = image_map.get(victim)
+                    if victim_img:
+                        embed_rev = discord.Embed(description=rev_msg)
+                        try:
+                            file = discord.File(victim_img)
+                            embed_rev.set_image(url=f"attachment://{os.path.basename(victim_img)}")
+                            await channel.send(embed=embed_rev, file=file)
+                        except Exception:
+                            await channel.send(rev_msg)
+                    else:
+                        await channel.send(rev_msg)
                 except discord.Forbidden:
                     print(f"Warning: cannot send revive message in channel {getattr(channel, 'id', None)} - missing permissions.")
                 except discord.HTTPException as e:
