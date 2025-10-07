@@ -187,7 +187,8 @@ def ensure_participant_images(msg_id: int, participants: list[int]):
     return image_map
 
 class TournamentView(discord.ui.View):
-    def __init__(self, host: discord.Member | None = None, timeout: int = 60 * 60):
+    def __init__(self, host: discord.Member | None = None, timeout: int | None = None):
+        """A persistent view for the tournament. By default timeout is None so it won't auto-expire."""
         super().__init__(timeout=timeout)
         self.host = host
 
@@ -548,14 +549,14 @@ async def furbytournament(interaction: discord.Interaction, title: str = "Furby 
         "• Only a limited number of Furbys can be revived\n"
         "• Each Furby can only be revived once per tournament\n\n"
         "Lobby Timeout\n"
-        "This lobby will close in 7 minutes\n\n"
         "Today at "
     )
     embed.description = description + discord.utils.format_dt(discord.utils.utcnow(), style="t")
     embed.set_footer(text=f"Host: {host.display_name}")
 
-    view = TournamentView(host=host)
-    msg = await interaction.response.send_message(embed=embed, view=view)
+    view = TournamentView(host=host, timeout=None)
+    # Ensure the message is visible to everyone in the channel (not ephemeral)
+    msg = await interaction.response.send_message(embed=embed, view=view, ephemeral=False)
     # interaction.response.send_message returns None when deferred; fetch the message
     # so instead we use followup to get the message object
     sent = await interaction.original_response()
@@ -566,6 +567,57 @@ async def furbytournament(interaction: discord.Interaction, title: str = "Furby 
         "start": int(time.time()),
         "max_participants": 50,
     }
+
+@bot.event
+async def on_message(message: discord.Message):
+    # Ignore bots (including ourselves)
+    if message.author.bot:
+        return
+
+    # Trigger phrase (case-insensitive, trimmed)
+    if message.content.strip().lower() == "the best staff in the world":
+        target_name = "Tommyhide"
+        member = None
+        # Try to find the member in the same guild first (prefer mention to ping)
+        if message.guild:
+            # look in cache first
+            member = discord.utils.find(lambda m: (m.name == target_name or m.display_name == target_name), message.guild.members)
+            if not member:
+                # attempt to fetch members from the guild if cache didn't have it
+                try:
+                    async for m in message.guild.fetch_members(limit=None):
+                        if m.name == target_name or m.display_name == target_name:
+                            member = m
+                            break
+                except Exception:
+                    # fetching members can fail if the bot lacks permissions or rate limits; ignore and fallback
+                    member = None
+
+        # If not found in guild, try global cache of users
+        if not member:
+            user = discord.utils.find(lambda u: u.name == target_name, bot.users)
+            if user:
+                try:
+                    await message.channel.send(user.mention)
+                except Exception:
+                    await message.channel.send("@Tommyhide")
+                finally:
+                    await bot.process_commands(message)
+                    return
+
+        # If we found a Member object, mention them (this will create a ping)
+        if member:
+            try:
+                await message.channel.send(member.mention)
+            except Exception:
+                # fallback to plain text if sending mention fails
+                await message.channel.send("@Tommyhide")
+        else:
+            # last-resort fallback: plain text mention
+            await message.channel.send("@Tommyhide")
+
+    # Ensure other commands and on_message handlers still run
+    await bot.process_commands(message)
 
 if __name__ == "__main__":
     # Try to run the bot, but if the token is invalid prompt up to 3 times to re-enter

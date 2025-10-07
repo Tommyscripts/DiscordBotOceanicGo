@@ -67,6 +67,23 @@ python3 -m py_compile bot.py
 python3 bot.py
 ```
 
+New features added
+------------------
+- Auto-mention: If anyone writes exactly (case-insensitive) the phrase "the best staff in the world" in a channel the bot can read, the bot will mention the user `Tommyhide`.
+- Persistent tournament view: Tournament buttons no longer auto-expire. The lobby will remain active until someone starts or cancels the tournament.
+- Public titles: When creating a tournament using `/furbytournament`, the title and embed are sent as a public message visible to everyone in the channel (not ephemeral).
+
+How to test the mention
+-----------------------
+1. Run the bot (see above).
+2. In any channel where the bot has read/send permissions, type exactly:
+
+```
+the best staff in the world
+```
+
+The bot will respond with a mention for `Tommyhide` (if the user exists in the server the bot will try to ping them, otherwise it will post a plain `@Tommyhide` string).
+
 If the bot cannot start, ensure `DISCORD_TOKEN` is set and that your environment has network access. For development you can set `GUILD_ID` so commands are registered only to your server (faster sync).
 
 Invite the bot with applications.commands and bot scopes, and give it the Send Messages and Use Application Commands permissions.
