@@ -535,8 +535,15 @@ async def on_ready():
     except Exception:
         pass
     try:
-        synced = await bot.tree.sync(guild=discord.Object(id=int(GUILD_ID))) if GUILD_ID else await bot.tree.sync()
-        print(f"Synced {len(synced)} commands")
+        if GUILD_ID:
+            synced = await bot.tree.sync(guild=discord.Object(id=int(GUILD_ID)))
+        else:
+            synced = await bot.tree.sync()
+        try:
+            names = [c.name for c in synced]
+        except Exception:
+            names = [getattr(c, 'name', str(c)) for c in synced]
+        print(f"Synced {len(synced)} commands: {names}")
     except Exception as e:
         print("Failed to sync commands:", e)
 
