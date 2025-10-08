@@ -114,6 +114,18 @@ def init_db():
         )
         """
     )
+    # schedule entries for daily signups (date in ISO YYYY-MM-DD, slot 0-23)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schedule_entries (
+            date TEXT,
+            slot INTEGER,
+            user_id INTEGER,
+            game TEXT,
+            PRIMARY KEY (date, slot, user_id)
+        )
+        """
+    )
     conn.commit()
     conn.close()
 
@@ -568,56 +580,91 @@ async def furbytournament(interaction: discord.Interaction, title: str = "Furby 
         "max_participants": 50,
     }
 
-@bot.event
-async def on_message(message: discord.Message):
-    # Ignore bots (including ourselves)
-    if message.author.bot:
+
+def _current_date_str():
+    return time.strftime("%Y-%m-%d", time.gmtime())
+
+
+def _cleanup_old_schedule():
+    """Remove schedule entries older than today (UTC-based daily reset)."""
+    today = _current_date_str()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM schedule_entries WHERE date < ?", (today,))
+    conn.commit()
+    conn.close()
+
+
+@bot.tree.group(name="schedule", description="Show or add schedule signups", invoke_without_command=True)
+async def schedule_group(interaction: discord.Interaction):
+    # default to show
+    await show_schedule(interaction)
+
+
+@schedule_group.command(name="show", description="Show today's schedule (24 slots)")
+async def show_schedule(interaction: discord.Interaction):
+    _cleanup_old_schedule()
+    today = _current_date_str()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT slot, user_id, game FROM schedule_entries WHERE date = ? ORDER BY slot", (today,))
+    rows = cur.fetchall()
+    conn.close()
+
+    # build a map slot -> list of entries
+    slots = {i: [] for i in range(24)}
+    for slot, user_id, game in rows:
+        slots.setdefault(slot, []).append((user_id, game))
+
+    # Build description with Discord timestamps: we will create a UTC timestamp for each slot (today at slot:00 UTC)
+    desc_lines = []
+    for hour in range(24):
+        # compute unix ts for today at hour:00 UTC
+        struct = time.strptime(f"{today} {hour:02d}:00:00", "%Y-%m-%d %H:%M:%S")
+        ts = int(time.mktime(struct))
+        # Discord will display the timestamp according to the viewer's local timezone when using <t:...:t>
+        time_token = f"<t:{ts}:t>"
+        entries = slots.get(hour) or []
+        if entries:
+            entry_text = ", ".join([f"<@{uid}> ({game})" for uid, game in entries])
+        else:
+            entry_text = "(empty)"
+        # Format hour to 12-hour AM/PM for display label
+        label = time.strftime("%I %p", time.strptime(f"{hour:02d}", "%H"))
+        # remove leading zero from hour label
+        if label.startswith("0"):
+            label = label[1:]
+        desc_lines.append(f"**{label}** — {time_token} : {entry_text}")
+
+    embed = discord.Embed(title="Schedule (24h)", description="\n".join(desc_lines), color=0x00BFFF)
+    await interaction.response.send_message(embed=embed, ephemeral=False)
+
+
+@schedule_group.command(name="add", description="Add yourself to a slot")
+@app_commands.describe(time="Hour in 0-23 (server local 24h)", game="Game or note to add")
+async def add_schedule(interaction: discord.Interaction, time: int, game: str):
+    # normalize time to 0-23
+    if time < 0 or time > 23:
+        await interaction.response.send_message("Please provide an hour between 0 and 23.", ephemeral=True)
         return
 
-    # Trigger phrase (case-insensitive, trimmed)
-    if message.content.strip().lower() == "the best staff in the world":
-        target_name = "Tommyhide"
-        member = None
-        # Try to find the member in the same guild first (prefer mention to ping)
-        if message.guild:
-            # look in cache first
-            member = discord.utils.find(lambda m: (m.name == target_name or m.display_name == target_name), message.guild.members)
-            if not member:
-                # attempt to fetch members from the guild if cache didn't have it
-                try:
-                    async for m in message.guild.fetch_members(limit=None):
-                        if m.name == target_name or m.display_name == target_name:
-                            member = m
-                            break
-                except Exception:
-                    # fetching members can fail if the bot lacks permissions or rate limits; ignore and fallback
-                    member = None
+    # Use UTC date to store daily entries that reset every 24h at midnight UTC
+    today = _current_date_str()
+    _cleanup_old_schedule()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    # Upsert: allow multiple users per slot; prevent duplicate same user in same slot
+    try:
+        cur.execute("INSERT OR IGNORE INTO schedule_entries(date, slot, user_id, game) VALUES (?, ?, ?, ?)", (today, time, interaction.user.id, game))
+        conn.commit()
+    except Exception as e:
+        print("DB error adding schedule:", e)
+    finally:
+        conn.close()
 
-        # If not found in guild, try global cache of users
-        if not member:
-            user = discord.utils.find(lambda u: u.name == target_name, bot.users)
-            if user:
-                try:
-                    await message.channel.send(user.mention)
-                except Exception:
-                    await message.channel.send("@Tommyhide")
-                finally:
-                    await bot.process_commands(message)
-                    return
+    await interaction.response.send_message(f"Added you to {time:02d}:00 UTC for '{game}'. Use `/schedule show` to view.", ephemeral=True)
 
-        # If we found a Member object, mention them (this will create a ping)
-        if member:
-            try:
-                await message.channel.send(member.mention)
-            except Exception:
-                # fallback to plain text if sending mention fails
-                await message.channel.send("@Tommyhide")
-        else:
-            # last-resort fallback: plain text mention
-            await message.channel.send("@Tommyhide")
-
-    # Ensure other commands and on_message handlers still run
-    await bot.process_commands(message)
+# ...existing code...
 
 if __name__ == "__main__":
     # Try to run the bot, but if the token is invalid prompt up to 3 times to re-enter
