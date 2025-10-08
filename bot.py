@@ -669,11 +669,6 @@ except Exception:
     # in case adding twice or running in reload scenarios
     pass
 
-
-@bot.tree.command(name="schedule", description="Show today's schedule (alias to /schedule show)")
-async def schedule_alias(interaction: discord.Interaction):
-    await show_schedule(interaction)
-
 # ...existing code...
 
 if __name__ == "__main__":
