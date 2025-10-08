@@ -595,10 +595,7 @@ def _cleanup_old_schedule():
     conn.close()
 
 
-@bot.tree.group(name="schedule", description="Show or add schedule signups", invoke_without_command=True)
-async def schedule_group(interaction: discord.Interaction):
-    # default to show
-    await show_schedule(interaction)
+schedule_group = app_commands.Group(name="schedule", description="Show or add schedule signups")
 
 
 @schedule_group.command(name="show", description="Show today's schedule (24 slots)")
@@ -663,6 +660,19 @@ async def add_schedule(interaction: discord.Interaction, time: int, game: str):
         conn.close()
 
     await interaction.response.send_message(f"Added you to {time:02d}:00 UTC for '{game}'. Use `/schedule show` to view.", ephemeral=True)
+
+
+# register the group with the bot's command tree
+try:
+    bot.tree.add_command(schedule_group)
+except Exception:
+    # in case adding twice or running in reload scenarios
+    pass
+
+
+@bot.tree.command(name="schedule", description="Show today's schedule (alias to /schedule show)")
+async def schedule_alias(interaction: discord.Interaction):
+    await show_schedule(interaction)
 
 # ...existing code...
 
