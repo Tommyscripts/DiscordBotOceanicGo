@@ -676,6 +676,21 @@ except Exception:
     # in case adding twice or running in reload scenarios
     pass
 
+
+@bot.tree.command(name="resync", description="Force re-sync application commands in this guild (admins only)")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def resync_commands(interaction: discord.Interaction):
+    # Only works in a guild context
+    if not interaction.guild:
+        await interaction.response.send_message("This command must be used in a guild.", ephemeral=True)
+        return
+    try:
+        synced = await bot.tree.sync(guild=discord.Object(id=interaction.guild.id))
+        await interaction.response.send_message(f"Synced {len(synced)} commands in this guild.", ephemeral=True)
+        print(f"Manual resync in guild {interaction.guild.id}: {[c.name for c in synced]}")
+    except Exception as e:
+        await interaction.response.send_message(f"Resync failed: {e}", ephemeral=True)
+
 # ...existing code...
 
 if __name__ == "__main__":
