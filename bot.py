@@ -90,6 +90,10 @@ tournaments: dict[int, Set[int]] = {}
 # Additional metadata: map message_id -> dict with 'start' timestamp and 'host'
 tournaments_meta: dict[int, dict] = {}
 
+# In-memory storage for wheels (reaction-based roulette)
+wheels: dict[int, Set[int]] = {}
+wheels_meta: dict[int, dict] = {}
+
 # SQLite for simple stats: wins per user (global) and per guild
 DB_PATH = os.path.join(os.path.dirname(__file__), "furby_stats.db")
 
@@ -518,6 +522,164 @@ async def update_tournament_message(message: discord.Message):
     except discord.HTTPException as e:
         # Generic HTTP error from Discord
         print(f"Warning: failed to edit message {msg_id} due to HTTP error: {e}")
+
+
+@bot.event
+async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
+    """Track users who react to a wheels message using the same emoji the bot reacted with.
+    We only add users who reacted with the emoji that the bot used as its own reaction (stored in wheels_meta[msg_id]['emoji']).
+    """
+    try:
+        msg_id = payload.message_id
+        if msg_id not in wheels_meta:
+            return
+        meta = wheels_meta[msg_id]
+        bot_emoji = meta.get("emoji")
+        # Compare emoji by str; payload.emoji can be custom or unicode
+        if str(payload.emoji) != str(bot_emoji):
+            return
+        # ignore reactions from the bot itself
+        if payload.user_id == bot.user.id:
+            return
+        participants = wheels.setdefault(msg_id, set())
+        participants.add(payload.user_id)
+    except Exception as e:
+        print("Error in on_raw_reaction_add:", e)
+
+
+@bot.event
+async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
+    try:
+        msg_id = payload.message_id
+        if msg_id not in wheels_meta:
+            return
+        meta = wheels_meta[msg_id]
+        bot_emoji = meta.get("emoji")
+        if str(payload.emoji) != str(bot_emoji):
+            return
+        participants = wheels.setdefault(msg_id, set())
+        participants.discard(payload.user_id)
+    except Exception as e:
+        print("Error in on_raw_reaction_remove:", e)
+
+
+@bot.tree.group(name="wheels", description="Create and run reaction-based wheels (roulette)")
+async def wheels_group(interaction: discord.Interaction):
+    # group placeholder
+    if interaction.response.is_done():
+        return
+    await interaction.response.send_message("Use /wheels create or /wheels start", ephemeral=True)
+
+
+@wheels_group.command(name="create", description="Create a wheel post. Users who react with the bot's emoji will join.")
+@app_commands.describe(text="The announcement text for the wheel")
+async def wheels_create(interaction: discord.Interaction, text: str):
+    host = interaction.user
+    embed = discord.Embed(title="Wheels", description=text, color=0x22AAFF)
+    embed.add_field(name="Instructions", value="React with the same emoji the bot uses to join the wheel. The host can start with /wheels start.")
+    embed.set_footer(text=f"Host: {host.display_name}")
+
+    # Send the message and react with a default emoji (🎡)
+    view = None
+    try:
+        await interaction.response.send_message(embed=embed, ephemeral=False)
+    except Exception:
+        # fallback
+        await interaction.response.send_message(text, ephemeral=False)
+    sent = await interaction.original_response()
+    msg = await sent.fetch()
+
+    # choose an emoji to react with; default to 🎡
+    emoji = "🎡"
+    try:
+        await msg.add_reaction(emoji)
+    except Exception:
+        # ignore reaction failures
+        pass
+
+    # store wheels metadata
+    wheels[msg.id] = set()
+    wheels_meta[msg.id] = {
+        "host": host.id,
+        "emoji": emoji,
+        "created_at": int(time.time()),
+    }
+
+    await interaction.followup.send(f"Wheel created. React with {emoji} to join.", ephemeral=True)
+
+
+@wheels_group.command(name="start", description="Start the wheel and pick a random winner from reactors")
+async def wheels_start(interaction: discord.Interaction):
+    # Validate context
+    # The command should be used after creating a wheel; find the most recent wheel by this host in the channel
+    channel = interaction.channel
+    host = interaction.user
+    # find a wheel in this channel where host matches
+    candidate = None
+    for msg_id, meta in wheels_meta.items():
+        if meta.get("host") == host.id:
+            # ensure message is in same channel
+            try:
+                m = await channel.fetch_message(msg_id)
+            except Exception:
+                continue
+            candidate = (msg_id, m, meta)
+            break
+
+    if not candidate:
+        await interaction.response.send_message("No wheel found hosted by you in this channel.", ephemeral=True)
+        return
+
+    msg_id, message_obj, meta = candidate
+    participants = list(wheels.get(msg_id, set()))
+    if not participants:
+        await interaction.response.send_message("No participants have joined the wheel.", ephemeral=True)
+        return
+
+    # Acknowledge start
+    await interaction.response.send_message("Spinning the wheel... 🎡", ephemeral=False)
+
+    # Build a simple text roulette animation: rotate names in a message
+    names = [f"<@{uid}>" for uid in participants]
+    spin_message = await channel.send("Spinning: " + " | ".join(names))
+
+    display_order = names.copy()
+    spins = random.randint(12, 24)
+    delay = 0.2
+    for i in range(spins):
+        # rotate the list
+        display_order = display_order[1:] + display_order[:1]
+        try:
+            await spin_message.edit(content="Spinning: " + " | ".join(display_order))
+        except Exception:
+            pass
+        await asyncio.sleep(delay)
+        # gradually slow down
+        delay *= 1.12
+
+    # choose winner
+    winner_id = random.choice(participants)
+    winner_mention = f"<@{winner_id}>"
+
+    # announce winner and mention them
+    try:
+        await channel.send(f"The wheel stops on... {winner_mention} 🎉\nCongratulations! You are the winner!")
+    except Exception:
+        await channel.send(f"The wheel stops on... {winner_mention} — Congratulations!")
+
+    # Optionally record a win in DB (global)
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("INSERT INTO wins_global(user_id, wins) VALUES (?, 1) ON CONFLICT(user_id) DO UPDATE SET wins = wins + 1", (winner_id,))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+    # cleanup wheel data
+    wheels.pop(msg_id, None)
+    wheels_meta.pop(msg_id, None)
 
 @bot.event
 async def on_ready():
