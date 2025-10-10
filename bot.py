@@ -1893,9 +1893,16 @@ async def house_action(interaction: discord.Interaction, action: str = "", targe
     # If user passed a bare direction as the action (e.g. `/house action up`) treat as move
     dir_aliases = {"up", "down", "left", "right", "u", "d", "l", "r",
                    "arriba", "abajo", "izquierda", "derecha", "arr", "abj", "izq", "der"}
+    # Case A: user put direction in the action field
     if action in dir_aliases and not target:
         target = action
         action = "move"
+    # Case B: user left action empty but provided a direction as target (common with slash UI)
+    if (not action) and target:
+        tnorm = (target or "").strip().lower()
+        if tnorm in dir_aliases:
+            action = "move"
+            target = tnorm
     ch = game.guild.get_channel(game.channel_id) if game.channel_id else None
 
     # helper to send narration to game channel and ephemeral ack
