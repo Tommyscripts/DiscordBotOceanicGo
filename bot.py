@@ -1835,7 +1835,7 @@ async def house_start(interaction: discord.Interaction):
                 pass
         # post intro with brief instructions and initial positions
         players_list = ', '.join([f'<@{u}>' for u in accepted])
-    intro_lines = [f"Welcome to the Casa Embrujada — session", f"Mode: {game.mode}", f"Players: {players_list}"]
+        intro_lines = [f"Welcome to the Casa Embrujada — session", f"Mode: {game.mode}", f"Players: {players_list}"]
         # show starting room description for each player
         for uid in accepted:
             pos = game.players[uid].get("position")
