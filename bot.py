@@ -1887,7 +1887,15 @@ async def house_action(interaction: discord.Interaction, action: str = "", targe
         return
 
     # handle actions: search, explore, move, use, attack (basic)
-    action = (action or "").lower()
+    # normalize and be forgiving: strip whitespace, accept direction-only as move,
+    # and accept common Spanish aliases and single-letter shortcuts.
+    action = (action or "").strip().lower()
+    # If user passed a bare direction as the action (e.g. `/house action up`) treat as move
+    dir_aliases = {"up", "down", "left", "right", "u", "d", "l", "r",
+                   "arriba", "abajo", "izquierda", "derecha", "arr", "abj", "izq", "der"}
+    if action in dir_aliases and not target:
+        target = action
+        action = "move"
     ch = game.guild.get_channel(game.channel_id) if game.channel_id else None
 
     # helper to send narration to game channel and ephemeral ack
@@ -1931,7 +1939,16 @@ async def house_action(interaction: discord.Interaction, action: str = "", targe
         if not target:
             await interaction.response.send_message("Specify a direction: up/down/left/right. Example: `/house action move up`", ephemeral=True)
             return
-        dir = target.lower()
+        dir = (target or "").strip().lower()
+        # map Spanish/common aliases to canonical directions
+        if dir in ("arriba", "u", "up", "arr"):
+            dir = "up"
+        elif dir in ("abajo", "d", "down", "abj"):
+            dir = "down"
+        elif dir in ("izquierda", "l", "left", "izq"):
+            dir = "left"
+        elif dir in ("derecha", "r", "right", "der"):
+            dir = "right"
         moved = game.move_player(interaction.user.id, dir)
         if moved:
             pos = game.players[interaction.user.id]["position"]
