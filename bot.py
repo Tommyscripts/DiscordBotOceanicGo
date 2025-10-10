@@ -1010,6 +1010,9 @@ async def wheels_start(interaction: discord.Interaction):
         else:
             # fallback simple announcement
             names_mention = " | ".join([f"<@{uid}>" for uid in chosen_participants])
+            # if Pillow was missing, inform that image generation is unavailable
+            if Image is None:
+                await channel.send("Pillow (PIL) not available on this host — wheel image cannot be generated. Installing Pillow will enable a visual wheel.")
             await channel.send("Spinning: " + names_mention)
     except Exception:
         pass
@@ -1017,8 +1020,7 @@ async def wheels_start(interaction: discord.Interaction):
     # short pause to simulate spinning (approx 5 seconds)
     await asyncio.sleep(5)
 
-    # choose winner among full participants (not only displayed slice subset)
-    winner_id = random.choice(participants)
+    # winner was selected earlier (winner_id) to ensure the image and announcement match
     winner_mention = f"<@{winner_id}>"
 
     # announce winner and mention them
