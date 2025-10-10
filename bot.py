@@ -83,6 +83,8 @@ class WordChainGame:
         self.lock = asyncio.Lock()
         self.started = False
         self._turn_task: asyncio.Task | None = None
+        # message id of the lobby message (so we can edit it to show current players)
+        self.lobby_message_id: int | None = None
 
     def add_player(self, user_id: int) -> bool:
         if self.started:
@@ -147,6 +149,16 @@ class WordChainGame:
         self.current_word = w
         return True, f"Accepted: **{w}** — next player."
 
+    def format_lobby(self) -> str:
+        """Return a short text listing current players and their lives for lobby feedback."""
+        if not self.players:
+            return "No players yet. Click Join to participate."
+        lines: list[str] = []
+        for idx, uid in enumerate(self.players, start=1):
+            lives = self.lives.get(uid, 0)
+            lines.append(f"{idx}. <@{uid}> — {lives} lives")
+        return "\n".join(lines)
+
 
 def normalize_word(w: str) -> str:
     # Lowercase, strip punctuation except internal apostrophes/hyphens
@@ -178,6 +190,14 @@ class WordChainView(discord.ui.View):
             await interaction.response.send_message("You can't join (maybe game started or already joined).", ephemeral=True)
             return
         await interaction.response.send_message(f"{interaction.user.mention} joined the lobby. Lives: 3", ephemeral=True)
+        # update lobby message with current players
+        if game.lobby_message_id and interaction.channel:
+            try:
+                lobby_msg = await interaction.channel.fetch_message(game.lobby_message_id)
+                new_content = f"Word Chain lobby (host and players below):\n\n{game.format_lobby()}"
+                await lobby_msg.edit(content=new_content, view=self)
+            except Exception:
+                pass
 
     @discord.ui.button(label="Leave", style=discord.ButtonStyle.danger)
     async def leave(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -188,6 +208,14 @@ class WordChainView(discord.ui.View):
         removed = game.remove_player(interaction.user.id)
         if removed:
             await interaction.response.send_message("You left the lobby.", ephemeral=True)
+            # update lobby message
+            if game.lobby_message_id and interaction.channel:
+                try:
+                    lobby_msg = await interaction.channel.fetch_message(game.lobby_message_id)
+                    new_content = f"Word Chain lobby (host and players below):\n\n{game.format_lobby()}"
+                    await lobby_msg.edit(content=new_content, view=self)
+                except Exception:
+                    pass
         else:
             await interaction.response.send_message("You are not in the lobby.", ephemeral=True)
 
@@ -205,6 +233,19 @@ class WordChainView(discord.ui.View):
             return
         game.started = True
         await interaction.response.send_message("Game started! Play by sending words in this channel. You have 3 lives. Good luck!", ephemeral=False)
+        # update lobby message to indicate game started and remove the view (disable buttons)
+        if game.lobby_message_id and interaction.channel:
+            try:
+                lobby_msg = await interaction.channel.fetch_message(game.lobby_message_id)
+                # stop the view to prevent further interactions
+                try:
+                    self.stop()
+                except Exception:
+                    pass
+                new_content = f"Word Chain — GAME STARTED!\n\nPlayers:\n{game.format_lobby()}"
+                await lobby_msg.edit(content=new_content, view=None)
+            except Exception:
+                pass
         # begin turn loop
         asyncio.create_task(run_wordchain_game(game))
 
@@ -286,7 +327,21 @@ async def slash_wordchain(interaction: discord.Interaction, timeout: int = 15):
     view = WordChainView(channel_id=channel.id)
     # add host as first player automatically
     game.add_player(interaction.user.id)
-    await interaction.response.send_message(f"Word Chain lobby created by {interaction.user.mention}! Click Join to participate. Turn timeout: {timeout}s. Host auto-joined.", view=view)
+    # send lobby message and remember its id so we can edit it on join/leave
+    lobby_content = f"Word Chain lobby created by {interaction.user.mention}! Click Join to participate. Turn timeout: {timeout}s. Host auto-joined.\n\nPlayers:\n{game.format_lobby()}"
+    resp = await interaction.response.send_message(lobby_content, view=view)
+    # when using response.send_message, the returned object isn't the message; fetch it from the channel
+    try:
+        # followup fetch: the response message should be visible to the invoking user; try to get last message in channel from bot
+        sent = await channel.fetch_message((await interaction.original_response()).id)
+        game.lobby_message_id = sent.id
+    except Exception:
+        # best-effort: try to set lobby_message_id via the interaction response message
+        try:
+            orig = await interaction.original_response()
+            game.lobby_message_id = orig.id
+        except Exception:
+            game.lobby_message_id = None
 
 # If provided, set the application's ID on the bot (useful for some interactions)
 if APPLICATION_ID:
