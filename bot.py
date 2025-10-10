@@ -338,13 +338,22 @@ async def run_wordchain_game(game: WordChainGame):
         ghosts_awarded = max(1, 2 * participants_total)
         try:
             guild = channel.guild if hasattr(channel, 'guild') else None
-            if is_staff_in_guild(guild, winner):
-                await channel.send(f"Game over! The winner is <@{winner}> 🎉 — Congratulations! As staff you have unlimited {GHOST_EMOJI}.")
+            if await is_staff_in_guild(guild, winner):
+                try:
+                    await channel.send(f"Game over! The winner is <@{winner}> 🎉 — Congratulations! As staff you have unlimited {GHOST_EMOJI}.")
+                except Exception:
+                    pass
             else:
                 add_ghosts(winner, ghosts_awarded)
-                await channel.send(f"Game over! The winner is <@{winner}> 🎉 — Congratulations! You won {GHOST_EMOJI} {ghosts_awarded}.")
+                try:
+                    await channel.send(f"Game over! The winner is <@{winner}> 🎉 — Congratulations! You won {GHOST_EMOJI} {ghosts_awarded}.")
+                except Exception:
+                    pass
         except Exception:
-            await channel.send(f"Game over! The winner is <@{winner}> 🎉")
+            try:
+                await channel.send(f"Game over! The winner is <@{winner}> 🎉")
+            except Exception:
+                pass
     else:
         await channel.send("Game over! No winners — everyone lost their lives.")
     # cleanup
@@ -577,10 +586,9 @@ def set_ghosts(user_id: int, amount: int):
     conn.close()
 
 
-def is_staff_in_guild(guild: discord.Guild | None, user_id: int) -> bool:
-    """Return True if the given user_id represents a staff member in the guild.
-    Staff is defined as having Manage Guild or Administrator permissions. If guild is None,
-    returns False (can't determine staff status outside a guild).
+async def is_staff_in_guild(guild: discord.Guild | None, user_id: int) -> bool:
+    """Async: Return True if the given user_id represents a staff member in the guild.
+    Staff is defined as having a configured staff role (preferred) or Manage Guild/Administrator permissions.
     """
     if not guild:
         return False
@@ -593,7 +601,7 @@ def is_staff_in_guild(guild: discord.Guild | None, user_id: int) -> bool:
             member = guild.get_member(user_id)
             if member is None:
                 try:
-                    member = asyncio.run_coroutine_threadsafe(guild.fetch_member(user_id), bot.loop).result(timeout=5)
+                    member = await guild.fetch_member(user_id)
                 except Exception:
                     member = None
             if member and any(r.id == staff_role_id for r in member.roles):
@@ -605,7 +613,7 @@ def is_staff_in_guild(guild: discord.Guild | None, user_id: int) -> bool:
         member = guild.get_member(user_id)
         if not member:
             try:
-                member = asyncio.run_coroutine_threadsafe(guild.fetch_member(user_id), bot.loop).result(timeout=5)
+                member = await guild.fetch_member(user_id)
             except Exception:
                 return False
     except Exception:
@@ -635,6 +643,32 @@ def get_staff_role(guild_id: int) -> int | None:
     row = cur.fetchone()
     conn.close()
     return row[0] if row and row[0] is not None else None
+
+
+async def safe_reply(interaction: discord.Interaction, content: str, ephemeral: bool = True):
+    """Try to reply to an interaction. If response fails (unknown interaction or already responded),
+    fallback to followup or channel send.
+    """
+    try:
+        # prefer initial response
+        if not interaction.response.is_done():
+            await interaction.response.send_message(content, ephemeral=ephemeral)
+            return
+    except Exception:
+        pass
+    try:
+        # try followup (if initial response already sent)
+        await interaction.followup.send(content, ephemeral=ephemeral)
+        return
+    except Exception:
+        pass
+    try:
+        # last resort: send in channel (not ephemeral)
+        if interaction.channel:
+            await interaction.channel.send(content)
+            return
+    except Exception:
+        pass
 
 def list_shop_items(guild_id: int | None = None):
     conn = sqlite3.connect(DB_PATH)
@@ -914,15 +948,22 @@ class TournamentView(discord.ui.View):
             participants_total = len(participants)
             ghosts_awarded = 2 * participants_total
             # staff have unlimited ghosts (do not modify DB)
-            if is_staff_in_guild(interaction.guild, winner_id):
+            try:
+                if await is_staff_in_guild(interaction.guild, winner_id):
+                    try:
+                        await channel.send(f"{GHOST_EMOJI} {winner_mention} is staff and has unlimited ghosts — congratulations!")
+                    except Exception:
+                        pass
+                else:
+                    add_ghosts(winner_id, ghosts_awarded)
+                    try:
+                        await channel.send(f"{GHOST_EMOJI} {ghosts_awarded} ghosts have been awarded to {winner_mention}!")
+                    except Exception:
+                        pass
+            except Exception:
+                # fallback: attempt to award normally
                 try:
-                    await channel.send(f"{GHOST_EMOJI} {winner_mention} is staff and has unlimited ghosts — congratulations!")
-                except Exception:
-                    pass
-            else:
-                add_ghosts(winner_id, ghosts_awarded)
-                try:
-                    await channel.send(f"{GHOST_EMOJI} {ghosts_awarded} ghosts have been awarded to {winner_mention}!")
+                    add_ghosts(winner_id, ghosts_awarded)
                 except Exception:
                     pass
         except Exception:
@@ -977,18 +1018,18 @@ async def give_ghosts(interaction: discord.Interaction, target: discord.User, am
     try:
         guild = interaction.guild
         if not guild:
-            await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
+            await safe_reply(interaction, "This command must be used in a server.")
             return
         # check configured staff role or fallback permissions
-        if not is_staff_in_guild(guild, interaction.user.id):
-            await interaction.response.send_message("You are not authorized to give ghosts. Only staff can use this.", ephemeral=True)
+        if not await is_staff_in_guild(guild, interaction.user.id):
+            await safe_reply(interaction, "You are not authorized to give ghosts. Only staff can use this.")
             return
         # proceed to give ghosts
         add_ghosts(target.id, amount)
         bal = get_ghosts(target.id)
-        await interaction.response.send_message(f"{GHOST_EMOJI} {amount} ghosts given to {target.mention}. New balance: {bal}", ephemeral=True)
+        await safe_reply(interaction, f"{GHOST_EMOJI} {amount} ghosts given to {target.mention}. New balance: {bal}")
     except Exception as e:
-        await interaction.response.send_message(f"Failed to give ghosts: {e}", ephemeral=True)
+        await safe_reply(interaction, f"Failed to give ghosts: {e}")
 
 
 shop_group = app_commands.Group(name="shop", description="Ghost shop commands")
@@ -1332,10 +1373,22 @@ async def wheels_start(interaction: discord.Interaction):
             size = 800
             center = size // 2
             num = len(names)
-            colors = [
-                (255,99,71),(60,179,113),(65,105,225),(238,130,238),(255,215,0),(70,130,180),
-                (255,165,0),(144,238,144),(199,21,133),(30,144,255),(218,165,32),(152,251,152)
-            ]
+            # generate distinct colors per participant using HSV spacing for good contrast
+            try:
+                import colorsys
+                colors = []
+                for i in range(num):
+                    h = float(i) / max(1, num)
+                    s = 0.85
+                    v = 0.95
+                    r, g, b = colorsys.hsv_to_rgb(h, s, v)
+                    colors.append((int(r*255), int(g*255), int(b*255)))
+            except Exception:
+                # fallback to a small palette repeated if colorsys isn't available
+                colors = [
+                    (255,99,71),(60,179,113),(65,105,225),(238,130,238),(255,215,0),(70,130,180),
+                    (255,165,0),(144,238,144),(199,21,133),(30,144,255),(218,165,32),(152,251,152)
+                ]
 
             # base wheel image (transparent background)
             base = Image.new("RGBA", (size, size), (255,255,255,0))
@@ -1518,15 +1571,22 @@ async def wheels_start(interaction: discord.Interaction):
 
     # Award ghosts to the winner (unless staff)
     try:
-        if is_staff_in_guild(interaction.guild, winner_id):
+        try:
+            if await is_staff_in_guild(interaction.guild, winner_id):
+                try:
+                    await channel.send(f"{GHOST_EMOJI} {winner_mention} is staff and has unlimited ghosts — congratulations!")
+                except Exception:
+                    pass
+            else:
+                add_ghosts(winner_id, ghosts_awarded)
+                try:
+                    await channel.send(f"{GHOST_EMOJI} {ghosts_awarded} ghosts have been awarded to {winner_mention}!")
+                except Exception:
+                    pass
+        except Exception:
+            # fallback: award normally
             try:
-                await channel.send(f"{GHOST_EMOJI} {winner_mention} is staff and has unlimited ghosts — congratulations!")
-            except Exception:
-                pass
-        else:
-            add_ghosts(winner_id, ghosts_awarded)
-            try:
-                await channel.send(f"{GHOST_EMOJI} {ghosts_awarded} ghosts have been awarded to {winner_mention}!")
+                add_ghosts(winner_id, ghosts_awarded)
             except Exception:
                 pass
     except Exception:
