@@ -1619,6 +1619,59 @@ class HouseGame:
         self.map = {}  # simple map placeholder
         self.lock = asyncio.Lock()
 
+    def init_map(self, width: int = 3, height: int = 3):
+        """Initialize a simple rectangular map and place players in the center by default."""
+        self.map = {"width": width, "height": height, "rooms": {}}
+        for x in range(width):
+            for y in range(height):
+                # simple flavour descriptions; could be expanded later
+                desc = f"A creaky room at ({x+1},{y+1}) with dusty floor and old wallpaper."
+                # randomly vary a little
+                if (x + y) % 3 == 0:
+                    desc = f"A cold room at ({x+1},{y+1}) with a faint whispering sound."
+                self.map["rooms"][(x, y)] = {"desc": desc, "items": []}
+        # starting position: center
+        sx = width // 2
+        sy = height // 2
+        for uid in list(self.players.keys()):
+            self.players[uid]["position"] = (sx, sy)
+
+    def valid_moves_for(self, uid: int) -> list[str]:
+        pos = self.players.get(uid, {}).get("position")
+        if not pos or not self.map:
+            return []
+        x, y = pos
+        moves = []
+        if y > 0:
+            moves.append("up")
+        if y < self.map.get("height", 0) - 1:
+            moves.append("down")
+        if x > 0:
+            moves.append("left")
+        if x < self.map.get("width", 0) - 1:
+            moves.append("right")
+        return moves
+
+    def move_player(self, uid: int, direction: str) -> bool:
+        pos = self.players.get(uid, {}).get("position")
+        if not pos or not self.map:
+            return False
+        x, y = pos
+        direction = direction.lower()
+        if direction in ("up", "u") and y > 0:
+            self.players[uid]["position"] = (x, y - 1)
+            return True
+        if direction in ("down", "d") and y < self.map.get("height", 0) - 1:
+            self.players[uid]["position"] = (x, y + 1)
+            return True
+        if direction in ("left", "l") and x > 0:
+            self.players[uid]["position"] = (x - 1, y)
+            return True
+        if direction in ("right", "r") and x < self.map.get("width", 0) - 1:
+            self.players[uid]["position"] = (x + 1, y)
+            return True
+        return False
+
     def player_ids(self) -> list[int]:
         return list(self.players.keys())
 
@@ -1664,7 +1717,10 @@ async def house_create(interaction: discord.Interaction, mode: str = "solo", max
         house_games.pop(game.id, None)
         return
 
-    await interaction.response.send_message(f"Created House game `{game.id}` in {ch.mention}. Invite players with `/house invite @user {game.id}`. Mode: {mode}.", ephemeral=False)
+    # initialize a small map for the house
+    game.init_map(width=3, height=3)
+
+    await interaction.response.send_message(f"Created House game `{game.id}` in {ch.mention}. Players can accept with `/house accept {game.id}`. Mode: {mode}.", ephemeral=False)
 
 
 @house_group.command(name="invite", description="Invite a user to a House game (host only).")
@@ -1748,10 +1804,19 @@ async def house_start(interaction: discord.Interaction, game_id: str):
                 await ch.set_permissions(member, view_channel=True, send_messages=True)
             except Exception:
                 pass
-        # post intro
-        intro = f"Welcome to the Casa Embrujada — Game {game.id}\nMode: {game.mode}\nPlayers: {', '.join([f'<@{u}>' for u in accepted])}\nGood luck!"
+        # post intro with brief instructions and initial positions
+        players_list = ', '.join([f'<@{u}>' for u in accepted])
+        intro_lines = [f"Welcome to the Casa Embrujada — Game {game.id}", f"Mode: {game.mode}", f"Players: {players_list}"]
+        # show starting room description for each player
+        for uid in accepted:
+            pos = game.players[uid].get("position")
+            if pos and game.map:
+                x, y = pos
+                room = game.map["rooms"].get((x, y))
+                intro_lines.append(f"{f'<@{uid}>'} starts at room ({x+1},{y+1}): {room.get('desc') if room else 'An empty room.'}")
+        intro_lines.append("When it's your turn you'll be prompted in this channel. Use `/house action move <direction>` or `/house action explore` or `/house action search`. Directions: up/down/left/right.")
         try:
-            await ch.send(intro)
+            await ch.send("\n".join(intro_lines))
         except Exception:
             pass
 
@@ -1763,9 +1828,20 @@ async def house_start(interaction: discord.Interaction, game_id: str):
 @house_group.command(name="action", description="Perform an action in the House game when it's your turn.")
 @app_commands.describe(game_id="Game id", action="Action name: search|explore|use|attack", target="Optional target")
 async def house_action(interaction: discord.Interaction, game_id: str, action: str, target: str | None = None):
-    game = house_games.get(game_id)
+    # Allow omitting game_id when running inside the game's private channel
+    if not game_id:
+        # try lookup by channel
+        if interaction.channel and interaction.channel.id:
+            found = None
+            for g in house_games.values():
+                if g.channel_id == interaction.channel.id:
+                    found = g
+                    break
+            game = found
+    else:
+        game = house_games.get(game_id)
     if not game:
-        await interaction.response.send_message("Game not found.", ephemeral=True)
+        await interaction.response.send_message("Game not found. If you're in the game's private channel you can omit the game id.", ephemeral=True)
         return
     if game.state != "started":
         await interaction.response.send_message("Game has not started yet.", ephemeral=True)
@@ -1784,28 +1860,82 @@ async def house_action(interaction: discord.Interaction, game_id: str, action: s
         await interaction.response.send_message(f"It's not your turn. It's <@{current_uid}>'s turn.", ephemeral=True)
         return
 
-    # handle a small set of actions
-    action = action.lower()
+    # handle actions: search, explore, move, use, attack (basic)
+    action = (action or "").lower()
     ch = game.guild.get_channel(game.channel_id) if game.channel_id else None
+
+    # helper to send narration to game channel and ephemeral ack
+    async def narrate(text: str):
+        if ch:
+            try:
+                await ch.send(f"**{interaction.user.display_name}**: {text}")
+            except Exception:
+                pass
+        await interaction.response.send_message("Action registered.", ephemeral=True)
+
     if action == "search":
-        # small chance to find an item or encounter
         roll = random.random()
-        if roll < 0.15:
+        if roll < 0.2:
             item = "ancient key"
             game.players[interaction.user.id]["inventory"].append(item)
-            text = f"You search the area and find an **{item}**!"
-        elif roll < 0.35:
-            dmg =  random.randint(1, 4) + (2 if len(accepted) > 1 else 0)
+            text = f"You search the room and find an **{item}**!"
+        elif roll < 0.4:
+            dmg = random.randint(1, 3)
             game.players[interaction.user.id]["hp"] -= dmg
-            text = f"A lurking thing scratches you! You take {dmg} damage. (HP now {game.players[interaction.user.id]['hp']})"
+            text = f"A hidden snare grazes you! You take {dmg} damage. (HP now {game.players[interaction.user.id]['hp']})"
         else:
             text = "You search but find nothing useful. The house groans..."
-        # send narration
-        if ch:
-            await ch.send(f"**{interaction.user.display_name}**: {text}")
-        await interaction.response.send_message("Action registered.", ephemeral=True)
+        await narrate(text)
+
+    elif action == "explore":
+        pos = game.players[interaction.user.id].get("position")
+        if pos and game.map:
+            x, y = pos
+            room = game.map["rooms"].get((x, y), {})
+            # show description and items, and available moves
+            items = room.get("items", [])
+            items_text = ", ".join(items) if items else "none"
+            moves = game.valid_moves_for(interaction.user.id)
+            text = f"You explore the room ({x+1},{y+1}): {room.get('desc', 'An empty room.')}. Items: {items_text}. You can move: {', '.join(moves) if moves else 'nowhere'}."
+        else:
+            text = "You feel disoriented. There's nothing here."
+        await narrate(text)
+
+    elif action == "move":
+        if not target:
+            await interaction.response.send_message("Specify a direction: up/down/left/right. Example: `/house action move up`", ephemeral=True)
+            return
+        dir = target.lower()
+        moved = game.move_player(interaction.user.id, dir)
+        if moved:
+            pos = game.players[interaction.user.id]["position"]
+            room = game.map["rooms"].get(pos, {})
+            text = f"You move {dir} to room ({pos[0]+1},{pos[1]+1}). {room.get('desc', '')}"
+        else:
+            moves = game.valid_moves_for(interaction.user.id)
+            text = f"Cannot move {dir}. Valid moves: {', '.join(moves) if moves else 'none'}."
+        await narrate(text)
+
+    elif action == "use":
+        if not target:
+            await interaction.response.send_message("Specify an item to use (example: `/house action use key`).", ephemeral=True)
+            return
+        item = target.lower()
+        inv = game.players[interaction.user.id].get("inventory", [])
+        if item in inv:
+            # simple use: consume key to unlock something if present
+            if item in ("ancient key", "key"):
+                inv.remove(item)
+                text = "You use the key. Somewhere a distant door unlocks with a creak..."
+            else:
+                text = f"You try to use {item} but nothing obvious happens."
+        else:
+            text = f"You don't have {item} in your inventory."
+        await narrate(text)
+
     else:
-        await interaction.response.send_message("Action not recognized (supported: search).", ephemeral=True)
+        await interaction.response.send_message("Action not recognized. Supported: search, explore, move, use. When in game channel you can omit the game id.", ephemeral=True)
+        return
 
     # advance turn
     game.turn_index = (game.turn_index + 1) % max(1, len(accepted))
@@ -1813,20 +1943,38 @@ async def house_action(interaction: discord.Interaction, game_id: str, action: s
 
 @house_group.command(name="status", description="Show game status")
 async def house_status(interaction: discord.Interaction, game_id: str):
-    game = house_games.get(game_id)
+    # allow omitting game_id if running inside game's private channel
+    if not game_id and interaction.channel:
+        found = None
+        for g in house_games.values():
+            if g.channel_id == interaction.channel.id:
+                found = g
+                break
+        game = found
+    else:
+        game = house_games.get(game_id)
     if not game:
-        await interaction.response.send_message("Game not found.", ephemeral=True)
+        await interaction.response.send_message("Game not found. If you're in the game's private channel you can omit the game id.", ephemeral=True)
         return
-    players = "\n".join([f"<@{uid}> — HP: {meta['hp']} — Accepted: {meta['accepted']}" for uid, meta in game.players.items()])
+    players = "\n".join([f"<@{uid}> — HP: {meta['hp']} — Accepted: {meta['accepted']} — Pos: { (meta['position'][0]+1, meta['position'][1]+1) if meta.get('position') else 'N/A'}" for uid, meta in game.players.items()])
     ch = game.guild.get_channel(game.channel_id) if game.channel_id else None
     await interaction.response.send_message(f"Game {game.id}\nMode: {game.mode}\nState: {game.state}\nChannel: {ch.mention if ch else 'N/A'}\nPlayers:\n{players}", ephemeral=True)
 
 
 @house_group.command(name="leave", description="Leave a House game")
 async def house_leave(interaction: discord.Interaction, game_id: str):
-    game = house_games.get(game_id)
+    # allow omitting game_id when in channel
+    if not game_id and interaction.channel:
+        found = None
+        for g in house_games.values():
+            if g.channel_id == interaction.channel.id:
+                found = g
+                break
+        game = found
+    else:
+        game = house_games.get(game_id)
     if not game:
-        await interaction.response.send_message("Game not found.", ephemeral=True)
+        await interaction.response.send_message("Game not found. If you're in the game's private channel you can omit the game id.", ephemeral=True)
         return
     if interaction.user.id not in game.players:
         await interaction.response.send_message("You are not in this game.", ephemeral=True)
@@ -1844,9 +1992,18 @@ async def house_leave(interaction: discord.Interaction, game_id: str):
 
 @house_group.command(name="end", description="End a House game and remove the private channel (host only).")
 async def house_end(interaction: discord.Interaction, game_id: str):
-    game = house_games.get(game_id)
+    # allow omitting game_id when in channel
+    if not game_id and interaction.channel:
+        found = None
+        for g in house_games.values():
+            if g.channel_id == interaction.channel.id:
+                found = g
+                break
+        game = found
+    else:
+        game = house_games.get(game_id)
     if not game:
-        await interaction.response.send_message("Game not found.", ephemeral=True)
+        await interaction.response.send_message("Game not found. If you're in the game's private channel you can omit the game id.", ephemeral=True)
         return
     if interaction.user.id != game.host_id and not interaction.user.guild_permissions.manage_guild:
         await interaction.response.send_message("Only the host or a manager can end the game.", ephemeral=True)
@@ -1868,20 +2025,47 @@ async def run_house_game(game: HouseGame):
         ch = game.guild.get_channel(game.channel_id) if game.channel_id else None
         if not ch:
             return
+        # track whether we already sent initial instructions to avoid spamming every turn
+        _sent_intro = False
         while game.state == "started":
             accepted = game.accepted_players()
             if not accepted:
                 await ch.send("No active players remain. Ending game.")
                 break
             current_uid = accepted[game.turn_index % len(accepted)]
-            await ch.send(f"It's <@{current_uid}>'s turn. Use `/house action {game.id} search` or other commands to interact.")
+            # Build a concise prompt: mention player, show HP, position and valid moves
+            meta = game.players.get(current_uid, {})
+            hp = meta.get("hp", 0)
+            pos = meta.get("position")
+            pos_text = f"({pos[0]+1},{pos[1]+1})" if pos else "N/A"
+            moves = game.valid_moves_for(current_uid)
+            moves_text = ", ".join(moves) if moves else "none"
+            prompt_lines = [f"It's <@{current_uid}>'s turn — HP: {hp} — Position: {pos_text}.", f"Valid moves: {moves_text}."]
+            # only show brief guidance once at start to avoid spam
+            if not _sent_intro:
+                prompt_lines.append("You can use `/house action move <direction>`, `/house action explore` or `/house action search`. You may omit the game id when in this channel.")
+                _sent_intro = True
+
+            try:
+                await ch.send(" ".join(prompt_lines))
+            except Exception:
+                pass
+
             # wait a limited time for the turn to be used; if no action, auto-pass
             await asyncio.sleep(20)
+
             # check if player still alive
             if game.players.get(current_uid, {}).get("hp", 0) <= 0:
-                # remove from accepted
+                # mark removed and announce
                 game.players[current_uid]["accepted"] = False
-                await ch.send(f"<@{current_uid}> has fallen and is out.")
+                try:
+                    await ch.send(f"<@{current_uid}> has fallen and is out.")
+                except Exception:
+                    pass
+                # do not increment turn_index relative to old accepted list --- recompute next
+                # simply continue to next loop which will pick next accepted player
+                continue
+
             # advance
             game.turn_index = (game.turn_index + 1) % max(1, len(accepted))
         game.state = "finished"
