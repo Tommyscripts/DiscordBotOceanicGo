@@ -69,6 +69,224 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# ---------------- WORD CHAIN GAME (in-memory) ----------------
+class WordChainGame:
+    def __init__(self, channel: discord.TextChannel, starter: str | None = None, turn_timeout: int = 15):
+        self.channel = channel
+        self.players: list[int] = []  # join order
+        self.lives: dict[int, int] = {}  # user_id -> lives
+        self.used_words: set[str] = set()
+        self.current_word: str | None = starter
+        self.current_player_idx: int = 0
+        self.turn_timeout = turn_timeout
+        self.lock = asyncio.Lock()
+        self.started = False
+        self._turn_task: asyncio.Task | None = None
+
+    def add_player(self, user_id: int) -> bool:
+        if self.started:
+            return False
+        if user_id in self.players:
+            return False
+        self.players.append(user_id)
+        self.lives[user_id] = 3
+        return True
+
+    def remove_player(self, user_id: int) -> bool:
+        if user_id in self.players:
+            self.players.remove(user_id)
+            self.lives.pop(user_id, None)
+            return True
+        return False
+
+    def next_player_id(self) -> int | None:
+        if not self.players:
+            return None
+        # advance to next alive player
+        starting_idx = self.current_player_idx % len(self.players)
+        for i in range(len(self.players)):
+            idx = (starting_idx + i) % len(self.players)
+            uid = self.players[idx]
+            if self.lives.get(uid, 0) > 0:
+                self.current_player_idx = idx
+                return uid
+        return None
+
+    def eliminate_if_needed(self, user_id: int):
+        if self.lives.get(user_id, 0) <= 0 and user_id in self.players:
+            # keep in list but effectively skipped; winner determination checks lives
+            return True
+        return False
+
+    def alive_players(self) -> list[int]:
+        return [uid for uid in self.players if self.lives.get(uid, 0) > 0]
+
+    def is_word_valid(self, word: str) -> bool:
+        # basic validation: alphabetical and not used
+        if not word or not any(c.isalpha() for c in word):
+            return False
+        w = normalize_word(word)
+        if w in self.used_words:
+            return False
+        if self.current_word:
+            # must start with last letter of current_word
+            last = normalize_word(self.current_word)[-1]
+            return w[0] == last
+        return True
+
+    def play_word(self, user_id: int, word: str) -> tuple[bool, str]:
+        # returns (accepted, message)
+        w = normalize_word(word)
+        if not self.is_word_valid(word):
+            # lose a life
+            self.lives[user_id] = max(0, self.lives.get(user_id, 0) - 1)
+            return False, f"Invalid word. <@{user_id}> loses 1 life (now {self.lives[user_id]})."
+        # accept
+        self.used_words.add(w)
+        self.current_word = w
+        return True, f"Accepted: **{w}** — next player."
+
+
+def normalize_word(w: str) -> str:
+    # Lowercase, strip punctuation except internal apostrophes/hyphens
+    w = w.strip().lower()
+    # remove surrounding non-alpha
+    filtered = ''.join(ch for ch in w if ch.isalpha() or ch in "'-")
+    # if result empty fallback to original letters only
+    if not any(c.isalpha() for c in filtered):
+        filtered = ''.join(c for c in w if c.isalpha())
+    return filtered
+
+# Active games per channel_id
+wordchain_games: dict[int, WordChainGame] = {}
+
+
+class WordChainView(discord.ui.View):
+    def __init__(self, channel_id: int):
+        super().__init__(timeout=None)
+        self.channel_id = channel_id
+
+    @discord.ui.button(label="Join", style=discord.ButtonStyle.success)
+    async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
+        game = wordchain_games.get(self.channel_id)
+        if not game:
+            await interaction.response.send_message("No active lobby in this channel.", ephemeral=True)
+            return
+        added = game.add_player(interaction.user.id)
+        if not added:
+            await interaction.response.send_message("You can't join (maybe game started or already joined).", ephemeral=True)
+            return
+        await interaction.response.send_message(f"{interaction.user.mention} joined the lobby. Lives: 3", ephemeral=True)
+
+    @discord.ui.button(label="Leave", style=discord.ButtonStyle.danger)
+    async def leave(self, interaction: discord.Interaction, button: discord.ui.Button):
+        game = wordchain_games.get(self.channel_id)
+        if not game:
+            await interaction.response.send_message("No active lobby.", ephemeral=True)
+            return
+        removed = game.remove_player(interaction.user.id)
+        if removed:
+            await interaction.response.send_message("You left the lobby.", ephemeral=True)
+        else:
+            await interaction.response.send_message("You are not in the lobby.", ephemeral=True)
+
+    @discord.ui.button(label="Start", style=discord.ButtonStyle.primary)
+    async def start(self, interaction: discord.Interaction, button: discord.ui.Button):
+        game = wordchain_games.get(self.channel_id)
+        if not game:
+            await interaction.response.send_message("No active lobby.", ephemeral=True)
+            return
+        if game.started:
+            await interaction.response.send_message("Game already started.", ephemeral=True)
+            return
+        if len(game.players) < 2:
+            await interaction.response.send_message("Need at least 2 players to start.", ephemeral=True)
+            return
+        game.started = True
+        await interaction.response.send_message("Game started! Play by sending words in this channel. You have 3 lives. Good luck!", ephemeral=False)
+        # begin turn loop
+        asyncio.create_task(run_wordchain_game(game))
+
+
+async def run_wordchain_game(game: WordChainGame):
+    channel = game.channel
+    await channel.send("Word Chain: game is live! First player will be chosen from lobby.")
+    # pick starting player index 0
+    game.current_player_idx = 0
+    # if no starter word, request first word from first player
+    while True:
+        alive = game.alive_players()
+        if len(alive) <= 1:
+            break
+        uid = game.next_player_id()
+        if uid is None:
+            break
+        member_mention = f"<@{uid}>"
+        try:
+            await channel.send(f"{member_mention}, it's your turn! You have {game.turn_timeout} seconds. Current word: {game.current_word or '(none)'}")
+        except Exception:
+            pass
+
+        # wait for message from that user
+        def check(m: discord.Message):
+            return m.author.id == uid and m.channel.id == channel.id
+
+        try:
+            msg = await bot.wait_for('message', timeout=game.turn_timeout, check=check)
+        except asyncio.TimeoutError:
+            # lose a life
+            game.lives[uid] = max(0, game.lives.get(uid, 0) - 1)
+            await channel.send(f"Time's up! <@{uid}> loses 1 life (now {game.lives[uid]}).")
+            # advance index to next player
+            game.current_player_idx = (game.current_player_idx + 1) % max(1, len(game.players))
+            continue
+
+        word = msg.content.strip()
+        accepted, text = game.play_word(uid, word)
+        if accepted:
+            await channel.send(f"{member_mention} played **{normalize_word(word)}**.")
+        else:
+            await channel.send(text)
+        # check eliminated
+        alive_after = game.alive_players()
+        if len(alive_after) <= 1:
+            break
+        # advance to next player
+        game.current_player_idx = (game.current_player_idx + 1) % max(1, len(game.players))
+
+    # announce winner
+    survivors = game.alive_players()
+    if survivors:
+        winner = survivors[0]
+        await channel.send(f"Game over! The winner is <@{winner}> 🎉")
+    else:
+        await channel.send("Game over! No winners — everyone lost their lives.")
+    # cleanup
+    try:
+        del wordchain_games[channel.id]
+    except KeyError:
+        pass
+
+# Slash command to create lobby and start game
+@bot.tree.command(name="wordchain", description="Start a Word Chain game (join via buttons, start when ready)")
+@app_commands.describe(timeout="Turn timeout in seconds (10-30). Default 15")
+async def slash_wordchain(interaction: discord.Interaction, timeout: int = 15):
+    # create a lobby message with Join/Leave/Start buttons
+    if interaction.channel is None or not isinstance(interaction.channel, discord.TextChannel):
+        await interaction.response.send_message("This command must be used in a text channel.", ephemeral=True)
+        return
+    channel = interaction.channel
+    if channel.id in wordchain_games:
+        await interaction.response.send_message("There's already an active lobby or game in this channel.", ephemeral=True)
+        return
+    timeout = max(5, min(30, timeout))
+    game = WordChainGame(channel=channel, starter=None, turn_timeout=timeout)
+    wordchain_games[channel.id] = game
+    view = WordChainView(channel_id=channel.id)
+    # add host as first player automatically
+    game.add_player(interaction.user.id)
+    await interaction.response.send_message(f"Word Chain lobby created by {interaction.user.mention}! Click Join to participate. Turn timeout: {timeout}s. Host auto-joined.", view=view)
+
 # If provided, set the application's ID on the bot (useful for some interactions)
 if APPLICATION_ID:
     try:
@@ -563,12 +781,14 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
         print("Error in on_raw_reaction_remove:", e)
 
 
-@bot.tree.group(name="wheels", description="Create and run reaction-based wheels (roulette)")
-async def wheels_group(interaction: discord.Interaction):
-    # group placeholder
-    if interaction.response.is_done():
-        return
-    await interaction.response.send_message("Use /wheels create or /wheels start", ephemeral=True)
+# Create a command group for /wheels using app_commands.Group for compatibility
+wheels_group = app_commands.Group(name="wheels", description="Create and run reaction-based wheels (roulette)")
+try:
+    # register group with the bot's tree
+    bot.tree.add_command(wheels_group)
+except Exception:
+    # If registration fails here, it'll be picked up during sync in on_ready
+    pass
 
 
 @wheels_group.command(name="create", description="Create a wheel post. Users who react with the bot's emoji will join.")
