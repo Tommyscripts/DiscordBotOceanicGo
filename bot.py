@@ -280,7 +280,13 @@ class WordChainView(discord.ui.View):
 
 async def run_wordchain_game(game: WordChainGame):
     channel = game.channel
-    await channel.send("Word Chain: game is live! First player will be chosen from lobby.")
+    # Announce game start and ghosts award (100% probability)
+    try:
+        participants_total = len(game.players)
+        ghosts_awarded = max(1, 2 * participants_total)
+        await channel.send(f"Word Chain: game is live! First player will be chosen from lobby. The winner will receive {GHOST_EMOJI} {ghosts_awarded} ghosts.")
+    except Exception:
+        await channel.send("Word Chain: game is live! First player will be chosen from lobby.")
     # pick starting player index 0
     game.current_player_idx = 0
     # if no starter word, request first word from first player
@@ -324,11 +330,21 @@ async def run_wordchain_game(game: WordChainGame):
         # advance to next player
         game.current_player_idx = (game.current_player_idx + 1) % max(1, len(game.players))
 
-    # announce winner
+    # announce winner and award ghosts (always)
     survivors = game.alive_players()
     if survivors:
         winner = survivors[0]
-        await channel.send(f"Game over! The winner is <@{winner}> 🎉")
+        participants_total = len(game.players)
+        ghosts_awarded = max(1, 2 * participants_total)
+        try:
+            guild = channel.guild if hasattr(channel, 'guild') else None
+            if is_staff_in_guild(guild, winner):
+                await channel.send(f"Game over! The winner is <@{winner}> 🎉 — Congratulations! As staff you have unlimited {GHOST_EMOJI}.")
+            else:
+                add_ghosts(winner, ghosts_awarded)
+                await channel.send(f"Game over! The winner is <@{winner}> 🎉 — Congratulations! You won {GHOST_EMOJI} {ghosts_awarded}.")
+        except Exception:
+            await channel.send(f"Game over! The winner is <@{winner}> 🎉")
     else:
         await channel.send("Game over! No winners — everyone lost their lives.")
     # cleanup
@@ -454,6 +470,15 @@ def init_db():
         )
         """
     )
+    # Settings table to store per-guild configuration (e.g., staff role)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS settings (
+            guild_id INTEGER PRIMARY KEY,
+            staff_role_id INTEGER
+        )
+        """
+    )
     conn.commit()
     conn.close()
 
@@ -550,6 +575,66 @@ def set_ghosts(user_id: int, amount: int):
     cur.execute("INSERT INTO ghosts_balances(user_id, ghosts) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET ghosts = ?", (user_id, amount, amount))
     conn.commit()
     conn.close()
+
+
+def is_staff_in_guild(guild: discord.Guild | None, user_id: int) -> bool:
+    """Return True if the given user_id represents a staff member in the guild.
+    Staff is defined as having Manage Guild or Administrator permissions. If guild is None,
+    returns False (can't determine staff status outside a guild).
+    """
+    if not guild:
+        return False
+    gid = guild.id
+    # check configured staff role first
+    try:
+        staff_role_id = get_staff_role(gid)
+        if staff_role_id:
+            # if the member has the role, they're staff
+            member = guild.get_member(user_id)
+            if member is None:
+                try:
+                    member = asyncio.run_coroutine_threadsafe(guild.fetch_member(user_id), bot.loop).result(timeout=5)
+                except Exception:
+                    member = None
+            if member and any(r.id == staff_role_id for r in member.roles):
+                return True
+    except Exception:
+        pass
+    # fallback to permission check
+    try:
+        member = guild.get_member(user_id)
+        if not member:
+            try:
+                member = asyncio.run_coroutine_threadsafe(guild.fetch_member(user_id), bot.loop).result(timeout=5)
+            except Exception:
+                return False
+    except Exception:
+        return False
+    try:
+        perms = member.guild_permissions
+        return bool(perms.manage_guild or perms.administrator)
+    except Exception:
+        return False
+
+
+def set_staff_role(guild_id: int, role_id: int | None):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    if role_id is None:
+        cur.execute("INSERT INTO settings(guild_id, staff_role_id) VALUES (?, ?) ON CONFLICT(guild_id) DO UPDATE SET staff_role_id = NULL", (guild_id, None))
+    else:
+        cur.execute("INSERT INTO settings(guild_id, staff_role_id) VALUES (?, ?) ON CONFLICT(guild_id) DO UPDATE SET staff_role_id = ?", (guild_id, role_id, role_id))
+    conn.commit()
+    conn.close()
+
+
+def get_staff_role(guild_id: int) -> int | None:
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT staff_role_id FROM settings WHERE guild_id = ?", (guild_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row and row[0] is not None else None
 
 def list_shop_items(guild_id: int | None = None):
     conn = sqlite3.connect(DB_PATH)
@@ -828,11 +913,18 @@ class TournamentView(discord.ui.View):
         try:
             participants_total = len(participants)
             ghosts_awarded = 2 * participants_total
-            add_ghosts(winner_id, ghosts_awarded)
-            try:
-                await channel.send(f"{GHOST_EMOJI} {ghosts_awarded} ghosts have been awarded to {winner_mention}!")
-            except Exception:
-                pass
+            # staff have unlimited ghosts (do not modify DB)
+            if is_staff_in_guild(interaction.guild, winner_id):
+                try:
+                    await channel.send(f"{GHOST_EMOJI} {winner_mention} is staff and has unlimited ghosts — congratulations!")
+                except Exception:
+                    pass
+            else:
+                add_ghosts(winner_id, ghosts_awarded)
+                try:
+                    await channel.send(f"{GHOST_EMOJI} {ghosts_awarded} ghosts have been awarded to {winner_mention}!")
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -876,6 +968,20 @@ async def ghosts_balance(interaction: discord.Interaction, user: discord.User | 
     target = user or interaction.user
     bal = get_ghosts(target.id)
     await interaction.response.send_message(f"{GHOST_EMOJI} {bal} ghosts — {target.mention}", ephemeral=True)
+
+
+@bot.tree.command(name="dar_fantasmas", description="(Staff) Dar fantasmas a un usuario")
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.describe(target="Usuario receptor", cantidad="Cantidad de fantasmas a dar (puede ser negativa para quitar)")
+async def dar_fantasmas(interaction: discord.Interaction, target: discord.User, cantidad: int):
+    # staff can give any amount (including large numbers)
+    try:
+        # If the target is staff, they are considered to have unlimited ghosts; still allow DB change if desired
+        add_ghosts(target.id, cantidad)
+        bal = get_ghosts(target.id)
+        await interaction.response.send_message(f"{GHOST_EMOJI} {cantidad} ghosts given to {target.mention}. New balance: {bal}", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"Failed to give ghosts: {e}", ephemeral=True)
 
 
 shop_group = app_commands.Group(name="shop", description="Ghost shop commands")
@@ -951,6 +1057,28 @@ async def shop_remove(interaction: discord.Interaction, item_id: int):
         return
     remove_shop_item(item_id)
     await interaction.response.send_message(f"Removed shop item {item_id}.", ephemeral=True)
+
+
+@bot.tree.command(name="set_staff_role", description="(Owner) Configurar el rol de staff para este servidor")
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.describe(role="Role to be considered staff. Use None to clear.")
+async def set_staff_role_cmd(interaction: discord.Interaction, role: discord.Role | None = None):
+    # Only guild owner may change this
+    if not interaction.guild:
+        await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
+        return
+    if interaction.user.id != interaction.guild.owner_id:
+        await interaction.response.send_message("Only the server owner can set the staff role.", ephemeral=True)
+        return
+    try:
+        role_id = role.id if role else None
+        set_staff_role(interaction.guild.id, role_id)
+        if role:
+            await interaction.response.send_message(f"Staff role set to {role.mention}.", ephemeral=True)
+        else:
+            await interaction.response.send_message("Staff role cleared.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"Failed to set staff role: {e}", ephemeral=True)
 
     @discord.ui.button(label="Cancel Tournament", style=discord.ButtonStyle.secondary, emoji="❌")
     async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1126,7 +1254,13 @@ async def wheels_start(interaction: discord.Interaction):
         return
 
     # Acknowledge start and generate a graphical wheel image
-    await interaction.response.send_message("Spinning the wheel... 🎡", ephemeral=False)
+    # Announce spin and ghosts award (100% probability)
+    participants_count = len(participants)
+    ghosts_awarded = max(1, 2 * participants_count)
+    try:
+        await interaction.response.send_message(f"Spinning the wheel... 🎡 The winner will receive {GHOST_EMOJI} {ghosts_awarded}.", ephemeral=False)
+    except Exception:
+        await interaction.response.send_message("Spinning the wheel... 🎡", ephemeral=False)
 
     # Prepare names (limit to 24 slices for readability)
     max_slices = 24
@@ -1332,6 +1466,22 @@ async def wheels_start(interaction: discord.Interaction):
         cur.execute("INSERT INTO wins_global(user_id, wins) VALUES (?, 1) ON CONFLICT(user_id) DO UPDATE SET wins = wins + 1", (winner_id,))
         conn.commit()
         conn.close()
+    except Exception:
+        pass
+
+    # Award ghosts to the winner (unless staff)
+    try:
+        if is_staff_in_guild(interaction.guild, winner_id):
+            try:
+                await channel.send(f"{GHOST_EMOJI} {winner_mention} is staff and has unlimited ghosts — congratulations!")
+            except Exception:
+                pass
+        else:
+            add_ghosts(winner_id, ghosts_awarded)
+            try:
+                await channel.send(f"{GHOST_EMOJI} {ghosts_awarded} ghosts have been awarded to {winner_mention}!")
+            except Exception:
+                pass
     except Exception:
         pass
 
