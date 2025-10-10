@@ -1600,8 +1600,33 @@ async def wheels_start(interaction: discord.Interaction):
 # ---------------- CASA EMBRUJADA (House) - Prototype ----------------
 from uuid import uuid4
 
-# In-memory storage for house games: game_id (str) -> HouseGame
+# In-memory storage for house games: game id string -> HouseGame (games are inferred by channel or host)
 house_games: dict[str, dict] = {}
+
+
+def find_game_by_channel(channel: discord.abc.Messageable | None) -> "HouseGame" | None:
+    if not channel:
+        return None
+    for g in house_games.values():
+        if g.channel_id == getattr(channel, 'id', None):
+            return g
+    return None
+
+
+def find_lobby_game_by_host(user: discord.User | discord.Member) -> "HouseGame" | None:
+    for g in house_games.values():
+        if g.host_id == getattr(user, 'id', None) and g.state == 'lobby':
+            return g
+    return None
+
+
+def find_pending_game_for_player(user: discord.User | discord.Member) -> "HouseGame" | None:
+    # find a game where the user is invited but not accepted yet, prefer lobby
+    for g in house_games.values():
+        meta = g.players.get(getattr(user, 'id', None))
+        if meta is not None and not meta.get('accepted'):
+            return g
+    return None
 
 
 class HouseGame:
@@ -1618,6 +1643,9 @@ class HouseGame:
         self.turn_index = 0
         self.map = {}  # simple map placeholder
         self.lock = asyncio.Lock()
+        # internal flags to avoid spamming prompts
+        self._sent_intro = False
+        self._last_prompt_turn: int | None = None
 
     def init_map(self, width: int = 3, height: int = 3):
         """Initialize a simple rectangular map and place players in the center by default."""
@@ -1720,13 +1748,14 @@ async def house_create(interaction: discord.Interaction, mode: str = "solo", max
     # initialize a small map for the house
     game.init_map(width=3, height=3)
 
-    await interaction.response.send_message(f"Created House game `{game.id}` in {ch.mention}. Players can accept with `/house accept {game.id}`. Mode: {mode}.", ephemeral=False)
+    await interaction.response.send_message(f"Created a private House channel {ch.mention}. Invite players with `/house invite @user`. Mode: {mode}.", ephemeral=False)
 
 
-@house_group.command(name="invite", description="Invite a user to a House game (host only).")
-@app_commands.describe(user="User to invite", game_id="Game id returned by /house create")
-async def house_invite(interaction: discord.Interaction, user: discord.Member, game_id: str):
-    game = house_games.get(game_id)
+@house_group.command(name="invite", description="Invite a user to your House game (host only). Uses your active lobby.)")
+@app_commands.describe(user="User to invite")
+async def house_invite(interaction: discord.Interaction, user: discord.Member):
+    # infer the host's lobby game
+    game = find_lobby_game_by_host(interaction.user)
     if not game:
         await interaction.response.send_message("Game not found.", ephemeral=True)
         return
@@ -1745,18 +1774,18 @@ async def house_invite(interaction: discord.Interaction, user: discord.Member, g
     # DM the invite with instructions
     try:
         dm = await user.create_dm()
-        await dm.send(f"You have been invited to House `{game.id}` by {interaction.user.display_name}. To accept, run `/house accept {game.id}` here or in the server. The game channel will be {interaction.guild.get_channel(game.channel_id).mention} when you are added.")
+        await dm.send(f"You have been invited to the Casa Embrujada by {interaction.user.display_name}. To accept, run `/house accept` here or in the server. The game channel will be {interaction.guild.get_channel(game.channel_id).mention} when you are added.")
     except Exception:
         # fallback: mention in the lobby channel
         pass
 
-    await interaction.response.send_message(f"Invited {user.mention} to game {game.id}. They must accept with `/house accept {game.id}`.", ephemeral=True)
+    await interaction.response.send_message(f"Invited {user.mention} to the game. They must accept with `/house accept`.", ephemeral=True)
 
 
 @house_group.command(name="accept", description="Accept an invitation to a House game.")
-@app_commands.describe(game_id="Game id to accept")
-async def house_accept(interaction: discord.Interaction, game_id: str):
-    game = house_games.get(game_id)
+async def house_accept(interaction: discord.Interaction):
+    # infer the game where the user is invited or by channel
+    game = find_pending_game_for_player(interaction.user) or find_game_by_channel(interaction.channel)
     if not game:
         await interaction.response.send_message("Game not found.", ephemeral=True)
         return
@@ -1772,15 +1801,15 @@ async def house_accept(interaction: discord.Interaction, game_id: str):
             await ch.set_permissions(interaction.user, view_channel=True, send_messages=True)
     except Exception:
         pass
-    await interaction.response.send_message(f"You joined game {game.id}. When host starts the game everyone accepted will be present.", ephemeral=True)
+    await interaction.response.send_message(f"You joined the game. When host starts the game everyone accepted will be present.", ephemeral=True)
 
 
 @house_group.command(name="start", description="Start the House game (host only).")
-@app_commands.describe(game_id="Game id to start")
-async def house_start(interaction: discord.Interaction, game_id: str):
-    game = house_games.get(game_id)
+async def house_start(interaction: discord.Interaction):
+    # Prefer the host's lobby; fallback to channel
+    game = find_lobby_game_by_host(interaction.user) or find_game_by_channel(interaction.channel)
     if not game:
-        await interaction.response.send_message("Game not found.", ephemeral=True)
+        await interaction.response.send_message("Game not found. If you created the game, run this command as the host or run it from the game's channel.", ephemeral=True)
         return
     if interaction.user.id != game.host_id and not interaction.user.guild_permissions.manage_guild:
         await interaction.response.send_message("Only the host or a manager can start the game.", ephemeral=True)
@@ -1806,7 +1835,7 @@ async def house_start(interaction: discord.Interaction, game_id: str):
                 pass
         # post intro with brief instructions and initial positions
         players_list = ', '.join([f'<@{u}>' for u in accepted])
-        intro_lines = [f"Welcome to the Casa Embrujada — Game {game.id}", f"Mode: {game.mode}", f"Players: {players_list}"]
+    intro_lines = [f"Welcome to the Casa Embrujada — session", f"Mode: {game.mode}", f"Players: {players_list}"]
         # show starting room description for each player
         for uid in accepted:
             pos = game.players[uid].get("position")
@@ -1820,26 +1849,22 @@ async def house_start(interaction: discord.Interaction, game_id: str):
         except Exception:
             pass
 
-    await interaction.response.send_message(f"Game {game.id} started. See {ch.mention if ch else game.channel_id}.", ephemeral=False)
+    await interaction.response.send_message(f"Game started. See {ch.mention if ch else game.channel_id}.", ephemeral=False)
     # start simple turn loop task (run safely to log exceptions)
     asyncio.create_task(run_coro_safe(run_house_game(game), name=f"house-{game.id}"))
 
 
 @house_group.command(name="action", description="Perform an action in the House game when it's your turn.")
-@app_commands.describe(game_id="Game id", action="Action name: search|explore|use|attack", target="Optional target")
-async def house_action(interaction: discord.Interaction, game_id: str, action: str, target: str | None = None):
-    # Allow omitting game_id when running inside the game's private channel
-    if not game_id:
-        # try lookup by channel
-        if interaction.channel and interaction.channel.id:
-            found = None
-            for g in house_games.values():
-                if g.channel_id == interaction.channel.id:
-                    found = g
-                    break
-            game = found
-    else:
-        game = house_games.get(game_id)
+@app_commands.describe(action="Action name: search|explore|move|use", target="Optional target (direction/item)")
+async def house_action(interaction: discord.Interaction, action: str = "", target: str | None = None):
+    # Infer game by channel (private game channel) or by being a participant
+    game = find_game_by_channel(interaction.channel)
+    if not game:
+        # try to find a game where this user is a participant
+        for g in house_games.values():
+            if interaction.user.id in g.players:
+                game = g
+                break
     if not game:
         await interaction.response.send_message("Game not found. If you're in the game's private channel you can omit the game id.", ephemeral=True)
         return
@@ -1939,20 +1964,25 @@ async def house_action(interaction: discord.Interaction, game_id: str, action: s
 
     # advance turn
     game.turn_index = (game.turn_index + 1) % max(1, len(accepted))
+    # reset prompt tracking so next turn will show prompt for new player
+    game._last_prompt_turn = None
+
+
+@house_group.command(name="move", description="Shortcut to move in the current House game (direction: up/down/left/right)")
+@app_commands.describe(direction="Direction to move: up/down/left/right")
+async def house_move(interaction: discord.Interaction, direction: str):
+    # call house_action with move
+    await house_action(interaction, action="move", target=direction)
+
+
+@house_group.command(name="explore", description="Shortcut to explore the current room in the House game")
+async def house_explore(interaction: discord.Interaction):
+    await house_action(interaction, action="explore")
 
 
 @house_group.command(name="status", description="Show game status")
-async def house_status(interaction: discord.Interaction, game_id: str):
-    # allow omitting game_id if running inside game's private channel
-    if not game_id and interaction.channel:
-        found = None
-        for g in house_games.values():
-            if g.channel_id == interaction.channel.id:
-                found = g
-                break
-        game = found
-    else:
-        game = house_games.get(game_id)
+async def house_status(interaction: discord.Interaction):
+    game = find_game_by_channel(interaction.channel) or next((g for g in house_games.values() if interaction.user.id in g.players), None)
     if not game:
         await interaction.response.send_message("Game not found. If you're in the game's private channel you can omit the game id.", ephemeral=True)
         return
@@ -1962,17 +1992,8 @@ async def house_status(interaction: discord.Interaction, game_id: str):
 
 
 @house_group.command(name="leave", description="Leave a House game")
-async def house_leave(interaction: discord.Interaction, game_id: str):
-    # allow omitting game_id when in channel
-    if not game_id and interaction.channel:
-        found = None
-        for g in house_games.values():
-            if g.channel_id == interaction.channel.id:
-                found = g
-                break
-        game = found
-    else:
-        game = house_games.get(game_id)
+async def house_leave(interaction: discord.Interaction):
+    game = find_game_by_channel(interaction.channel) or next((g for g in house_games.values() if interaction.user.id in g.players), None)
     if not game:
         await interaction.response.send_message("Game not found. If you're in the game's private channel you can omit the game id.", ephemeral=True)
         return
@@ -1991,32 +2012,38 @@ async def house_leave(interaction: discord.Interaction, game_id: str):
 
 
 @house_group.command(name="end", description="End a House game and remove the private channel (host only).")
-async def house_end(interaction: discord.Interaction, game_id: str):
-    # allow omitting game_id when in channel
-    if not game_id and interaction.channel:
-        found = None
-        for g in house_games.values():
-            if g.channel_id == interaction.channel.id:
-                found = g
-                break
-        game = found
-    else:
-        game = house_games.get(game_id)
+async def house_end(interaction: discord.Interaction):
+    game = find_game_by_channel(interaction.channel) or next((g for g in house_games.values() if g.host_id == interaction.user.id), None)
     if not game:
         await interaction.response.send_message("Game not found. If you're in the game's private channel you can omit the game id.", ephemeral=True)
         return
     if interaction.user.id != game.host_id and not interaction.user.guild_permissions.manage_guild:
         await interaction.response.send_message("Only the host or a manager can end the game.", ephemeral=True)
         return
-    # delete channel
+    # Respond first so the interaction is acknowledged even if the channel is removed
+    try:
+        if not interaction.response.is_done():
+            await interaction.response.send_message("Game ended and cleaned up.", ephemeral=True)
+        else:
+            await safe_reply(interaction, "Game ended and cleaned up.")
+    except Exception:
+        # fallback to safe_reply
+        try:
+            await safe_reply(interaction, "Game ended and cleaned up.")
+        except Exception:
+            pass
+
+    # delete channel after acknowledging the interaction
     try:
         ch = game.guild.get_channel(game.channel_id)
         if ch:
             await ch.delete(reason="House game ended")
     except Exception:
+        # ignore deletion errors (e.g., already deleted)
         pass
+
+    # cleanup game from memory
     house_games.pop(game.id, None)
-    await interaction.response.send_message(f"Game {game.id} ended and cleaned up.", ephemeral=True)
 
 
 async def run_house_game(game: HouseGame):
@@ -2025,8 +2052,11 @@ async def run_house_game(game: HouseGame):
         ch = game.guild.get_channel(game.channel_id) if game.channel_id else None
         if not ch:
             return
-        # track whether we already sent initial instructions to avoid spamming every turn
-        _sent_intro = False
+        # use per-game flags to avoid spamming prompts
+        if not hasattr(game, '_sent_intro'):
+            game._sent_intro = False
+        if not hasattr(game, '_last_prompt_turn'):
+            game._last_prompt_turn = None
         while game.state == "started":
             accepted = game.accepted_players()
             if not accepted:
@@ -2042,14 +2072,20 @@ async def run_house_game(game: HouseGame):
             moves_text = ", ".join(moves) if moves else "none"
             prompt_lines = [f"It's <@{current_uid}>'s turn — HP: {hp} — Position: {pos_text}.", f"Valid moves: {moves_text}."]
             # only show brief guidance once at start to avoid spam
-            if not _sent_intro:
+            if not game._sent_intro:
                 prompt_lines.append("You can use `/house action move <direction>`, `/house action explore` or `/house action search`. You may omit the game id when in this channel.")
-                _sent_intro = True
+                game._sent_intro = True
 
-            try:
-                await ch.send(" ".join(prompt_lines))
-            except Exception:
+            # avoid repeating the exact same prompt for the same player
+            if game._last_prompt_turn == game.turn_index:
+                # skip sending duplicate prompt
                 pass
+            else:
+                try:
+                    await ch.send(" ".join(prompt_lines))
+                except Exception:
+                    pass
+                game._last_prompt_turn = game.turn_index
 
             # wait a limited time for the turn to be used; if no action, auto-pass
             await asyncio.sleep(20)

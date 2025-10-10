@@ -79,19 +79,19 @@ Tips for Running
 
 Example Walkthrough (Solo)
 --------------------------
-1. Host /house create solo → bot creates game id ab12cd and channel #casa-ab12cd.
+1. Host /house create solo → bot creates a private channel for the session (e.g. #casa-xxxx).
 2. Bot posts intro in channel: “You arrive at the old house. Doors lead north and east.”
 3. Player turn:
-   - Player types: /house action ab12cd search
-   - Bot replies in channel: “You search the foyer and find an ancient key!”
-4. Player uses the key at the locked door: /house action ab12cd use ancient key on door
+  - Player types: /house action search
+  - Bot replies in channel: “You search the foyer and find an ancient key!”
+4. Player uses the key at the locked door: /house action use ancient key on door
 5. Bot resolves and reveals next room, possible enemy or puzzle.
 
 Example Walkthrough (Multi)
 ---------------------------
-1. Host creates multi-game: /house create multi 4
-2. Host invites players: /house invite @A gameid; players accept via DM with /house accept <gameid>
-3. When all accepted, host runs /house start <gameid>
+2. Host creates multi-game: /house create multi 4
+2. Host invites players: /house invite @A; players accept via DM with /house accept
+3. When all accepted, host runs /house start
 4. In-game:
    - Turns rotate between players. Enemies have higher HP and puzzles may need two players activating levers simultaneously.
    - If a player is down (HP ≤ 0), they become incapacitated until revived by a medkit or resuscitation action.
@@ -124,13 +124,15 @@ Murder Mystery (Night of Mystery):
 
 Haunted House (Casa Embrujada):
   /house create [mode] [max_players]
-  /house invite @user <game_id>
-  /house accept <game_id>
-  /house start <game_id>
-  /house action <game_id> <action> [target]
-  /house status <game_id>
-  /house leave <game_id>
-  /house end <game_id>
+  /house invite @user
+  /house accept
+  /house start
+  /house action <action> [target]
+  /house status
+  /house leave
+  /house end
+  /house move <direction>
+  /house explore
 
 ---
 
