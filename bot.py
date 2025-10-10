@@ -970,16 +970,23 @@ async def ghosts_balance(interaction: discord.Interaction, user: discord.User | 
     await interaction.response.send_message(f"{GHOST_EMOJI} {bal} ghosts — {target.mention}", ephemeral=True)
 
 
-@bot.tree.command(name="dar_fantasmas", description="(Staff) Dar fantasmas a un usuario")
-@app_commands.checks.has_permissions(manage_guild=True)
-@app_commands.describe(target="Usuario receptor", cantidad="Cantidad de fantasmas a dar (puede ser negativa para quitar)")
-async def dar_fantasmas(interaction: discord.Interaction, target: discord.User, cantidad: int):
-    # staff can give any amount (including large numbers)
+@bot.tree.command(name="give_ghosts", description="(Staff) Give ghosts to a user")
+@app_commands.describe(target="Target user", amount="Amount of ghosts to give (can be negative)")
+async def give_ghosts(interaction: discord.Interaction, target: discord.User, amount: int):
+    # Only members with the configured staff role (or fallback perms) can use this
     try:
-        # If the target is staff, they are considered to have unlimited ghosts; still allow DB change if desired
-        add_ghosts(target.id, cantidad)
+        guild = interaction.guild
+        if not guild:
+            await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
+            return
+        # check configured staff role or fallback permissions
+        if not is_staff_in_guild(guild, interaction.user.id):
+            await interaction.response.send_message("You are not authorized to give ghosts. Only staff can use this.", ephemeral=True)
+            return
+        # proceed to give ghosts
+        add_ghosts(target.id, amount)
         bal = get_ghosts(target.id)
-        await interaction.response.send_message(f"{GHOST_EMOJI} {cantidad} ghosts given to {target.mention}. New balance: {bal}", ephemeral=True)
+        await interaction.response.send_message(f"{GHOST_EMOJI} {amount} ghosts given to {target.mention}. New balance: {bal}", ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"Failed to give ghosts: {e}", ephemeral=True)
 
@@ -1059,14 +1066,20 @@ async def shop_remove(interaction: discord.Interaction, item_id: int):
     await interaction.response.send_message(f"Removed shop item {item_id}.", ephemeral=True)
 
 
-@bot.tree.command(name="set_staff_role", description="(Owner) Configurar el rol de staff para este servidor")
-@app_commands.checks.has_permissions(manage_guild=True)
-@app_commands.describe(role="Role to be considered staff. Use None to clear.")
-async def set_staff_role_cmd(interaction: discord.Interaction, role: discord.Role | None = None):
-    # Only guild owner may change this
+settings_group = app_commands.Group(name="settings", description="Server settings commands")
+try:
+    bot.tree.add_command(settings_group)
+except Exception:
+    pass
+
+
+@settings_group.command(name="set_staff_role", description="(Owner) Configurar el rol de staff para este servidor")
+@app_commands.describe(role="Role to be considered staff. Omitir para limpiar.")
+async def settings_set_staff_role(interaction: discord.Interaction, role: discord.Role | None = None):
     if not interaction.guild:
         await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
         return
+    # Only owner can set this
     if interaction.user.id != interaction.guild.owner_id:
         await interaction.response.send_message("Only the server owner can set the staff role.", ephemeral=True)
         return
@@ -1079,6 +1092,26 @@ async def set_staff_role_cmd(interaction: discord.Interaction, role: discord.Rol
             await interaction.response.send_message("Staff role cleared.", ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"Failed to set staff role: {e}", ephemeral=True)
+
+
+@settings_group.command(name="get_staff_role", description="Mostrar el role configurado como staff para este servidor")
+async def settings_get_staff_role(interaction: discord.Interaction):
+    if not interaction.guild:
+        await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
+        return
+    try:
+        role_id = get_staff_role(interaction.guild.id)
+        if role_id:
+            role = interaction.guild.get_role(role_id)
+            if role:
+                await interaction.response.send_message(f"Configured staff role: {role.mention}", ephemeral=True)
+                return
+            else:
+                await interaction.response.send_message(f"Configured staff role id: {role_id} (role not found on server)", ephemeral=True)
+                return
+        await interaction.response.send_message("No staff role configured.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"Failed to read staff role: {e}", ephemeral=True)
 
     @discord.ui.button(label="Cancel Tournament", style=discord.ButtonStyle.secondary, emoji="❌")
     async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1324,9 +1357,9 @@ async def wheels_start(interaction: discord.Interaction):
             # render names around the wheel on a separate layer to avoid distortion when rotating
             labels = Image.new("RGBA", (size, size), (255,255,255,0))
             ldraw = ImageDraw.Draw(labels)
-            # adaptive font sizing
+            # adaptive font sizing: favour larger font when fewer slices
             try:
-                base_font_size = max(12, int(180 / max(8, num)))
+                base_font_size = max(12, int(220 / max(4, num)))
                 font = ImageFont.truetype("DejaVuSans-Bold.ttf", base_font_size)
             except Exception:
                 font = ImageFont.load_default()
@@ -1341,7 +1374,7 @@ async def wheels_start(interaction: discord.Interaction):
                 ty = int(center + r * -math.cos(theta))
                 text = nm
                 # truncate if too long
-                max_len = 18
+                max_len = 22
                 if len(text) > max_len:
                     text = text[:max_len-1] + "…"
                 # compute text size robustly: prefer draw.textbbox, fall back to font.getsize or font.getbbox
@@ -1359,7 +1392,21 @@ async def wheels_start(interaction: discord.Interaction):
                             th = bbox2[3] - bbox2[1]
                         except Exception:
                             tw, th = (0, 0)
-                # draw centered
+                # draw a semi-transparent rectangle behind the text to ensure readability over wedge colors
+                pad_x = 10
+                pad_y = 6
+                rect_left = tx - tw//2 - pad_x
+                rect_top = ty - th//2 - pad_y
+                rect_right = tx + tw//2 + pad_x
+                rect_bottom = ty + th//2 + pad_y
+                # ensure coordinates are integers
+                rect = (int(rect_left), int(rect_top), int(rect_right), int(rect_bottom))
+                try:
+                    ldraw.rectangle(rect, fill=(255,255,255,220))
+                except Exception:
+                    # fallback if alpha not supported
+                    ldraw.rectangle(rect, fill=(255,255,255))
+                # draw centered text on top of the rectangle
                 ldraw.text((tx - tw//2, ty - th//2), text, font=font, fill=(0,0,0))
 
             # combine base + labels into a single wheel image
