@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 import sqlite3
 import time
 import random
+import math
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -856,28 +857,167 @@ async def wheels_start(interaction: discord.Interaction):
         await interaction.response.send_message("No participants have joined the wheel.", ephemeral=True)
         return
 
-    # Acknowledge start
+    # Acknowledge start and generate a graphical wheel image
     await interaction.response.send_message("Spinning the wheel... 🎡", ephemeral=False)
 
-    # Build a simple text roulette animation: rotate names in a message
-    names = [f"<@{uid}>" for uid in participants]
-    spin_message = await channel.send("Spinning: " + " | ".join(names))
+    # Prepare names (limit to 24 slices for readability)
+    max_slices = 24
+    if len(participants) > max_slices:
+        chosen_participants = random.sample(participants, max_slices)
+    else:
+        chosen_participants = participants[:]
 
-    display_order = names.copy()
-    spins = random.randint(12, 24)
-    delay = 0.2
-    for i in range(spins):
-        # rotate the list
-        display_order = display_order[1:] + display_order[:1]
+    names = [f"{(await bot.fetch_user(uid)).display_name}" for uid in chosen_participants]
+
+    # Choose winner among full participants (so image will point to one of shown participants if possible)
+    winner_id = random.choice(participants)
+    # If winner is not in the displayed slice, try to map it to a shown one by replacing a random slice
+    if winner_id not in chosen_participants and len(chosen_participants) < len(participants):
+        # replace a random slot with the winner so it's visible
+        replace_idx = random.randrange(len(chosen_participants))
+        chosen_participants[replace_idx] = winner_id
+        names[replace_idx] = (await bot.fetch_user(winner_id)).display_name
+    # Now find index of winner in chosen_participants (should exist)
+    try:
+        winner_index = chosen_participants.index(winner_id)
+    except ValueError:
+        # fallback: pick a visible index
+        winner_index = random.randrange(len(chosen_participants))
+        winner_id = chosen_participants[winner_index]
+
+    # Generate animated GIF wheel using Pillow
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except Exception:
+        Image = None
+
+    img_path = None
+    if Image:
         try:
-            await spin_message.edit(content="Spinning: " + " | ".join(display_order))
-        except Exception:
-            pass
-        await asyncio.sleep(delay)
-        # gradually slow down
-        delay *= 1.12
+            size = 800
+            center = size // 2
+            num = len(names)
+            colors = [
+                (255,99,71),(60,179,113),(65,105,225),(238,130,238),(255,215,0),(70,130,180),
+                (255,165,0),(144,238,144),(199,21,133),(30,144,255),(218,165,32),(152,251,152)
+            ]
 
-    # choose winner
+            # base wheel image (transparent background)
+            base = Image.new("RGBA", (size, size), (255,255,255,0))
+            bdraw = ImageDraw.Draw(base)
+            bbox = (20, 20, size-20, size-20)
+            bdraw.ellipse(bbox, fill=(240,240,240), outline=(0,0,0))
+
+            # draw wedges on base
+            for i, nm in enumerate(names):
+                start_angle = 360.0 * i / num
+                end_angle = 360.0 * (i+1) / num
+                color = colors[i % len(colors)]
+                bdraw.pieslice(bbox, start=-start_angle, end=-end_angle, fill=color, outline=(255,255,255))
+
+            # draw center circle
+            center_radius = 80
+            bdraw.ellipse((center-center_radius, center-center_radius, center+center_radius, center+center_radius), fill=(255,255,255), outline=(0,0,0))
+
+            # render names around the wheel on a separate layer to avoid distortion when rotating
+            labels = Image.new("RGBA", (size, size), (255,255,255,0))
+            ldraw = ImageDraw.Draw(labels)
+            # adaptive font sizing
+            try:
+                base_font_size = max(12, int(180 / max(8, num)))
+                font = ImageFont.truetype("DejaVuSans-Bold.ttf", base_font_size)
+            except Exception:
+                font = ImageFont.load_default()
+
+            for i, nm in enumerate(names):
+                start_angle = 360.0 * i / num
+                end_angle = 360.0 * (i+1) / num
+                mid_angle = (start_angle + end_angle) / 2
+                r = int((size/2 - 60) * 0.8)
+                theta = (mid_angle) * (math.pi/180.0)
+                tx = int(center + r * -math.sin(theta))
+                ty = int(center + r * -math.cos(theta))
+                text = nm
+                # truncate if too long
+                max_len = 18
+                if len(text) > max_len:
+                    text = text[:max_len-1] + "…"
+                tw, th = ldraw.textsize(text, font=font)
+                # draw centered
+                ldraw.text((tx - tw//2, ty - th//2), text, font=font, fill=(0,0,0))
+
+            # combine base + labels into a single wheel image
+            wheel_img = Image.alpha_composite(base, labels)
+
+            # gif frames: rotate the wheel so that it spins and lands on winner
+            # compute target angle so that winner segment mid angle ends at top (0 degrees)
+            target_mid = (360.0 * winner_index / num + 360.0 * (winner_index+1) / num) / 2
+            # the wheel rotation is negative of segment angle (since pointer at top)
+            target_rotation = -target_mid
+
+            # generate frames: start from random offset and spin multiple turns decelerating
+            start_rotation = random.uniform(0, 360)
+            total_turns = random.uniform(3, 6)  # full rotations
+            final_rotation = start_rotation + total_turns * 360 + target_rotation
+
+            frames = []
+            frame_count = 40
+            for f in range(frame_count):
+                t = f / (frame_count - 1)
+                # ease out cubic
+                ease = 1 - pow(1 - t, 3)
+                rot = start_rotation + (final_rotation - start_rotation) * ease
+                # rotate wheel_img around center
+                frame = wheel_img.rotate(rot, resample=Image.BICUBIC, center=(center, center))
+                # create full canvas with pointer and label area
+                canvas = Image.new("RGBA", (size, size+80), (255,255,255,255))
+                canvas.paste(frame, (0,0), frame)
+                cdraw = ImageDraw.Draw(canvas)
+                # draw pointer at top center
+                pointer = [(center-24, 6), (center+24, 6), (center, 60)]
+                cdraw.polygon(pointer, fill=(30,30,30))
+                # draw winner label placeholder (will fill after frames)
+                frames.append(canvas.convert("P"))
+
+            # attach winner label to final frame
+            try:
+                font_sm = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
+            except Exception:
+                font_sm = ImageFont.load_default()
+            winner_text = f"Winner: { (await bot.fetch_user(winner_id)).display_name }"
+            final = frames[-1].convert("RGBA")
+            fdraw = ImageDraw.Draw(final)
+            wtw, wth = fdraw.textsize(winner_text, font=font_sm)
+            fdraw.rectangle(((size- wtw)//2 - 10, size - 60, (size+wtw)//2 + 10, size - 10), fill=(255,255,255,200))
+            fdraw.text(((size-wtw)/2, size-55), winner_text, fill=(0,0,0), font=font_sm)
+            frames[-1] = final.convert("P")
+
+            # save GIF
+            img_dir = os.path.join(os.path.dirname(__file__), ".temp")
+            os.makedirs(img_dir, exist_ok=True)
+            img_path = os.path.join(img_dir, f"wheel_{int(time.time())}.gif")
+            # duration per frame in ms; with frame_count ~40 and 125ms gives ~5 seconds
+            frames[0].save(img_path, save_all=True, append_images=frames[1:], duration=125, loop=0, optimize=False)
+        except Exception as e:
+            print("Failed to generate wheel image/gif:", e)
+            img_path = None
+
+    # send the generated image (or fallback text) and wait ~5 seconds
+    try:
+        if img_path and os.path.isfile(img_path):
+            file = discord.File(img_path)
+            await channel.send(content="The wheel spins... 🎡", file=file)
+        else:
+            # fallback simple announcement
+            names_mention = " | ".join([f"<@{uid}>" for uid in chosen_participants])
+            await channel.send("Spinning: " + names_mention)
+    except Exception:
+        pass
+
+    # short pause to simulate spinning (approx 5 seconds)
+    await asyncio.sleep(5)
+
+    # choose winner among full participants (not only displayed slice subset)
     winner_id = random.choice(participants)
     winner_mention = f"<@{winner_id}>"
 
