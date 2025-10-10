@@ -942,7 +942,21 @@ async def wheels_start(interaction: discord.Interaction):
                 max_len = 18
                 if len(text) > max_len:
                     text = text[:max_len-1] + "…"
-                tw, th = ldraw.textsize(text, font=font)
+                # compute text size robustly: prefer draw.textbbox, fall back to font.getsize or font.getbbox
+                try:
+                    bbox = ldraw.textbbox((0, 0), text, font=font)
+                    tw = bbox[2] - bbox[0]
+                    th = bbox[3] - bbox[1]
+                except Exception:
+                    try:
+                        tw, th = font.getsize(text)
+                    except Exception:
+                        try:
+                            bbox2 = font.getbbox(text)
+                            tw = bbox2[2] - bbox2[0]
+                            th = bbox2[3] - bbox2[1]
+                        except Exception:
+                            tw, th = (0, 0)
                 # draw centered
                 ldraw.text((tx - tw//2, ty - th//2), text, font=font, fill=(0,0,0))
 
@@ -987,7 +1001,21 @@ async def wheels_start(interaction: discord.Interaction):
             winner_text = f"Winner: { (await bot.fetch_user(winner_id)).display_name }"
             final = frames[-1].convert("RGBA")
             fdraw = ImageDraw.Draw(final)
-            wtw, wth = fdraw.textsize(winner_text, font=font_sm)
+            # compute winner text size robustly: prefer textbbox, then font.getsize/getbbox
+            try:
+                bbox = fdraw.textbbox((0, 0), winner_text, font=font_sm)
+                wtw = bbox[2] - bbox[0]
+                wth = bbox[3] - bbox[1]
+            except Exception:
+                try:
+                    wtw, wth = font_sm.getsize(winner_text)
+                except Exception:
+                    try:
+                        bbox2 = font_sm.getbbox(winner_text)
+                        wtw = bbox2[2] - bbox2[0]
+                        wth = bbox2[3] - bbox2[1]
+                    except Exception:
+                        wtw, wth = (0, 0)
             fdraw.rectangle(((size- wtw)//2 - 10, size - 60, (size+wtw)//2 + 10, size - 10), fill=(255,255,255,200))
             fdraw.text(((size-wtw)/2, size-55), winner_text, fill=(0,0,0), font=font_sm)
             frames[-1] = final.convert("P")
