@@ -12,6 +12,8 @@ import sqlite3
 import time
 import random
 import math
+import logging
+from datetime import date
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -69,6 +71,31 @@ intents = discord.Intents.default()
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+# Basic logging so we can see exceptions in hosted environments (Railway etc.)
+logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [%(levelname)s] %(name)s: %(message)s')
+
+
+# helper to run tasks safely and log uncaught exceptions
+async def run_coro_safe(coro, name: str | None = None):
+    try:
+        await coro
+    except Exception:
+        logging.exception(f"Uncaught exception in background task {name}")
+
+
+@bot.event
+async def on_ready():
+    try:
+        logging.info(f"Bot ready. Logged in as: {bot.user} (id={getattr(bot.user, 'id', None)})")
+        # attempt to sync commands and log the count
+        try:
+            synced = await bot.tree.sync()
+            logging.info(f"Synced {len(synced)} application commands")
+        except Exception as e:
+            logging.warning(f"Failed to sync commands: {e}")
+    except Exception:
+        logging.exception("Exception in on_ready")
 
 # ---------------- WORD CHAIN GAME (in-memory) ----------------
 class WordChainGame:
@@ -247,7 +274,8 @@ class WordChainView(discord.ui.View):
             except Exception:
                 pass
         # begin turn loop
-        asyncio.create_task(run_wordchain_game(game))
+        # run game in background but catch/log any uncaught exceptions
+        asyncio.create_task(run_coro_safe(run_wordchain_game(game), name=f"wordchain-{game.channel.id}"))
 
 
 async def run_wordchain_game(game: WordChainGame):
@@ -404,6 +432,28 @@ def init_db():
         )
         """
     )
+    # Ghost currency balances
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ghosts_balances (
+            user_id INTEGER PRIMARY KEY,
+            ghosts INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    # Shop items: guild_id NULL means global
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS shop_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER,
+            name TEXT NOT NULL,
+            price INTEGER NOT NULL,
+            role_id INTEGER,
+            metadata TEXT
+        )
+        """
+    )
     conn.commit()
     conn.close()
 
@@ -475,6 +525,73 @@ def ensure_participant_images(msg_id: int, participants: list[int]):
     meta["image_map"] = image_map
     tournaments_meta[msg_id] = meta
     return image_map
+
+# --------- Ghost currency helpers & shop ---------
+GHOST_EMOJI = "👻"
+
+def add_ghosts(user_id: int, amount: int):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("INSERT INTO ghosts_balances(user_id, ghosts) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET ghosts = ghosts + ?", (user_id, amount, amount))
+    conn.commit()
+    conn.close()
+
+def get_ghosts(user_id: int) -> int:
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT ghosts FROM ghosts_balances WHERE user_id = ?", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else 0
+
+def set_ghosts(user_id: int, amount: int):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("INSERT INTO ghosts_balances(user_id, ghosts) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET ghosts = ?", (user_id, amount, amount))
+    conn.commit()
+    conn.close()
+
+def list_shop_items(guild_id: int | None = None):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    if guild_id:
+        cur.execute("SELECT id, name, price, role_id FROM shop_items WHERE guild_id = ?", (guild_id,))
+    else:
+        cur.execute("SELECT id, name, price, role_id FROM shop_items WHERE guild_id IS NULL")
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+def add_shop_item(name: str, price: int, guild_id: int | None = None, role_id: int | None = None, metadata: str | None = None):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("INSERT INTO shop_items(guild_id, name, price, role_id, metadata) VALUES (?, ?, ?, ?, ?)", (guild_id, name, price, role_id, metadata))
+    conn.commit()
+    conn.close()
+
+def remove_shop_item(item_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM shop_items WHERE id = ?", (item_id,))
+    conn.commit()
+    conn.close()
+
+def get_shop_item(item_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT id, guild_id, name, price, role_id, metadata FROM shop_items WHERE id = ?", (item_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+def maybe_halloween_announce(channel: discord.abc.GuildChannel):
+    today = date.today()
+    if today.month == 10 and 25 <= today.day <= 31:
+        if random.random() < 0.25:
+            try:
+                asyncio.create_task(run_coro_safe(channel.send(f"Halloween event active! In this game the winner will receive {GHOST_EMOJI} ghosts."), name=f"halloween-announce-{getattr(channel, 'id', 'chan')}"))
+            except Exception:
+                pass
 
 class TournamentView(discord.ui.View):
     def __init__(self, host: discord.Member | None = None, timeout: int | None = None):
@@ -707,6 +824,18 @@ class TournamentView(discord.ui.View):
         except discord.HTTPException as e:
             print(f"Warning: failed to send final announcement: {e}")
 
+        # Award ghosts for the tournament: 2 ghosts per participant
+        try:
+            participants_total = len(participants)
+            ghosts_awarded = 2 * participants_total
+            add_ghosts(winner_id, ghosts_awarded)
+            try:
+                await channel.send(f"{GHOST_EMOJI} {ghosts_awarded} ghosts have been awarded to {winner_mention}!")
+            except Exception:
+                pass
+        except Exception:
+            pass
+
         # Optionally disable buttons after start
         for child in self.children:
             child.disabled = True
@@ -738,6 +867,90 @@ class TournamentView(discord.ui.View):
             print(f"Warning: cannot edit message {interaction.message.id} to add results - missing permissions.")
         except discord.HTTPException as e:
             print(f"Warning: failed to edit message {interaction.message.id} to add results: {e}")
+
+
+# ---------------- Slash commands: ghosts balance & shop ----------------
+@bot.tree.command(name="ghosts", description="Check your ghost balance")
+@app_commands.describe(user="User to check (optional)")
+async def ghosts_balance(interaction: discord.Interaction, user: discord.User | None = None):
+    target = user or interaction.user
+    bal = get_ghosts(target.id)
+    await interaction.response.send_message(f"{GHOST_EMOJI} {bal} ghosts — {target.mention}", ephemeral=True)
+
+
+shop_group = app_commands.Group(name="shop", description="Ghost shop commands")
+try:
+    bot.tree.add_command(shop_group)
+except Exception:
+    pass
+
+
+@shop_group.command(name="list", description="List available shop items for this server or global ones")
+async def shop_list(interaction: discord.Interaction):
+    gid = interaction.guild.id if interaction.guild else None
+    items = list_shop_items(gid)
+    if not items:
+        items = list_shop_items(None)
+    if not items:
+        await interaction.response.send_message("No shop items available.", ephemeral=True)
+        return
+    lines = []
+    for row in items:
+        item_id, name, price, role_id = row[0], row[1], row[2], row[3]
+        role_part = f" (role: <@&{role_id}>)" if role_id else ""
+        lines.append(f"{item_id}: {name} — {price} {GHOST_EMOJI}{role_part}")
+    await interaction.response.send_message("\n".join(lines), ephemeral=True)
+
+
+@shop_group.command(name="buy", description="Buy a shop item using ghosts")
+@app_commands.describe(item_id="ID of the shop item to buy")
+async def shop_buy(interaction: discord.Interaction, item_id: int):
+    row = get_shop_item(item_id)
+    if not row:
+        await interaction.response.send_message("Item not found.", ephemeral=True)
+        return
+    _, guild_id, name, price, role_id, metadata = row
+    # check guild scope
+    if guild_id and (not interaction.guild or interaction.guild.id != guild_id):
+        await interaction.response.send_message("This item is not available in this server.", ephemeral=True)
+        return
+    user_id = interaction.user.id
+    bal = get_ghosts(user_id)
+    if bal < price:
+        await interaction.response.send_message(f"Not enough {GHOST_EMOJI}. You have {bal}, but item costs {price}.", ephemeral=True)
+        return
+    # deduct
+    add_ghosts(user_id, -price)
+    # assign role if applicable
+    if role_id and interaction.guild:
+        try:
+            role = interaction.guild.get_role(role_id)
+            if role:
+                await interaction.user.add_roles(role)
+        except Exception:
+            pass
+    await interaction.response.send_message(f"Purchased **{name}** for {price} {GHOST_EMOJI}.", ephemeral=True)
+
+
+@shop_group.command(name="add", description="(Admin) Add a shop item to this server or global")
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.describe(name="Item name", price="Price in ghosts", role="Optional role to grant")
+async def shop_add(interaction: discord.Interaction, name: str, price: int, role: discord.Role | None = None, global_item: bool = False):
+    gid = None if global_item else (interaction.guild.id if interaction.guild else None)
+    role_id = role.id if role else None
+    add_shop_item(name=name, price=price, guild_id=gid, role_id=role_id)
+    await interaction.response.send_message(f"Added shop item: {name} — {price} {GHOST_EMOJI}", ephemeral=True)
+
+
+@shop_group.command(name="remove", description="(Admin) Remove a shop item by id")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def shop_remove(interaction: discord.Interaction, item_id: int):
+    row = get_shop_item(item_id)
+    if not row:
+        await interaction.response.send_message("Item not found.", ephemeral=True)
+        return
+    remove_shop_item(item_id)
+    await interaction.response.send_message(f"Removed shop item {item_id}.", ephemeral=True)
 
     @discord.ui.button(label="Cancel Tournament", style=discord.ButtonStyle.secondary, emoji="❌")
     async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1286,8 +1499,8 @@ async def house_start(interaction: discord.Interaction, game_id: str):
             pass
 
     await interaction.response.send_message(f"Game {game.id} started. See {ch.mention if ch else game.channel_id}.", ephemeral=False)
-    # start simple turn loop task
-    asyncio.create_task(run_house_game(game))
+    # start simple turn loop task (run safely to log exceptions)
+    asyncio.create_task(run_coro_safe(run_house_game(game), name=f"house-{game.id}"))
 
 
 @house_group.command(name="action", description="Perform an action in the House game when it's your turn.")
@@ -1532,34 +1745,31 @@ async def show_schedule(interaction: discord.Interaction):
     # Build description with Discord timestamps: we will create a UTC timestamp for each slot (today at slot:00 UTC)
     desc_lines = []
     for hour in range(24):
-        # compute unix ts for today at hour:00 UTC
+        # compute unix ts for today at hour:00 UTC (for user's local display)
         struct = time.strptime(f"{today} {hour:02d}:00:00", "%Y-%m-%d %H:%M:%S")
         ts = int(time.mktime(struct))
-        # Discord will display the timestamp according to the viewer's local timezone when using <t:...:t>
         time_token = f"<t:{ts}:t>"
         entries = slots.get(hour) or []
         if entries:
             entry_text = ", ".join([f"<@{uid}> ({game})" for uid, game in entries])
         else:
             entry_text = "(empty)"
-        # Format hour to 12-hour AM/PM for display label
-        label = time.strftime("%I %p", time.strptime(f"{hour:02d}", "%H"))
-        # remove leading zero from hour label
-        if label.startswith("0"):
-            label = label[1:]
-        desc_lines.append(f"**{label}** — {time_token} : {entry_text}")
+        # display slot number 1..24 on the left for simpler selection
+        slot_label = hour + 1
+        desc_lines.append(f"**{slot_label}** — {time_token} : {entry_text}")
 
     embed = discord.Embed(title="Schedule (24h)", description="\n".join(desc_lines), color=0x00BFFF)
     await interaction.response.send_message(embed=embed, ephemeral=False)
 
 
-@schedule_group.command(name="add", description="Add yourself to a slot")
-@app_commands.describe(time="Hour in 0-23 (server local 24h)", game="Game or note to add")
-async def add_schedule(interaction: discord.Interaction, time: int, game: str):
-    # normalize time to 0-23
-    if time < 0 or time > 23:
-        await interaction.response.send_message("Please provide an hour between 0 and 23.", ephemeral=True)
+@schedule_group.command(name="add", description="Add yourself to a numbered slot (1-24)")
+@app_commands.describe(slot="Slot number 1-24", game="Game or note to add")
+async def add_schedule(interaction: discord.Interaction, slot: int, game: str):
+    # normalize slot to 1-24 and convert to 0-23 index for storage
+    if slot < 1 or slot > 24:
+        await interaction.response.send_message("Please provide a slot number between 1 and 24.", ephemeral=True)
         return
+    time = slot - 1
 
     # Use UTC date to store daily entries that reset every 24h at midnight UTC
     today = _current_date_str()
@@ -1575,7 +1785,9 @@ async def add_schedule(interaction: discord.Interaction, time: int, game: str):
     finally:
         conn.close()
 
-    await interaction.response.send_message(f"Added you to {time:02d}:00 UTC for '{game}'. Use `/schedule show` to view.", ephemeral=True)
+    # show user the friendly slot number and the UTC hour
+    display_slot = time + 1
+    await interaction.response.send_message(f"Added you to slot {display_slot} ({time:02d}:00 UTC) for '{game}'. Use `/schedule show` to view.", ephemeral=True)
 
 
 # register the group with the bot's command tree
