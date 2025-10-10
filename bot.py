@@ -1599,12 +1599,13 @@ async def wheels_start(interaction: discord.Interaction):
 
 # ---------------- CASA EMBRUJADA (House) - Prototype ----------------
 from uuid import uuid4
+from typing import Optional
 
 # In-memory storage for house games: game id string -> HouseGame (games are inferred by channel or host)
 house_games: dict[str, dict] = {}
 
 
-def find_game_by_channel(channel: discord.abc.Messageable | None) -> "HouseGame" | None:
+def find_game_by_channel(channel: discord.abc.Messageable | None) -> Optional["HouseGame"]:
     if not channel:
         return None
     for g in house_games.values():
@@ -1613,14 +1614,14 @@ def find_game_by_channel(channel: discord.abc.Messageable | None) -> "HouseGame"
     return None
 
 
-def find_lobby_game_by_host(user: discord.User | discord.Member) -> "HouseGame" | None:
+def find_lobby_game_by_host(user: discord.User | discord.Member) -> Optional["HouseGame"]:
     for g in house_games.values():
         if g.host_id == getattr(user, 'id', None) and g.state == 'lobby':
             return g
     return None
 
 
-def find_pending_game_for_player(user: discord.User | discord.Member) -> "HouseGame" | None:
+def find_pending_game_for_player(user: discord.User | discord.Member) -> Optional["HouseGame"]:
     # find a game where the user is invited but not accepted yet, prefer lobby
     for g in house_games.values():
         meta = g.players.get(getattr(user, 'id', None))
