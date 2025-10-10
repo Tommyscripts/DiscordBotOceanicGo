@@ -1,0 +1,150 @@
+How to Play - Halloween Events for Discord
+==========================================
+
+1) Night of Mystery (Murder Mystery)
+------------------------------------
+
+Overview
+--------
+Night of Mystery is a social, role-based hidden-identity game for 6–12 players. Each player receives a secret role (Assassin, Detective, Doctor, or Civilian). The game alternates between Night (hidden actions) and Day (open discussion + voting). The goal: Assassins try to eliminate all non-assassins; Civilians and special roles try to find and eject the assassin(s).
+
+Setup
+-----
+- Channels:
+  - #mystery-lobby — public lobby to create and join games.
+  - (private) #mystery-<id> — created by the bot for each active game; visible only to participants.
+  - DMs — bot sends role info and action prompts.
+- Permissions:
+  - Bot requires Create/Delete Channels, Manage Roles (optional), Send Messages, and Manage Messages.
+
+Commands (slash)
+----------------
+- /mm create [min_players:int] [max_players:int]
+  - Create a new mystery game lobby. Host auto-joins.
+- /mm join
+  - Join a lobby.
+- /mm leave
+  - Leave a lobby (before start).
+- /mm start
+  - Start the game (host or authorized user).
+- /mm action <target>
+  - Night action for roles (used via DM or in private channel as needed).
+- /mm vote @user
+  - Vote to eject a suspect during Day.
+- /mm status
+  - Show current state, players and round.
+
+Gameplay Flow
+-------------
+1. Host creates a lobby: /mm create 6 12.
+2. Players join: /mm join.
+3. When ready, host runs /mm start. Bot:
+   - Randomly assigns roles and DMs each player their role and private instructions.
+   - Creates private channel #mystery-<id> visible to participants.
+4. Night Phase:
+   - Bot DMs roles that act at night (Assassin chooses a target with /mm action @target; Doctor can protect a target; Detective may investigate).
+   - The bot resolves night actions (kills, saves, investigations).
+5. Day Phase:
+   - Bot posts a summary (who died, clues).
+   - Players discuss in the private channel, then vote with /mm vote @user.
+6. Repeat Night → Day until a win condition:
+   - Assassins win if they equal or outnumber other players.
+   - Civilians win if all assassins are eliminated.
+7. Bot announces winners, posts a final summary, and deletes or archives the private channel.
+
+Roles & Basic Rules
+-------------------
+- Assassin (1–2): Select a target each night. Hidden.
+- Detective (1): Investigates one player each night; receives truth/fake clue (tunable).
+- Doctor (optional, 1): Protect one player per night (can protect self).
+- Civilians: No special night action.
+
+Important Notes
+---------------
+- All night actions are resolved anonymously by the bot.
+- If a player disconnects mid-game, host can choose to continue, auto-pass, or replace the player.
+- Keep a record of actions for audit (bot should log them).
+
+Tips for Running
+----------------
+- Use a time limit for discussion and voting to keep pace.
+- If players are new, reveal a short tutorial in lobby.
+- To avoid griefing, restrict channel creation to trusted bots and keep logs.
+
+---
+
+2) Haunted House (Casa Embrujada) — Private Channel Adventure
+------------------------------------------------------------
+
+
+Example Walkthrough (Solo)
+--------------------------
+1. Host /house create solo → bot creates game id ab12cd and channel #casa-ab12cd.
+2. Bot posts intro in channel: “You arrive at the old house. Doors lead north and east.”
+3. Player turn:
+   - Player types: /house action ab12cd search
+   - Bot replies in channel: “You search the foyer and find an ancient key!”
+4. Player uses the key at the locked door: /house action ab12cd use ancient key on door
+5. Bot resolves and reveals next room, possible enemy or puzzle.
+
+Example Walkthrough (Multi)
+---------------------------
+1. Host creates multi-game: /house create multi 4
+2. Host invites players: /house invite @A gameid; players accept via DM with /house accept <gameid>
+3. When all accepted, host runs /house start <gameid>
+4. In-game:
+   - Turns rotate between players. Enemies have higher HP and puzzles may need two players activating levers simultaneously.
+   - If a player is down (HP ≤ 0), they become incapacitated until revived by a medkit or resuscitation action.
+
+Design Notes & Balancing
+------------------------
+- Turn timeout: keep it short (15–30s) to keep game flowing; increase for puzzles if needed.
+- Loot & risk balance: multi-player should reward cooperation with more loot but scale dangers accordingly.
+- Persistent progression: optionally persist player stats (e.g., items or achievements) in a small DB for multi-session campaigns.
+- Fair play: log all critical actions (attacks, deaths, puzzle unlocks) to prevent disputes.
+
+Tips for Hosts
+--------------
+- Announce rules and turn timers in lobby.
+- Encourage voice chat for real-time strategy in multi-player games.
+- For big servers, create dedicated “events” role so only approved hosts can create game channels.
+
+---
+
+Commands Quick Reference
+------------------------
+Murder Mystery (Night of Mystery):
+  /mm create [min] [max]
+  /mm join
+  /mm leave
+  /mm start
+  /mm action <target>
+  /mm vote @user
+  /mm status
+
+Haunted House (Casa Embrujada):
+  /house create [mode] [max_players]
+  /house invite @user <game_id>
+  /house accept <game_id>
+  /house start <game_id>
+  /house action <game_id> <action> [target]
+  /house status <game_id>
+  /house leave <game_id>
+  /house end <game_id>
+
+---
+
+Quick Admin Checklist
+---------------------
+- Make sure the bot has these permissions:
+  - Create/Delete Channels
+  - Manage Roles (optional)
+  - Manage Channels
+  - Send Messages / Embed Links / Attach Files
+  - Read Message History
+- Create optional category for event channels (e.g., “Halloween Events”) and set category permissions so the bot can create channels inside it.
+- Prepare assets: a few themed images, icons, and small sound clips for atmosphere (optional).
+
+---
+
+End of document.
