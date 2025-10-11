@@ -396,6 +396,50 @@ async def slash_wordchain(interaction: discord.Interaction, timeout: int = 15):
         except Exception:
             game.lobby_message_id = None
 
+        # Help commands explaining how to play 'home' and 'mm'
+
+
+        @bot.tree.command(name="home", description="Explicación rápida de cómo se juega a 'home'")
+        async def slash_home(interaction: discord.Interaction):
+            """Responde con una explicación en español de cómo se juega a 'home'."""
+            text = (
+                "**Cómo se juega a Home**\n"
+                "1. Objetivo: Llegar a tu 'home' acumulando puntos/objetos según las reglas del canal.\n"
+                "2. Turnos: Normalmente los jugadores actúan por turnos; presta atención a los mensajes del canal.\n"
+                "3. Acciones: Usa los comandos que el canal indique (por ejemplo, apostar, mover, o reaccionar).\n"
+                "4. Penalizaciones: Evita acciones inválidas o fuera de turno para no perder puntos/vidas.\n"
+                "5. Ganador: El primero en alcanzar los puntos/condiciones de 'home' gana.\n\n"
+                "Si necesitas las reglas exactas para tu servidor, pregunta a un moderador o consulta el canal de reglas."
+            )
+            try:
+                await interaction.response.send_message(text, ephemeral=False)
+            except Exception:
+                try:
+                    await interaction.channel.send(text)
+                except Exception:
+                    pass
+
+
+        @bot.tree.command(name="mm", description="Explicación rápida de cómo se juega a 'mm'")
+        async def slash_mm(interaction: discord.Interaction):
+            """Responde con una explicación en español de cómo se juega a 'mm'."""
+            text = (
+                "**Cómo se juega a MM**\n"
+                "1. Objetivo: Completar la mecánica principal del mini-juego 'mm' (por ejemplo, adivinar, emparejar o competir).\n"
+                "2. Inicio: Ejecuta el comando `/mm` para ver las opciones o para comenzar una ronda si el bot lo permite.\n"
+                "3. Reglas comunes: Sigue las indicaciones que aparezcan tras iniciar la partida (tiempo límite, número de intentos, puntos por acierto).\n"
+                "4. Interacción: Responde en el canal o utiliza botones/selecciones provistas por el bot durante la partida.\n"
+                "5. Fin: Al terminar la ronda se anunciará el ganador y se repartirán recompensas si aplican.\n\n"
+                "Si quieres reglas específicas, solicita en el canal de juego o a un moderador para obtener la versión oficial del servidor."
+            )
+            try:
+                await interaction.response.send_message(text, ephemeral=False)
+            except Exception:
+                try:
+                    await interaction.channel.send(text)
+                except Exception:
+                    pass
+
 # If provided, set the application's ID on the bot (useful for some interactions)
 if APPLICATION_ID:
     try:
