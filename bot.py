@@ -2300,6 +2300,36 @@ except Exception:
     pass
 
 
+@schedule_group.command(name="delete", description="Remove your signup from a numbered slot (1-24)")
+@app_commands.describe(slot="Slot number 1-24 to remove your signup from")
+async def delete_schedule(interaction: discord.Interaction, slot: int):
+    """Delete the invoking user's signup for the given slot (UTC date: today)."""
+    # validate slot
+    if slot < 1 or slot > 24:
+        await interaction.response.send_message("Please provide a slot number between 1 and 24.", ephemeral=True)
+        return
+    time_idx = slot - 1
+
+    today = _current_date_str()
+    _cleanup_old_schedule()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute("DELETE FROM schedule_entries WHERE date = ? AND slot = ? AND user_id = ?", (today, time_idx, interaction.user.id))
+        deleted = cur.rowcount
+        conn.commit()
+    except Exception as e:
+        print("DB error deleting schedule:", e)
+        deleted = 0
+    finally:
+        conn.close()
+
+    if deleted:
+        await interaction.response.send_message(f"Removed your signup from slot {slot} ({time_idx:02d}:00 UTC). Use `/schedule show` to view.", ephemeral=True)
+    else:
+        await interaction.response.send_message(f"No signup found for you in slot {slot}. Use `/schedule show` to check current signups.", ephemeral=True)
+
+
 @bot.tree.command(name="resync", description="Force re-sync application commands in this guild (admins only)")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def resync_commands(interaction: discord.Interaction):
