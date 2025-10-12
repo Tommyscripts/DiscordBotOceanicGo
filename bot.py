@@ -1352,9 +1352,9 @@ async def give_ghosts(interaction: discord.Interaction, target: discord.User, am
         # proceed to give ghosts
         add_ghosts(target.id, amount)
         bal = get_ghosts(target.id)
-    await safe_reply(interaction, f"{GHOST_EMOJI} {amount} ghosts given to {target.mention}. New balance: {bal}")
+        await safe_reply(interaction, f"{GHOST_EMOJI} {amount} ghosts given to {target.mention}. New balance: {bal}")
     except Exception as e:
-    await safe_reply(interaction, f"Error giving ghosts: {e}")
+        await safe_reply(interaction, f"Error giving ghosts: {e}")
 
 
 shop_group = app_commands.Group(name="shop", description="Ghost shop commands")
