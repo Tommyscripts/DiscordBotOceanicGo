@@ -4,3 +4,4 @@ __pycache__/
 *.py[cod]
 furby_stats.db
 .env.example
+IDEAS.md
