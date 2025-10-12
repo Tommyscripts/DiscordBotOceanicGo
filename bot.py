@@ -13,7 +13,7 @@ import time
 import random
 import math
 import logging
-from datetime import date
+from datetime import date, datetime, timedelta
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -489,7 +489,24 @@ def init_db():
         """
         CREATE TABLE IF NOT EXISTS settings (
             guild_id INTEGER PRIMARY KEY,
-            staff_role_id INTEGER
+            staff_role_id INTEGER,
+            mod_ban_role_id INTEGER,
+            mod_kick_role_id INTEGER,
+            mod_mute_role_id INTEGER
+        )
+        """
+    )
+    # moderation log
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mod_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER,
+            action TEXT,
+            target_id INTEGER,
+            moderator_id INTEGER,
+            reason TEXT,
+            created_at TEXT
         )
         """
     )
@@ -648,6 +665,306 @@ def get_staff_role(guild_id: int) -> int | None:
     row = cur.fetchone()
     conn.close()
     return row[0] if row and row[0] is not None else None
+
+
+def set_mod_role(guild_id: int, command: str, role_id: int | None):
+    """Set role id for a moderation command (ban/kick/mute) in settings table."""
+    field = None
+    if command == 'ban':
+        field = 'mod_ban_role_id'
+    elif command == 'kick':
+        field = 'mod_kick_role_id'
+    elif command == 'mute':
+        field = 'mod_mute_role_id'
+    else:
+        return
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    if role_id is None:
+        cur.execute(f"INSERT INTO settings(guild_id, {field}) VALUES (?, ?) ON CONFLICT(guild_id) DO UPDATE SET {field} = NULL", (guild_id, None))
+    else:
+        cur.execute(f"INSERT INTO settings(guild_id, {field}) VALUES (?, ?) ON CONFLICT(guild_id) DO UPDATE SET {field} = ?", (guild_id, role_id, role_id))
+    conn.commit()
+    conn.close()
+
+
+def log_moderation(guild_id: int | None, action: str, target_id: int, moderator_id: int, reason: str | None = None):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("INSERT INTO mod_log(guild_id, action, target_id, moderator_id, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (guild_id, action, target_id, moderator_id, reason, datetime.utcnow().isoformat()))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def get_mod_role(guild_id: int, command: str) -> int | None:
+    field = None
+    if command == 'ban':
+        field = 'mod_ban_role_id'
+    elif command == 'kick':
+        field = 'mod_kick_role_id'
+    elif command == 'mute':
+        field = 'mod_mute_role_id'
+    else:
+        return None
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(f"SELECT {field} FROM settings WHERE guild_id = ?", (guild_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row and row[0] is not None else None
+
+
+async def has_mod_permission(interaction: discord.Interaction, command: str) -> bool:
+    """Return True if the invoking user is allowed to run moderation command.
+    Allowed if user is guild owner or has administrator/manage_guild or has the configured role for that command.
+    """
+    if not interaction.guild:
+        return False
+    # owner bypass
+    try:
+        if interaction.user.id == interaction.guild.owner_id:
+            return True
+    except Exception:
+        pass
+    # discord perms
+    try:
+        member = interaction.guild.get_member(interaction.user.id)
+        if not member:
+            member = await interaction.guild.fetch_member(interaction.user.id)
+        perms = member.guild_permissions
+        if perms.administrator or perms.manage_guild:
+            return True
+        # check role
+        role_id = get_mod_role(interaction.guild.id, command)
+        if role_id:
+            if any(r.id == role_id for r in member.roles):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+# Simple in-memory mute tracking: guild_id -> user_id -> unmute_timestamp
+muted_until: dict[int, dict[int, float]] = {}
+
+
+async def schedule_unmute_check():
+    """Background task that periodically checks mutes and unmutes when time expires."""
+    while True:
+        now = time.time()
+        to_unmute = []
+        for gid, users in list(muted_until.items()):
+            for uid, ts in list(users.items()):
+                if ts <= now:
+                    to_unmute.append((gid, uid))
+        for gid, uid in to_unmute:
+            try:
+                guild = bot.get_guild(gid)
+                if guild:
+                    member = guild.get_member(uid) or await guild.fetch_member(uid)
+                    # remove timeout (discord.py 2.3+: edit with timeout=None)
+                    if member:
+                        try:
+                            await member.edit(timed_out_until=None)
+                        except Exception:
+                            # fallback: remove 'Muted' role if exists
+                            muted_role = discord.utils.get(guild.roles, name='Muted')
+                            if muted_role and muted_role in member.roles:
+                                try:
+                                    await member.remove_roles(muted_role)
+                                except Exception:
+                                    pass
+                muted_until.get(gid, {}).pop(uid, None)
+            except Exception:
+                pass
+        await asyncio.sleep(5)
+
+
+@bot.event
+async def on_connect():
+    # start background unmute scheduler
+    try:
+        bot.loop.create_task(schedule_unmute_check())
+    except Exception:
+        pass
+
+
+@bot.tree.command(name='ban', description='Ban a user by ID. Reason optional.')
+@app_commands.describe(user_id='ID of the user to ban', reason='Optional reason')
+async def slash_ban(interaction: discord.Interaction, user_id: str, reason: str | None = None):
+    if not interaction.guild:
+        await safe_reply(interaction, 'This command must be used in a guild.')
+        return
+    if not await has_mod_permission(interaction, 'ban'):
+        await safe_reply(interaction, "No permission to use this command.")
+        return
+    # try to resolve as member or id
+    uid = None
+    member = None
+    if isinstance(user_id, str):
+        # strip mention formatting
+        cleaned = user_id.strip().lstrip('<@!').rstrip('>')
+        try:
+            uid = int(cleaned)
+        except Exception:
+            uid = None
+    else:
+        try:
+            uid = int(user_id)
+        except Exception:
+            uid = None
+    if uid is None:
+        await safe_reply(interaction, 'Invalid user id or mention.')
+        return
+    try:
+        # attempt to ban by object id (works even if user not in guild)
+        await interaction.guild.ban(discord.Object(id=uid), reason=reason)
+        log_moderation(interaction.guild.id, 'ban', uid, interaction.user.id, reason)
+        await safe_reply(interaction, f'Banned <@{uid}>.')
+    except Exception as e:
+        await safe_reply(interaction, f'Failed to ban: {e}')
+
+
+@bot.tree.command(name='kick', description='Kick a user by ID. Reason optional.')
+@app_commands.describe(user_id='ID of the user to kick', reason='Optional reason')
+async def slash_kick(interaction: discord.Interaction, user_id: str, reason: str | None = None):
+    if not interaction.guild:
+        await safe_reply(interaction, 'This command must be used in a guild.')
+        return
+    if not await has_mod_permission(interaction, 'kick'):
+        await safe_reply(interaction, "No permission to use this command.")
+        return
+    # resolve id
+    cleaned = user_id.strip().lstrip('<@!').rstrip('>') if isinstance(user_id, str) else str(user_id)
+    try:
+        uid = int(cleaned)
+    except Exception:
+        await safe_reply(interaction, 'Invalid user id or mention.')
+        return
+    try:
+        member = interaction.guild.get_member(uid) or await interaction.guild.fetch_member(uid)
+        if not member:
+            await safe_reply(interaction, 'Member not found in guild.')
+            return
+        await member.kick(reason=reason)
+        log_moderation(interaction.guild.id, 'kick', member.id, interaction.user.id, reason)
+        await safe_reply(interaction, f'Kicked {member.mention}.')
+    except Exception as e:
+        await safe_reply(interaction, f'Failed to kick: {e}')
+
+
+@bot.tree.command(name='mute', description='Mute a user by ID for a time. Reason optional. Time format: 10m, 2h, 1d')
+@app_commands.describe(user_id='ID of the user to mute', duration='Duration like 10m, 2h, 1d (optional, default permanent)', reason='Optional reason')
+async def slash_mute(interaction: discord.Interaction, user_id: str, duration: str | None = None, reason: str | None = None):
+    if not interaction.guild:
+        await safe_reply(interaction, 'This command must be used in a guild.')
+        return
+    if not await has_mod_permission(interaction, 'mute'):
+        await safe_reply(interaction, "No permission to use this command.")
+        return
+    cleaned = user_id.strip().lstrip('<@!').rstrip('>') if isinstance(user_id, str) else str(user_id)
+    try:
+        uid = int(cleaned)
+    except Exception:
+        await safe_reply(interaction, 'Invalid user id or mention.')
+        return
+    try:
+        member = interaction.guild.get_member(uid) or await interaction.guild.fetch_member(uid)
+        if not member:
+            await safe_reply(interaction, 'Member not found in guild.')
+            return
+        # parse duration
+        unmute_ts = None
+        if duration:
+            dur = duration.strip().lower()
+            mult = 1
+            if dur.endswith('m'):
+                mult = 60
+                val = dur[:-1]
+            elif dur.endswith('h'):
+                mult = 3600
+                val = dur[:-1]
+            elif dur.endswith('d'):
+                mult = 3600 * 24
+                val = dur[:-1]
+            else:
+                # assume seconds
+                val = dur
+            try:
+                secs = int(val) * mult
+                unmute_ts = time.time() + secs
+            except Exception:
+                await safe_reply(interaction, 'Invalid duration format.')
+                return
+        # prefer Discord timeout (mute) if available
+        try:
+            if unmute_ts:
+                until = datetime.utcfromtimestamp(unmute_ts)
+            else:
+                until = None
+            await member.edit(timed_out_until=until)
+        except Exception:
+            # fallback: add Muted role
+            muted_role = discord.utils.get(interaction.guild.roles, name='Muted')
+            if not muted_role:
+                # try to create role
+                try:
+                    muted_role = await interaction.guild.create_role(name='Muted', reason='Create muted role for mute command')
+                    # try to set permissions in channels
+                    for ch in interaction.guild.channels:
+                        try:
+                            await ch.set_permissions(muted_role, send_messages=False, speak=False)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            if muted_role:
+                try:
+                    await member.add_roles(muted_role, reason=reason)
+                except Exception:
+                    pass
+        # record mute and log
+        if unmute_ts:
+            users = muted_until.setdefault(interaction.guild.id, {})
+            users[member.id] = unmute_ts
+        log_moderation(interaction.guild.id, 'mute', member.id, interaction.user.id, reason)
+        await safe_reply(interaction, f'Muted {member.mention}.')
+    except Exception as e:
+        await safe_reply(interaction, f'Failed to mute: {e}')
+
+
+@bot.tree.command(name='settings_mod', description='Configure which role can use mod commands (ban/kick/mute). Only admins/owner can use.')
+@app_commands.describe(command='Which command to set (ban/kick/mute)', role='Role to allow (leave empty to unset)')
+async def slash_settings_mod(interaction: discord.Interaction, command: str, role: discord.Role | None = None):
+    # only allow owner or administrators
+    if not interaction.guild:
+        await safe_reply(interaction, 'This command must be used in a guild.')
+        return
+    try:
+        member = interaction.guild.get_member(interaction.user.id) or await interaction.guild.fetch_member(interaction.user.id)
+        perms = member.guild_permissions
+        if not (interaction.user.id == interaction.guild.owner_id or perms.administrator):
+            await safe_reply(interaction, 'Only server owner or administrators can change moderation settings.')
+            return
+    except Exception:
+        await safe_reply(interaction, 'Permission check failed.')
+        return
+    if command not in ('ban', 'kick', 'mute'):
+        await safe_reply(interaction, 'Command must be one of: ban, kick, mute')
+        return
+    role_id = role.id if role else None
+    try:
+        set_mod_role(interaction.guild.id, command, role_id)
+        if role_id:
+            await safe_reply(interaction, f'Set role {role.name} for {command}.')
+        else:
+            await safe_reply(interaction, f'Cleared role for {command}.')
+    except Exception as e:
+        await safe_reply(interaction, f'Failed to update setting: {e}')
 
 
 async def safe_reply(interaction: discord.Interaction, content: str, ephemeral: bool = True):
