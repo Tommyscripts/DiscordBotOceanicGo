@@ -1059,7 +1059,7 @@ class TournamentView(discord.ui.View):
         participants.add(interaction.user.id)
         # build a small participant preview
         preview = "\n".join([f"<@{uid}>" for uid in list(participants)[:20]])
-    await interaction.response.send_message(f"{interaction.user.mention} just joined the tournament.\nParticipants: {len(participants)}/{maxp}\n\n{preview}", ephemeral=True)
+        await interaction.response.send_message(f"{interaction.user.mention} just joined the tournament.\nParticipants: {len(participants)}/{maxp}\n\n{preview}", ephemeral=True)
         await update_tournament_message(interaction.message)
 
     @discord.ui.button(label="Leave Tournament", style=discord.ButtonStyle.danger, emoji="🚪")
@@ -1067,13 +1067,13 @@ class TournamentView(discord.ui.View):
         msg_id = interaction.message.id
         participants = tournaments.setdefault(msg_id, set())
         if interaction.user.id not in participants:
-              await interaction.response.send_message("You are not in the tournament.", ephemeral=True)
-            return
+                        await interaction.response.send_message("You are not in the tournament.", ephemeral=True)
+                        return
         participants.remove(interaction.user.id)
         meta = tournaments_meta.get(msg_id, {})
         maxp = meta.get("max_participants", 50)
         preview = "\n".join([f"<@{uid}>" for uid in list(participants)[:20]])
-    await interaction.response.send_message(f"{interaction.user.mention} left the tournament.\nParticipants: {len(participants)}/{maxp}\n\n{preview if preview else 'No participants.'}", ephemeral=True)
+        await interaction.response.send_message(f"{interaction.user.mention} left the tournament.\nParticipants: {len(participants)}/{maxp}\n\n{preview if preview else 'No participants.'}", ephemeral=True)
         await update_tournament_message(interaction.message)
 
     @discord.ui.button(label="Start Tournament", style=discord.ButtonStyle.primary, emoji="▶️")
