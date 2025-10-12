@@ -948,23 +948,23 @@ async def slash_settings_mod(interaction: discord.Interaction, command: str, rol
         member = interaction.guild.get_member(interaction.user.id) or await interaction.guild.fetch_member(interaction.user.id)
         perms = member.guild_permissions
         if not (interaction.user.id == interaction.guild.owner_id or perms.administrator):
-            await safe_reply(interaction, 'Solo el propietario del servidor o administradores pueden cambiar la configuración de moderación.')
+            await safe_reply(interaction, 'Only the server owner or administrators may change moderation settings.')
             return
     except Exception:
-        await safe_reply(interaction, 'Fallo en la comprobación de permisos.')
+        await safe_reply(interaction, 'Failed to check permissions.')
         return
     if command not in ('ban', 'kick', 'mute'):
-        await safe_reply(interaction, 'El comando debe ser uno de: ban, kick, mute')
+        await safe_reply(interaction, 'Command must be one of: ban, kick, mute')
         return
     role_id = role.id if role else None
     try:
         set_mod_role(interaction.guild.id, command, role_id)
         if role_id:
-            await safe_reply(interaction, f'Rol {role.name} establecido para {command}.')
+            await safe_reply(interaction, f'Role {role.name} set for {command}.')
         else:
-            await safe_reply(interaction, f'Rol para {command} borrado.')
+            await safe_reply(interaction, f'Role for {command} cleared.')
     except Exception as e:
-        await safe_reply(interaction, f'Error al actualizar la configuración: {e}')
+        await safe_reply(interaction, f'Error updating settings: {e}')
 
 
 async def safe_reply(interaction: discord.Interaction, content: str, ephemeral: bool = True):
@@ -1925,7 +1925,7 @@ async def wheels_start(interaction: discord.Interaction):
     wheels_meta.pop(msg_id, None)
 
 
-# ---------------- CASA EMBRUJADA (House) - Prototype ----------------
+# ---------------- HAUNTED HOUSE (House) - Prototype ----------------
 from uuid import uuid4
 from typing import Optional
 
@@ -2036,7 +2036,7 @@ class HouseGame:
         return [uid for uid, meta in self.players.items() if meta.get("accepted")]
 
 
-house_group = app_commands.Group(name="house", description="Casa Embrujada: solo or co-op private text adventures")
+house_group = app_commands.Group(name="house", description="Haunted House: solo or co-op private text adventures")
 
 
 @house_group.command(name="create", description="Create a House game (creates a private channel).")
@@ -2044,11 +2044,11 @@ house_group = app_commands.Group(name="house", description="Casa Embrujada: solo
 async def house_create(interaction: discord.Interaction, mode: str = "solo", max_players: int = 1):
     # Must be used in a guild
     if not interaction.guild:
-        await interaction.response.send_message("Este comando debe usarse en un servidor (guild).", ephemeral=True)
+        await interaction.response.send_message("This command must be used in a server (guild).", ephemeral=True)
         return
     mode = mode.lower()
     if mode not in ("solo", "multi"):
-        await interaction.response.send_message("El modo debe ser 'solo' o 'multi'.", ephemeral=True)
+        await interaction.response.send_message("Mode must be 'solo' or 'multi'.", ephemeral=True)
         return
     max_players = max(1, min(8, int(max_players)))
     # create game object
@@ -2062,35 +2062,35 @@ async def house_create(interaction: discord.Interaction, mode: str = "solo", max
         interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
     }
     try:
-        ch = await interaction.guild.create_text_channel(name=f"casa-{game.id}", overwrites=overwrites, reason="Canal privado de Casa Embrujada")
+        ch = await interaction.guild.create_text_channel(name=f"house-{game.id}", overwrites=overwrites, reason="Private House game channel")
         game.channel_id = ch.id
     except discord.Forbidden:
-        await interaction.response.send_message("El bot no tiene permiso para crear canales. Por favor otorgar permiso de Administrar Canales.", ephemeral=True)
+        await interaction.response.send_message("Bot lacks permission to create channels. Please grant Manage Channels.", ephemeral=True)
         # clean up game
         house_games.pop(game.id, None)
         return
     except Exception as e:
-        await interaction.response.send_message(f"No se pudo crear el canal: {e}", ephemeral=True)
+        await interaction.response.send_message(f"Failed to create channel: {e}", ephemeral=True)
         house_games.pop(game.id, None)
         return
 
     # initialize a small map for the house
     game.init_map(width=3, height=3)
 
-    await interaction.response.send_message(f"Creado canal privado de Casa Embrujada {ch.mention}. Invita jugadores con `/house invite @user`. Modo: {mode}.", ephemeral=False)
+    await interaction.response.send_message(f"Created private House channel {ch.mention}. Invite players with `/house invite @user`. Mode: {mode}.", ephemeral=False)
 
 
 # Subcommand to explain how to play 'house' (module-level so it registers)
-@house_group.command(name="howto", description="Explicación rápida de cómo se juega a la Casa Embrujada")
+@house_group.command(name="howto", description="Quick explanation of how to play Haunted House")
 async def house_howto(interaction: discord.Interaction):
     text = (
-        "**Cómo se juega a Casa Embrujada**\n"
-        "1. Objetivo: Explorar la casa y completar la misión asignada por el host.\n"
-        "2. Turnos: En modo multi, los jugadores actúan por turnos; presta atención a las instrucciones del host.\n"
-        "3. Interacción: Usa las opciones que el bot presente (responder, elegir puertas, usar objetos).\n"
-        "4. Penalizaciones: Evita acciones inválidas o fuera de turno para no perder progreso.\n"
-        "5. Ganador/Fin: La partida termina cuando se cumple la condición de victoria o todos los jugadores fallan.\n\n"
-        "Si necesitas reglas exactas para tu servidor, pregunta a un moderador o consulta el canal de reglas."
+        "**How to play House**\n"
+        "1. Goal: Explore the house and complete the mission assigned by the host.\n"
+        "2. Turns: In multi mode, players act in turns; follow host instructions.\n"
+        "3. Interaction: Use the options the bot presents (respond, choose doors, use items).\n"
+        "4. Penalties: Avoid invalid or out-of-turn actions to not lose progress.\n"
+        "5. End: The game ends when a win condition is met or all players fail.\n\n"
+        "Ask a moderator or check your server rules for server-specific variants."
     )
     try:
         await interaction.response.send_message(text, ephemeral=False)
@@ -2103,17 +2103,17 @@ async def house_howto(interaction: discord.Interaction):
 
 
 # Top-level /mm command (module-level so it registers)
-@bot.tree.command(name="mm", description="Explicación rápida de cómo se juega a 'mm'")
+@bot.tree.command(name="mm", description="Quick explanation of how to play 'mm'")
 async def slash_mm(interaction: discord.Interaction):
-    """Responde con una explicación en español de cómo se juega a 'mm'."""
+    """Respond with a short English explanation of how to play 'mm'."""
     text = (
-        "**Cómo se juega a MM**\n"
-        "1. Objetivo: Completar la mecánica principal del mini-juego 'mm' (por ejemplo, adivinar, emparejar o competir).\n"
-        "2. Inicio: Ejecuta el comando `/mm` para ver las opciones o para comenzar una ronda si el bot lo permite.\n"
-        "3. Reglas comunes: Sigue las indicaciones que aparezcan tras iniciar la partida (tiempo límite, número de intentos, puntos por acierto).\n"
-        "4. Interacción: Responde en el canal o utiliza botones/selecciones provistas por el bot durante la partida.\n"
-        "5. Fin: Al terminar la ronda se anunciará el ganador y se repartirán recompensas si aplican.\n\n"
-        "Si quieres reglas específicas, solicita en el canal de juego o a un moderador para obtener la versión oficial del servidor."
+        "**How to play MM**\n"
+        "1. Goal: Complete the main mechanic of the mini-game 'mm' (e.g. guess, match, or compete).\n"
+        "2. Start: Run `/mm` to see options or to begin a round if the bot allows.\n"
+        "3. Common rules: Follow the prompts shown after starting a round (time limit, number of attempts, points for correct answers).\n"
+        "4. Interaction: Reply in channel or use buttons/selections provided by the bot during the round.\n"
+        "5. End: At the end of the round the winner will be announced and rewards distributed if applicable.\n\n"
+        "For server-specific rules, ask a moderator or check the server's rules channel."
     )
     try:
         await interaction.response.send_message(text, ephemeral=False)
@@ -2148,12 +2148,15 @@ async def house_invite(interaction: discord.Interaction, user: discord.Member):
     # DM the invite with instructions
     try:
         dm = await user.create_dm()
-    await dm.send(f"Has sido invitado a la Casa Embrujada por {interaction.user.display_name}. Para aceptar, ejecuta `/house accept` aquí o en el servidor. El canal de la partida será {interaction.guild.get_channel(game.channel_id).mention} cuando seas agregado.")
+        try:
+            await dm.send(f"You have been invited to the House game by {interaction.user.display_name}. To accept, run `/house accept` here or on the server. The game channel will be {interaction.guild.get_channel(game.channel_id).mention} once added.")
+        except Exception:
+            pass
     except Exception:
         # fallback: mention in the lobby channel
         pass
 
-    await interaction.response.send_message(f"Invitado {user.mention} a la partida. Debe aceptar con `/house accept`.", ephemeral=True)
+    await interaction.response.send_message(f"Invited {user.mention} to the game. They must accept with `/house accept`.", ephemeral=True)
 
 
 @house_group.command(name="accept", description="Accept an invitation to a House game.")
@@ -2161,10 +2164,10 @@ async def house_accept(interaction: discord.Interaction):
     # infer the game where the user is invited or by channel
     game = find_pending_game_for_player(interaction.user) or find_game_by_channel(interaction.channel)
     if not game:
-        await interaction.response.send_message("Partida no encontrada.", ephemeral=True)
+        await interaction.response.send_message("Game not found.", ephemeral=True)
         return
     if interaction.user.id not in game.players:
-        await interaction.response.send_message("No has sido invitado a esta partida.", ephemeral=True)
+        await interaction.response.send_message("You have not been invited to this game.", ephemeral=True)
         return
     # mark accepted
     game.players[interaction.user.id]["accepted"] = True
@@ -2175,7 +2178,7 @@ async def house_accept(interaction: discord.Interaction):
             await ch.set_permissions(interaction.user, view_channel=True, send_messages=True)
     except Exception:
         pass
-    await interaction.response.send_message(f"Te uniste a la partida. Cuando el anfitrión comience, todos los aceptados estarán presentes.", ephemeral=True)
+    await interaction.response.send_message(f"You joined the game. When the host starts, all accepted players will be present.", ephemeral=True)
 
 
 @house_group.command(name="start", description="Start the House game (host only).")
@@ -2183,17 +2186,17 @@ async def house_start(interaction: discord.Interaction):
     # Prefer the host's lobby; fallback to channel
     game = find_lobby_game_by_host(interaction.user) or find_game_by_channel(interaction.channel)
     if not game:
-        await interaction.response.send_message("Partida no encontrada. Si creaste la partida, ejecuta este comando como anfitrión o desde el canal de la partida.", ephemeral=True)
+        await interaction.response.send_message("Game not found. If you created the game, run this command as host or from the game's channel.", ephemeral=True)
         return
     if interaction.user.id != game.host_id and not interaction.user.guild_permissions.manage_guild:
-        await interaction.response.send_message("Solo el anfitrión o un administrador puede iniciar la partida.", ephemeral=True)
+        await interaction.response.send_message("Only the host or an administrator may start the game.", ephemeral=True)
         return
     if game.state != "lobby":
-        await interaction.response.send_message("La partida ya ha comenzado o finalizado.", ephemeral=True)
+        await interaction.response.send_message("The game has already started or finished.", ephemeral=True)
         return
     accepted = game.accepted_players()
     if game.mode == "multi" and len(accepted) < 2:
-        await interaction.response.send_message("Se necesitan al menos 2 jugadores aceptados para el modo multijugador.", ephemeral=True)
+        await interaction.response.send_message("At least 2 accepted players are needed for multiplayer mode.", ephemeral=True)
         return
 
     # lock and mark started
@@ -2209,21 +2212,21 @@ async def house_start(interaction: discord.Interaction):
                 pass
         # post intro with brief instructions and initial positions
         players_list = ', '.join([f'<@{u}>' for u in accepted])
-    intro_lines = [f"Bienvenidos a la Casa Embrujada — sesión", f"Modo: {game.mode}", f"Jugadores: {players_list}"]
-        # show starting room description for each player
-        for uid in accepted:
-            pos = game.players[uid].get("position")
-            if pos and game.map:
-                x, y = pos
-                room = game.map["rooms"].get((x, y))
-                intro_lines.append(f"{f'<@{uid}>'} comienza en la habitación ({x+1},{y+1}): {room.get('desc') if room else 'Una habitación vacía.'}")
-    intro_lines.append("Cuando sea tu turno recibirás una indicación en este canal. Usa `/house action move <dirección>` o `/house action explore` o `/house action search`. Direcciones: up/down/left/right.")
-        try:
-            await ch.send("\n".join(intro_lines))
-        except Exception:
-            pass
+    intro_lines = [f"Welcome to the Haunted House — session", f"Mode: {game.mode}", f"Players: {players_list}"]
+    # show starting room description for each player
+    for uid in accepted:
+        pos = game.players[uid].get("position")
+        if pos and game.map:
+            x, y = pos
+            room = game.map["rooms"].get((x, y))
+            intro_lines.append(f"{f'<@{uid}>'} starts in room ({x+1},{y+1}): {room.get('desc') if room else 'An empty room.'}")
+    intro_lines.append("When it's your turn you'll receive a prompt in this channel. Use `/house action move <direction>` or `/house action explore` or `/house action search`. Directions: up/down/left/right.")
+    try:
+        await ch.send("\n".join(intro_lines))
+    except Exception:
+        pass
 
-    await interaction.response.send_message(f"Partida iniciada. Ver {ch.mention if ch else game.channel_id}.", ephemeral=False)
+    await interaction.response.send_message(f"Game started. See {ch.mention if ch else game.channel_id}.", ephemeral=False)
     # start simple turn loop task (run safely to log exceptions)
     asyncio.create_task(run_coro_safe(run_house_game(game), name=f"house-{game.id}"))
 
@@ -2504,7 +2507,7 @@ async def run_house_game(game: HouseGame):
             game.turn_index = (game.turn_index + 1) % max(1, len(accepted))
         game.state = "finished"
         try:
-            await ch.send("The Casa Embrujada session has ended. Thanks for playing!")
+            await ch.send("The Haunted House session has ended. Thanks for playing!")
         except Exception:
             pass
     except Exception as e:
