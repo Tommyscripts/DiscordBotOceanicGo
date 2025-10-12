@@ -206,7 +206,7 @@ class WordChainView(discord.ui.View):
         super().__init__(timeout=None)
         self.channel_id = channel_id
 
-    @discord.ui.button(label="Join", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="Unirse", style=discord.ButtonStyle.success)
     async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
         game = wordchain_games.get(self.channel_id)
         if not game:
@@ -226,7 +226,7 @@ class WordChainView(discord.ui.View):
             except Exception:
                 pass
 
-    @discord.ui.button(label="Leave", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="Salir", style=discord.ButtonStyle.danger)
     async def leave(self, interaction: discord.Interaction, button: discord.ui.Button):
         game = wordchain_games.get(self.channel_id)
         if not game:
@@ -246,7 +246,7 @@ class WordChainView(discord.ui.View):
         else:
             await interaction.response.send_message("You are not in the lobby.", ephemeral=True)
 
-    @discord.ui.button(label="Start", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="Comenzar", style=discord.ButtonStyle.primary)
     async def start(self, interaction: discord.Interaction, button: discord.ui.Button):
         game = wordchain_games.get(self.channel_id)
         if not game:
@@ -256,10 +256,10 @@ class WordChainView(discord.ui.View):
             await interaction.response.send_message("Game already started.", ephemeral=True)
             return
         if len(game.players) < 2:
-            await interaction.response.send_message("Need at least 2 players to start.", ephemeral=True)
+            await interaction.response.send_message("Se necesitan al menos 2 jugadores para empezar.", ephemeral=True)
             return
         game.started = True
-        await interaction.response.send_message("Game started! Play by sending words in this channel. You have 3 lives. Good luck!", ephemeral=False)
+        await interaction.response.send_message("¡Juego iniciado! Jueguen enviando palabras en este canal. Tienen 3 vidas. ¡Buena suerte!", ephemeral=False)
         # update lobby message to indicate game started and remove the view (disable buttons)
         if game.lobby_message_id and interaction.channel:
             try:
@@ -269,7 +269,7 @@ class WordChainView(discord.ui.View):
                     self.stop()
                 except Exception:
                     pass
-                new_content = f"Word Chain — GAME STARTED!\n\nPlayers:\n{game.format_lobby()}"
+                new_content = f"Cadena de Palabras — ¡JUEGO INICIADO!\n\nJugadores:\n{game.format_lobby()}"
                 await lobby_msg.edit(content=new_content, view=None)
             except Exception:
                 pass
@@ -284,9 +284,9 @@ async def run_wordchain_game(game: WordChainGame):
     try:
         participants_total = len(game.players)
         ghosts_awarded = max(1, 2 * participants_total)
-        await channel.send(f"Word Chain: game is live! First player will be chosen from lobby. The winner will receive {GHOST_EMOJI} {ghosts_awarded} ghosts.")
+        await channel.send(f"Cadena de Palabras: ¡el juego está en marcha! El primer jugador se elegirá desde el vestíbulo. El ganador recibirá {GHOST_EMOJI} {ghosts_awarded}.")
     except Exception:
-        await channel.send("Word Chain: game is live! First player will be chosen from lobby.")
+        await channel.send("Cadena de Palabras: ¡el juego está en marcha! El primer jugador se elegirá desde el vestíbulo.")
     # pick starting player index 0
     game.current_player_idx = 0
     # if no starter word, request first word from first player
@@ -299,7 +299,7 @@ async def run_wordchain_game(game: WordChainGame):
             break
         member_mention = f"<@{uid}>"
         try:
-            await channel.send(f"{member_mention}, it's your turn! You have {game.turn_timeout} seconds. Current word: {game.current_word or '(none)'}")
+            await channel.send(f"{member_mention}, ¡es tu turno! Tienes {game.turn_timeout} segundos. Palabra actual: {game.current_word or '(ninguna)'}")
         except Exception:
             pass
 
@@ -312,7 +312,7 @@ async def run_wordchain_game(game: WordChainGame):
         except asyncio.TimeoutError:
             # lose a life
             game.lives[uid] = max(0, game.lives.get(uid, 0) - 1)
-            await channel.send(f"Time's up! <@{uid}> loses 1 life (now {game.lives[uid]}).")
+            await channel.send(f"¡Se acabó el tiempo! <@{uid}> pierde 1 vida (ahora {game.lives[uid]}).")
             # advance index to next player
             game.current_player_idx = (game.current_player_idx + 1) % max(1, len(game.players))
             continue
@@ -320,7 +320,7 @@ async def run_wordchain_game(game: WordChainGame):
         word = msg.content.strip()
         accepted, text = game.play_word(uid, word)
         if accepted:
-            await channel.send(f"{member_mention} played **{normalize_word(word)}**.")
+            await channel.send(f"{member_mention} jugó **{normalize_word(word)}**.")
         else:
             await channel.send(text)
         # check eliminated
@@ -340,22 +340,22 @@ async def run_wordchain_game(game: WordChainGame):
             guild = channel.guild if hasattr(channel, 'guild') else None
             if await is_staff_in_guild(guild, winner):
                 try:
-                    await channel.send(f"Game over! The winner is <@{winner}> 🎉 — Congratulations! As staff you have unlimited {GHOST_EMOJI}.")
+                    await channel.send(f"¡Juego terminado! El ganador es <@{winner}> 🎉 — ¡Felicidades! Como staff tienes {GHOST_EMOJI} ilimitados.")
                 except Exception:
                     pass
             else:
                 add_ghosts(winner, ghosts_awarded)
                 try:
-                    await channel.send(f"Game over! The winner is <@{winner}> 🎉 — Congratulations! You won {GHOST_EMOJI} {ghosts_awarded}.")
+                    await channel.send(f"¡Juego terminado! El ganador es <@{winner}> 🎉 — ¡Felicidades! Has ganado {GHOST_EMOJI} {ghosts_awarded}.")
                 except Exception:
                     pass
         except Exception:
             try:
-                await channel.send(f"Game over! The winner is <@{winner}> 🎉")
+                await channel.send(f"¡Juego terminado! El ganador es <@{winner}> 🎉")
             except Exception:
                 pass
     else:
-        await channel.send("Game over! No winners — everyone lost their lives.")
+        await channel.send("¡Juego terminado! No hay ganadores — todos perdieron sus vidas.")
     # cleanup
     try:
         del wordchain_games[channel.id]
@@ -363,16 +363,16 @@ async def run_wordchain_game(game: WordChainGame):
         pass
 
 # Slash command to create lobby and start game
-@bot.tree.command(name="wordchain", description="Start a Word Chain game (join via buttons, start when ready)")
+@bot.tree.command(name="cadena_palabras", description="Inicia un juego Cadena de Palabras (únete con botones, comienza cuando estés listo)")
 @app_commands.describe(timeout="Turn timeout in seconds (10-30). Default 15")
 async def slash_wordchain(interaction: discord.Interaction, timeout: int = 15):
     # create a lobby message with Join/Leave/Start buttons
     if interaction.channel is None or not isinstance(interaction.channel, discord.TextChannel):
-        await interaction.response.send_message("This command must be used in a text channel.", ephemeral=True)
+        await interaction.response.send_message("Este comando debe usarse en un canal de texto.", ephemeral=True)
         return
     channel = interaction.channel
     if channel.id in wordchain_games:
-        await interaction.response.send_message("There's already an active lobby or game in this channel.", ephemeral=True)
+        await interaction.response.send_message("Ya hay un lobby o juego activo en este canal.", ephemeral=True)
         return
     timeout = max(5, min(30, timeout))
     game = WordChainGame(channel=channel, starter=None, turn_timeout=timeout)
@@ -381,7 +381,7 @@ async def slash_wordchain(interaction: discord.Interaction, timeout: int = 15):
     # add host as first player automatically
     game.add_player(interaction.user.id)
     # send lobby message and remember its id so we can edit it on join/leave
-    lobby_content = f"Word Chain lobby created by {interaction.user.mention}! Click Join to participate. Turn timeout: {timeout}s. Host auto-joined.\n\nPlayers:\n{game.format_lobby()}"
+    lobby_content = f"Vestíbulo de Cadena de Palabras creado por {interaction.user.mention}! Pulsa Unirse para participar. Tiempo por turno: {timeout}s. Host auto-joined.\n\nJugadores:\n{game.format_lobby()}"
     resp = await interaction.response.send_message(lobby_content, view=view)
     # when using response.send_message, the returned object isn't the message; fetch it from the channel
     try:
@@ -793,14 +793,14 @@ async def on_connect():
         pass
 
 
-@bot.tree.command(name='ban', description='Ban a user by ID. Reason optional.')
+@bot.tree.command(name='banear', description='Banear un usuario por ID. Motivo opcional.')
 @app_commands.describe(user_id='ID of the user to ban', reason='Optional reason')
 async def slash_ban(interaction: discord.Interaction, user_id: str, reason: str | None = None):
     if not interaction.guild:
-        await safe_reply(interaction, 'This command must be used in a guild.')
+        await safe_reply(interaction, 'Este comando debe usarse en una guild (servidor).')
         return
     if not await has_mod_permission(interaction, 'ban'):
-        await safe_reply(interaction, "No permission to use this command.")
+        await safe_reply(interaction, "No tienes permiso para usar este comando.")
         return
     # try to resolve as member or id
     uid = None
@@ -818,53 +818,53 @@ async def slash_ban(interaction: discord.Interaction, user_id: str, reason: str 
         except Exception:
             uid = None
     if uid is None:
-        await safe_reply(interaction, 'Invalid user id or mention.')
+        await safe_reply(interaction, 'ID de usuario o mención inválida.')
         return
     try:
         # attempt to ban by object id (works even if user not in guild)
         await interaction.guild.ban(discord.Object(id=uid), reason=reason)
         log_moderation(interaction.guild.id, 'ban', uid, interaction.user.id, reason)
-        await safe_reply(interaction, f'Banned <@{uid}>.')
+    await safe_reply(interaction, f'Baneado <@{uid}>.')
     except Exception as e:
         await safe_reply(interaction, f'Failed to ban: {e}')
 
 
-@bot.tree.command(name='kick', description='Kick a user by ID. Reason optional.')
+@bot.tree.command(name='expulsar', description='Expulsar un usuario por ID. Motivo opcional.')
 @app_commands.describe(user_id='ID of the user to kick', reason='Optional reason')
 async def slash_kick(interaction: discord.Interaction, user_id: str, reason: str | None = None):
     if not interaction.guild:
-        await safe_reply(interaction, 'This command must be used in a guild.')
+        await safe_reply(interaction, 'Este comando debe usarse en una guild (servidor).')
         return
     if not await has_mod_permission(interaction, 'kick'):
-        await safe_reply(interaction, "No permission to use this command.")
+        await safe_reply(interaction, "No tienes permiso para usar este comando.")
         return
     # resolve id
     cleaned = user_id.strip().lstrip('<@!').rstrip('>') if isinstance(user_id, str) else str(user_id)
     try:
         uid = int(cleaned)
     except Exception:
-        await safe_reply(interaction, 'Invalid user id or mention.')
+        await safe_reply(interaction, 'ID de usuario o mención inválida.')
         return
     try:
         member = interaction.guild.get_member(uid) or await interaction.guild.fetch_member(uid)
         if not member:
-            await safe_reply(interaction, 'Member not found in guild.')
+            await safe_reply(interaction, 'Miembro no encontrado en la guild.')
             return
         await member.kick(reason=reason)
         log_moderation(interaction.guild.id, 'kick', member.id, interaction.user.id, reason)
-        await safe_reply(interaction, f'Kicked {member.mention}.')
+    await safe_reply(interaction, f'Expulsado {member.mention}.')
     except Exception as e:
         await safe_reply(interaction, f'Failed to kick: {e}')
 
 
-@bot.tree.command(name='mute', description='Mute a user by ID for a time. Reason optional. Time format: 10m, 2h, 1d')
+@bot.tree.command(name='silenciar', description='Silenciar a un usuario por ID durante un tiempo. Motivo opcional. Formato de tiempo: 10m, 2h, 1d')
 @app_commands.describe(user_id='ID of the user to mute', duration='Duration like 10m, 2h, 1d (optional, default permanent)', reason='Optional reason')
 async def slash_mute(interaction: discord.Interaction, user_id: str, duration: str | None = None, reason: str | None = None):
     if not interaction.guild:
-        await safe_reply(interaction, 'This command must be used in a guild.')
+        await safe_reply(interaction, 'Este comando debe usarse en una guild (servidor).')
         return
     if not await has_mod_permission(interaction, 'mute'):
-        await safe_reply(interaction, "No permission to use this command.")
+        await safe_reply(interaction, "No tienes permiso para usar este comando.")
         return
     cleaned = user_id.strip().lstrip('<@!').rstrip('>') if isinstance(user_id, str) else str(user_id)
     try:
@@ -898,7 +898,7 @@ async def slash_mute(interaction: discord.Interaction, user_id: str, duration: s
                 secs = int(val) * mult
                 unmute_ts = time.time() + secs
             except Exception:
-                await safe_reply(interaction, 'Invalid duration format.')
+                    await safe_reply(interaction, 'Formato de duración inválido.')
                 return
         # prefer Discord timeout (mute) if available
         try:
@@ -932,39 +932,39 @@ async def slash_mute(interaction: discord.Interaction, user_id: str, duration: s
             users = muted_until.setdefault(interaction.guild.id, {})
             users[member.id] = unmute_ts
         log_moderation(interaction.guild.id, 'mute', member.id, interaction.user.id, reason)
-        await safe_reply(interaction, f'Muted {member.mention}.')
+    await safe_reply(interaction, f'{member.mention} ha sido silenciado.')
     except Exception as e:
         await safe_reply(interaction, f'Failed to mute: {e}')
 
 
-@bot.tree.command(name='settings_mod', description='Configure which role can use mod commands (ban/kick/mute). Only admins/owner can use.')
+@bot.tree.command(name='config_mod', description='Configura qué rol puede usar comandos de moderación (banear/expulsar/silenciar). Solo admins/owner pueden usarlo.')
 @app_commands.describe(command='Which command to set (ban/kick/mute)', role='Role to allow (leave empty to unset)')
 async def slash_settings_mod(interaction: discord.Interaction, command: str, role: discord.Role | None = None):
     # only allow owner or administrators
     if not interaction.guild:
-        await safe_reply(interaction, 'This command must be used in a guild.')
+        await safe_reply(interaction, 'Este comando debe usarse en una guild (servidor).')
         return
     try:
         member = interaction.guild.get_member(interaction.user.id) or await interaction.guild.fetch_member(interaction.user.id)
         perms = member.guild_permissions
         if not (interaction.user.id == interaction.guild.owner_id or perms.administrator):
-            await safe_reply(interaction, 'Only server owner or administrators can change moderation settings.')
+            await safe_reply(interaction, 'Solo el propietario del servidor o administradores pueden cambiar la configuración de moderación.')
             return
     except Exception:
-        await safe_reply(interaction, 'Permission check failed.')
+        await safe_reply(interaction, 'Fallo en la comprobación de permisos.')
         return
     if command not in ('ban', 'kick', 'mute'):
-        await safe_reply(interaction, 'Command must be one of: ban, kick, mute')
+        await safe_reply(interaction, 'El comando debe ser uno de: ban, kick, mute')
         return
     role_id = role.id if role else None
     try:
         set_mod_role(interaction.guild.id, command, role_id)
         if role_id:
-            await safe_reply(interaction, f'Set role {role.name} for {command}.')
+            await safe_reply(interaction, f'Rol {role.name} establecido para {command}.')
         else:
-            await safe_reply(interaction, f'Cleared role for {command}.')
+            await safe_reply(interaction, f'Rol para {command} borrado.')
     except Exception as e:
-        await safe_reply(interaction, f'Failed to update setting: {e}')
+        await safe_reply(interaction, f'Error al actualizar la configuración: {e}')
 
 
 async def safe_reply(interaction: discord.Interaction, content: str, ephemeral: bool = True):
@@ -1046,6 +1046,7 @@ class TournamentView(discord.ui.View):
 
     @discord.ui.button(label="Join Tournament", style=discord.ButtonStyle.success, emoji="🏆")
     async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("Te has unido al torneo.", ephemeral=True)
         msg_id = interaction.message.id
         participants = tournaments.setdefault(msg_id, set())
         meta = tournaments_meta.get(msg_id, {})
@@ -1064,6 +1065,7 @@ class TournamentView(discord.ui.View):
 
     @discord.ui.button(label="Leave Tournament", style=discord.ButtonStyle.danger, emoji="🚪")
     async def leave_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("Has salido del torneo.", ephemeral=True)
         msg_id = interaction.message.id
         participants = tournaments.setdefault(msg_id, set())
         if interaction.user.id not in participants:
@@ -1078,6 +1080,7 @@ class TournamentView(discord.ui.View):
 
     @discord.ui.button(label="Start Tournament", style=discord.ButtonStyle.primary, emoji="▶️")
     async def start_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("El torneo comienza! 🔥", ephemeral=False)
         # Only host or users with manage_guild can start
         if self.host and interaction.user != self.host and not interaction.user.guild_permissions.manage_guild:
             await interaction.response.send_message("Only the host or a manager can start the tournament.", ephemeral=True)
@@ -1325,33 +1328,33 @@ class TournamentView(discord.ui.View):
 
 
 # ---------------- Slash commands: ghosts balance & shop ----------------
-@bot.tree.command(name="ghosts", description="Check your ghost balance")
+@bot.tree.command(name="fantasmas", description="Consultar tu saldo de fantasmas")
 @app_commands.describe(user="User to check (optional)")
 async def ghosts_balance(interaction: discord.Interaction, user: discord.User | None = None):
     target = user or interaction.user
     bal = get_ghosts(target.id)
-    await interaction.response.send_message(f"{GHOST_EMOJI} {bal} ghosts — {target.mention}", ephemeral=True)
+    await interaction.response.send_message(f"{GHOST_EMOJI} {bal} fantasmas — {target.mention}", ephemeral=True)
 
 
-@bot.tree.command(name="give_ghosts", description="(Staff) Give ghosts to a user")
+@bot.tree.command(name="dar_fantasmas", description="(Staff) Dar fantasmas a un usuario")
 @app_commands.describe(target="Target user", amount="Amount of ghosts to give (can be negative)")
 async def give_ghosts(interaction: discord.Interaction, target: discord.User, amount: int):
     # Only members with the configured staff role (or fallback perms) can use this
     try:
         guild = interaction.guild
         if not guild:
-            await safe_reply(interaction, "This command must be used in a server.")
+            await safe_reply(interaction, "Este comando debe usarse en un servidor.")
             return
         # check configured staff role or fallback permissions
         if not await is_staff_in_guild(guild, interaction.user.id):
-            await safe_reply(interaction, "You are not authorized to give ghosts. Only staff can use this.")
+            await safe_reply(interaction, "No estás autorizado para dar fantasmas. Solo el staff puede usar esto.")
             return
         # proceed to give ghosts
         add_ghosts(target.id, amount)
         bal = get_ghosts(target.id)
-        await safe_reply(interaction, f"{GHOST_EMOJI} {amount} ghosts given to {target.mention}. New balance: {bal}")
+    await safe_reply(interaction, f"{GHOST_EMOJI} {amount} fantasmas dados a {target.mention}. Nuevo saldo: {bal}")
     except Exception as e:
-        await safe_reply(interaction, f"Failed to give ghosts: {e}")
+    await safe_reply(interaction, f"Error al dar fantasmas: {e}")
 
 
 shop_group = app_commands.Group(name="shop", description="Ghost shop commands")
@@ -1368,7 +1371,7 @@ async def shop_list(interaction: discord.Interaction):
     if not items:
         items = list_shop_items(None)
     if not items:
-        await interaction.response.send_message("No shop items available.", ephemeral=True)
+        await interaction.response.send_message("No hay artículos disponibles en la tienda.", ephemeral=True)
         return
     lines = []
     for row in items:
@@ -1383,17 +1386,17 @@ async def shop_list(interaction: discord.Interaction):
 async def shop_buy(interaction: discord.Interaction, item_id: int):
     row = get_shop_item(item_id)
     if not row:
-        await interaction.response.send_message("Item not found.", ephemeral=True)
+        await interaction.response.send_message("Artículo no encontrado.", ephemeral=True)
         return
     _, guild_id, name, price, role_id, metadata = row
     # check guild scope
     if guild_id and (not interaction.guild or interaction.guild.id != guild_id):
-        await interaction.response.send_message("This item is not available in this server.", ephemeral=True)
+    await interaction.response.send_message("Este artículo no está disponible en este servidor.", ephemeral=True)
         return
     user_id = interaction.user.id
     bal = get_ghosts(user_id)
     if bal < price:
-        await interaction.response.send_message(f"Not enough {GHOST_EMOJI}. You have {bal}, but item costs {price}.", ephemeral=True)
+    await interaction.response.send_message(f"No tienes suficientes {GHOST_EMOJI}. Tienes {bal}, pero el artículo cuesta {price}.", ephemeral=True)
         return
     # deduct
     add_ghosts(user_id, -price)
@@ -1405,7 +1408,7 @@ async def shop_buy(interaction: discord.Interaction, item_id: int):
                 await interaction.user.add_roles(role)
         except Exception:
             pass
-    await interaction.response.send_message(f"Purchased **{name}** for {price} {GHOST_EMOJI}.", ephemeral=True)
+    await interaction.response.send_message(f"Has comprado **{name}** por {price} {GHOST_EMOJI}.", ephemeral=True)
 
 
 @shop_group.command(name="add", description="(Admin) Add a shop item to this server or global")
@@ -1415,7 +1418,7 @@ async def shop_add(interaction: discord.Interaction, name: str, price: int, role
     gid = None if global_item else (interaction.guild.id if interaction.guild else None)
     role_id = role.id if role else None
     add_shop_item(name=name, price=price, guild_id=gid, role_id=role_id)
-    await interaction.response.send_message(f"Added shop item: {name} — {price} {GHOST_EMOJI}", ephemeral=True)
+    await interaction.response.send_message(f"Artículo añadido a la tienda: {name} — {price} {GHOST_EMOJI}", ephemeral=True)
 
 
 @shop_group.command(name="remove", description="(Admin) Remove a shop item by id")
@@ -1588,9 +1591,9 @@ except Exception:
 @app_commands.describe(text="The announcement text for the wheel")
 async def wheels_create(interaction: discord.Interaction, text: str):
     host = interaction.user
-    embed = discord.Embed(title="Wheels", description=text, color=0x22AAFF)
-    embed.add_field(name="Instructions", value="React with the same emoji the bot uses to join the wheel. The host can start with /wheels start.")
-    embed.set_footer(text=f"Host: {host.display_name}")
+    embed = discord.Embed(title="Rueda", description=text, color=0x22AAFF)
+    embed.add_field(name="Instrucciones", value="Reacciona con el mismo emoji que usa el bot para unirte a la rueda. El anfitrión puede iniciar con /wheels start.")
+    embed.set_footer(text=f"Anfitrión: {host.display_name}")
 
     # Send the message and react with a default emoji (🎡)
     view = None
@@ -1618,7 +1621,7 @@ async def wheels_create(interaction: discord.Interaction, text: str):
         "created_at": int(time.time()),
     }
 
-    await interaction.followup.send(f"Wheel created. React with {emoji} to join.", ephemeral=True)
+    await interaction.followup.send(f"Rueda creada. Reacciona con {emoji} para unirte.", ephemeral=True)
 
 
 @wheels_group.command(name="start", description="Start the wheel and pick a random winner from reactors")
@@ -1640,13 +1643,13 @@ async def wheels_start(interaction: discord.Interaction):
             break
 
     if not candidate:
-        await interaction.response.send_message("No wheel found hosted by you in this channel.", ephemeral=True)
+    await interaction.response.send_message("No se encontró una rueda creada por ti en este canal.", ephemeral=True)
         return
 
     msg_id, message_obj, meta = candidate
     participants = list(wheels.get(msg_id, set()))
     if not participants:
-        await interaction.response.send_message("No participants have joined the wheel.", ephemeral=True)
+        await interaction.response.send_message("Nadie se ha unido a la rueda.", ephemeral=True)
         return
 
     # Acknowledge start and generate a graphical wheel image
@@ -1654,9 +1657,9 @@ async def wheels_start(interaction: discord.Interaction):
     participants_count = len(participants)
     ghosts_awarded = max(1, 2 * participants_count)
     try:
-        await interaction.response.send_message(f"Spinning the wheel... 🎡 The winner will receive {GHOST_EMOJI} {ghosts_awarded}.", ephemeral=False)
+        await interaction.response.send_message(f"Girando la rueda... 🎡 El ganador recibirá {GHOST_EMOJI} {ghosts_awarded}.", ephemeral=False)
     except Exception:
-        await interaction.response.send_message("Spinning the wheel... 🎡", ephemeral=False)
+        await interaction.response.send_message("Girando la rueda... 🎡", ephemeral=False)
 
     # Prepare names (limit to 24 slices for readability)
     max_slices = 24
@@ -2038,11 +2041,11 @@ house_group = app_commands.Group(name="house", description="Casa Embrujada: solo
 async def house_create(interaction: discord.Interaction, mode: str = "solo", max_players: int = 1):
     # Must be used in a guild
     if not interaction.guild:
-        await interaction.response.send_message("This command must be used in a server (guild).", ephemeral=True)
+        await interaction.response.send_message("Este comando debe usarse en un servidor (guild).", ephemeral=True)
         return
     mode = mode.lower()
     if mode not in ("solo", "multi"):
-        await interaction.response.send_message("Mode must be 'solo' or 'multi'.", ephemeral=True)
+        await interaction.response.send_message("El modo debe ser 'solo' o 'multi'.", ephemeral=True)
         return
     max_players = max(1, min(8, int(max_players)))
     # create game object
@@ -2056,22 +2059,22 @@ async def house_create(interaction: discord.Interaction, mode: str = "solo", max
         interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
     }
     try:
-        ch = await interaction.guild.create_text_channel(name=f"casa-{game.id}", overwrites=overwrites, reason="Casa Embrujada private channel")
+        ch = await interaction.guild.create_text_channel(name=f"casa-{game.id}", overwrites=overwrites, reason="Canal privado de Casa Embrujada")
         game.channel_id = ch.id
     except discord.Forbidden:
-        await interaction.response.send_message("Bot lacks permission to create channels. Please give Manage Channels permission.", ephemeral=True)
+        await interaction.response.send_message("El bot no tiene permiso para crear canales. Por favor otorgar permiso de Administrar Canales.", ephemeral=True)
         # clean up game
         house_games.pop(game.id, None)
         return
     except Exception as e:
-        await interaction.response.send_message(f"Failed to create channel: {e}", ephemeral=True)
+        await interaction.response.send_message(f"No se pudo crear el canal: {e}", ephemeral=True)
         house_games.pop(game.id, None)
         return
 
     # initialize a small map for the house
     game.init_map(width=3, height=3)
 
-    await interaction.response.send_message(f"Created a private House channel {ch.mention}. Invite players with `/house invite @user`. Mode: {mode}.", ephemeral=False)
+    await interaction.response.send_message(f"Creado canal privado de Casa Embrujada {ch.mention}. Invita jugadores con `/house invite @user`. Modo: {mode}.", ephemeral=False)
 
 
 # Subcommand to explain how to play 'house' (module-level so it registers)
@@ -2142,12 +2145,12 @@ async def house_invite(interaction: discord.Interaction, user: discord.Member):
     # DM the invite with instructions
     try:
         dm = await user.create_dm()
-        await dm.send(f"You have been invited to the Casa Embrujada by {interaction.user.display_name}. To accept, run `/house accept` here or in the server. The game channel will be {interaction.guild.get_channel(game.channel_id).mention} when you are added.")
+    await dm.send(f"Has sido invitado a la Casa Embrujada por {interaction.user.display_name}. Para aceptar, ejecuta `/house accept` aquí o en el servidor. El canal de la partida será {interaction.guild.get_channel(game.channel_id).mention} cuando seas agregado.")
     except Exception:
         # fallback: mention in the lobby channel
         pass
 
-    await interaction.response.send_message(f"Invited {user.mention} to the game. They must accept with `/house accept`.", ephemeral=True)
+    await interaction.response.send_message(f"Invitado {user.mention} a la partida. Debe aceptar con `/house accept`.", ephemeral=True)
 
 
 @house_group.command(name="accept", description="Accept an invitation to a House game.")
@@ -2155,10 +2158,10 @@ async def house_accept(interaction: discord.Interaction):
     # infer the game where the user is invited or by channel
     game = find_pending_game_for_player(interaction.user) or find_game_by_channel(interaction.channel)
     if not game:
-        await interaction.response.send_message("Game not found.", ephemeral=True)
+        await interaction.response.send_message("Partida no encontrada.", ephemeral=True)
         return
     if interaction.user.id not in game.players:
-        await interaction.response.send_message("You have not been invited to this game.", ephemeral=True)
+        await interaction.response.send_message("No has sido invitado a esta partida.", ephemeral=True)
         return
     # mark accepted
     game.players[interaction.user.id]["accepted"] = True
@@ -2169,7 +2172,7 @@ async def house_accept(interaction: discord.Interaction):
             await ch.set_permissions(interaction.user, view_channel=True, send_messages=True)
     except Exception:
         pass
-    await interaction.response.send_message(f"You joined the game. When host starts the game everyone accepted will be present.", ephemeral=True)
+    await interaction.response.send_message(f"Te uniste a la partida. Cuando el anfitrión comience, todos los aceptados estarán presentes.", ephemeral=True)
 
 
 @house_group.command(name="start", description="Start the House game (host only).")
@@ -2177,17 +2180,17 @@ async def house_start(interaction: discord.Interaction):
     # Prefer the host's lobby; fallback to channel
     game = find_lobby_game_by_host(interaction.user) or find_game_by_channel(interaction.channel)
     if not game:
-        await interaction.response.send_message("Game not found. If you created the game, run this command as the host or run it from the game's channel.", ephemeral=True)
+        await interaction.response.send_message("Partida no encontrada. Si creaste la partida, ejecuta este comando como anfitrión o desde el canal de la partida.", ephemeral=True)
         return
     if interaction.user.id != game.host_id and not interaction.user.guild_permissions.manage_guild:
-        await interaction.response.send_message("Only the host or a manager can start the game.", ephemeral=True)
+        await interaction.response.send_message("Solo el anfitrión o un administrador puede iniciar la partida.", ephemeral=True)
         return
     if game.state != "lobby":
-        await interaction.response.send_message("Game already started or finished.", ephemeral=True)
+        await interaction.response.send_message("La partida ya ha comenzado o finalizado.", ephemeral=True)
         return
     accepted = game.accepted_players()
     if game.mode == "multi" and len(accepted) < 2:
-        await interaction.response.send_message("Need at least 2 accepted players for multi mode.", ephemeral=True)
+        await interaction.response.send_message("Se necesitan al menos 2 jugadores aceptados para el modo multijugador.", ephemeral=True)
         return
 
     # lock and mark started
@@ -2203,21 +2206,21 @@ async def house_start(interaction: discord.Interaction):
                 pass
         # post intro with brief instructions and initial positions
         players_list = ', '.join([f'<@{u}>' for u in accepted])
-        intro_lines = [f"Welcome to the Casa Embrujada — session", f"Mode: {game.mode}", f"Players: {players_list}"]
+    intro_lines = [f"Bienvenidos a la Casa Embrujada — sesión", f"Modo: {game.mode}", f"Jugadores: {players_list}"]
         # show starting room description for each player
         for uid in accepted:
             pos = game.players[uid].get("position")
             if pos and game.map:
                 x, y = pos
                 room = game.map["rooms"].get((x, y))
-                intro_lines.append(f"{f'<@{uid}>'} starts at room ({x+1},{y+1}): {room.get('desc') if room else 'An empty room.'}")
-        intro_lines.append("When it's your turn you'll be prompted in this channel. Use `/house action move <direction>` or `/house action explore` or `/house action search`. Directions: up/down/left/right.")
+                intro_lines.append(f"{f'<@{uid}>'} comienza en la habitación ({x+1},{y+1}): {room.get('desc') if room else 'Una habitación vacía.'}")
+    intro_lines.append("Cuando sea tu turno recibirás una indicación en este canal. Usa `/house action move <dirección>` o `/house action explore` o `/house action search`. Direcciones: up/down/left/right.")
         try:
             await ch.send("\n".join(intro_lines))
         except Exception:
             pass
 
-    await interaction.response.send_message(f"Game started. See {ch.mention if ch else game.channel_id}.", ephemeral=False)
+    await interaction.response.send_message(f"Partida iniciada. Ver {ch.mention if ch else game.channel_id}.", ephemeral=False)
     # start simple turn loop task (run safely to log exceptions)
     asyncio.create_task(run_coro_safe(run_house_game(game), name=f"house-{game.id}"))
 
@@ -2538,7 +2541,7 @@ async def on_ready():
     except Exception as e:
         print("Failed to sync commands:", e)
 
-@bot.tree.command(name="furbytournament", description="Create a Furby Tournament embed")
+@bot.tree.command(name="torneo_furby", description="Crear un embed de Torneo de Furby")
 @app_commands.describe(title="Title for the tournament")
 async def furbytournament(interaction: discord.Interaction, title: str = "Furby Tournament"):
     host = interaction.user
@@ -2697,7 +2700,7 @@ async def delete_schedule(interaction: discord.Interaction, slot: int):
         await interaction.response.send_message(f"No signup found for you in slot {slot}. Use `/schedule show` to check current signups.", ephemeral=True)
 
 
-@bot.tree.command(name="resync", description="Force re-sync application commands in this guild (admins only)")
+@bot.tree.command(name="resincronizar", description="Forzar re-sincronización de comandos en esta guild (solo admins)")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def resync_commands(interaction: discord.Interaction):
     # Only works in a guild context
