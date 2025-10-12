@@ -372,7 +372,7 @@ async def slash_wordchain(interaction: discord.Interaction, timeout: int = 15):
         return
     channel = interaction.channel
     if channel.id in wordchain_games:
-        await interaction.response.send_message("Ya hay un lobby o juego activo en este canal.", ephemeral=True)
+        await interaction.response.send_message("There is already a lobby or game active in this channel.", ephemeral=True)
         return
     timeout = max(5, min(30, timeout))
     game = WordChainGame(channel=channel, starter=None, turn_timeout=timeout)
@@ -1649,9 +1649,9 @@ except Exception:
 @app_commands.describe(text="The announcement text for the wheel")
 async def wheels_create(interaction: discord.Interaction, text: str):
     host = interaction.user
-    embed = discord.Embed(title="Rueda", description=text, color=0x22AAFF)
-    embed.add_field(name="Instrucciones", value="Reacciona con el mismo emoji que usa el bot para unirte a la rueda. El anfitrión puede iniciar con /wheels start.")
-    embed.set_footer(text=f"Anfitrión: {host.display_name}")
+    embed = discord.Embed(title="Wheel", description=text, color=0x22AAFF)
+    embed.add_field(name="Instructions", value="React with the same emoji the bot uses to join the wheel. The host can start with /wheels start.")
+    embed.set_footer(text=f"Host: {host.display_name}")
 
     # Send the message and react with a default emoji (🎡)
     view = None
@@ -1679,7 +1679,7 @@ async def wheels_create(interaction: discord.Interaction, text: str):
         "created_at": int(time.time()),
     }
 
-    await interaction.followup.send(f"Rueda creada. Reacciona con {emoji} para unirte.", ephemeral=True)
+    await interaction.followup.send(f"Wheel created. React with {emoji} to join.", ephemeral=True)
 
 
 @wheels_group.command(name="start", description="Start the wheel and pick a random winner from reactors")
@@ -2620,7 +2620,7 @@ async def on_ready():
     except Exception as e:
         print("Failed to sync commands:", e)
 
-@bot.tree.command(name="torneo_furby", description="Crear un embed de Torneo de Furby")
+@bot.tree.command(name="furby_tournament", description="Create a Furby tournament embed")
 @app_commands.describe(title="Title for the tournament")
 async def furbytournament(interaction: discord.Interaction, title: str = "Furby Tournament"):
     host = interaction.user
@@ -2779,7 +2779,7 @@ async def delete_schedule(interaction: discord.Interaction, slot: int):
         await interaction.response.send_message(f"No signup found for you in slot {slot}. Use `/schedule show` to check current signups.", ephemeral=True)
 
 
-@bot.tree.command(name="resincronizar", description="Forzar re-sincronización de comandos en esta guild (solo admins)")
+@bot.tree.command(name="resync_commands", description="Force re-sync of commands in this guild (admins only)")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def resync_commands(interaction: discord.Interaction):
     # Only works in a guild context

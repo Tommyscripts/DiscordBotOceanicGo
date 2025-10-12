@@ -73,7 +73,7 @@ Tips for Running
 
 ---
 
-2) Haunted House (Casa Embrujada) — Private Channel Adventure
+2) Haunted House — Private Channel Adventure
 ------------------------------------------------------------
 
 
@@ -122,7 +122,7 @@ Murder Mystery (Night of Mystery):
   /mm vote @user
   /mm status
 
-Haunted House (Casa Embrujada):
+Haunted House:
   /house create [mode] [max_players]
   /house invite @user
   /house accept
