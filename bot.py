@@ -1701,13 +1701,25 @@ async def wheels_start(interaction: discord.Interaction):
             break
 
     if not candidate:
-    await interaction.response.send_message("No se encontró una rueda creada por ti en este canal.", ephemeral=True)
+        try:
+            await interaction.response.send_message("No wheel created by you found in this channel.", ephemeral=True)
+        except Exception:
+            try:
+                await interaction.followup.send("No wheel created by you found in this channel.", ephemeral=True)
+            except Exception:
+                pass
         return
 
     msg_id, message_obj, meta = candidate
     participants = list(wheels.get(msg_id, set()))
     if not participants:
-        await interaction.response.send_message("Nadie se ha unido a la rueda.", ephemeral=True)
+        try:
+            await interaction.response.send_message("No one has joined the wheel.", ephemeral=True)
+        except Exception:
+            try:
+                await interaction.followup.send("No one has joined the wheel.", ephemeral=True)
+            except Exception:
+                pass
         return
 
     # Acknowledge start and generate a graphical wheel image
@@ -1715,9 +1727,15 @@ async def wheels_start(interaction: discord.Interaction):
     participants_count = len(participants)
     ghosts_awarded = max(1, 2 * participants_count)
     try:
-        await interaction.response.send_message(f"Girando la rueda... 🎡 El ganador recibirá {GHOST_EMOJI} {ghosts_awarded}.", ephemeral=False)
+        await interaction.response.send_message(f"Spinning the wheel... 🎡 Winner will receive {GHOST_EMOJI} {ghosts_awarded}.", ephemeral=False)
     except Exception:
-        await interaction.response.send_message("Girando la rueda... 🎡", ephemeral=False)
+        try:
+            await interaction.response.send_message("Spinning the wheel... 🎡", ephemeral=False)
+        except Exception:
+            try:
+                await interaction.followup.send("Spinning the wheel... 🎡", ephemeral=False)
+            except Exception:
+                pass
 
     # Prepare names (limit to 24 slices for readability)
     max_slices = 24
