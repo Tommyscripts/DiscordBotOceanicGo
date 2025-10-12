@@ -1374,6 +1374,31 @@ class TournamentView(discord.ui.View):
         except discord.HTTPException as e:
             print(f"Warning: failed to edit message {interaction.message.id} to add results: {e}")
 
+    @discord.ui.button(label="Cancel Tournament", style=discord.ButtonStyle.secondary, emoji="❌")
+    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Only host or users with manage_guild can cancel
+        if self.host and interaction.user != self.host and not interaction.user.guild_permissions.manage_guild:
+            try:
+                await safe_reply(interaction, "Only the host or a manager can cancel the tournament.")
+            except Exception:
+                pass
+            return
+        msg_id = interaction.message.id
+        tournaments.pop(msg_id, None)
+        try:
+            await safe_reply(interaction, "Tournament cancelled.")
+        except Exception:
+            pass
+        # Disable all buttons
+        for child in self.children:
+            child.disabled = True
+        try:
+            await interaction.message.edit(view=self)
+        except discord.Forbidden:
+            print(f"Warning: cannot edit view for message {interaction.message.id} - missing permissions.")
+        except discord.HTTPException as e:
+            print(f"Warning: failed to edit view for message {interaction.message.id}: {e}")
+
 
 # ---------------- Slash commands: ghosts balance & shop ----------------
 @bot.tree.command(name="ghosts", description="Check your ghost balance")
@@ -1529,25 +1554,7 @@ async def settings_get_staff_role(interaction: discord.Interaction):
         await interaction.response.send_message("No staff role configured.", ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"Failed to read staff role: {e}", ephemeral=True)
-
-    @discord.ui.button(label="Cancel Tournament", style=discord.ButtonStyle.secondary, emoji="❌")
-    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Only host or users with manage_guild can cancel
-        if self.host and interaction.user != self.host and not interaction.user.guild_permissions.manage_guild:
-            await interaction.response.send_message("Only the host or a manager can cancel the tournament.", ephemeral=True)
-            return
-        msg_id = interaction.message.id
-        tournaments.pop(msg_id, None)
-        await interaction.response.send_message("Tournament cancelled.", ephemeral=False)
-        # Disable all buttons
-        for child in self.children:
-            child.disabled = True
-        try:
-            await interaction.message.edit(view=self)
-        except discord.Forbidden:
-            print(f"Warning: cannot edit view for message {interaction.message.id} - missing permissions.")
-        except discord.HTTPException as e:
-            print(f"Warning: failed to edit view for message {interaction.message.id}: {e}")
+    
 
 async def update_tournament_message(message: discord.Message):
     """Update the embed of the tournament message to reflect current participants."""
@@ -1564,7 +1571,7 @@ async def update_tournament_message(message: discord.Message):
             part_lines.append(f"<@{uid}>")
         participants_text = "\n".join(part_lines)
     else:
-    participants_text = "No participants yet."
+        participants_text = "No participants yet."
 
     # include max participants info if available
     meta = tournaments_meta.get(msg_id, {})
