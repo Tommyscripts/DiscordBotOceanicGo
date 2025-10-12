@@ -368,7 +368,7 @@ async def run_wordchain_game(game: WordChainGame):
 async def slash_wordchain(interaction: discord.Interaction, timeout: int = 15):
     # create a lobby message with Join/Leave/Start buttons
     if interaction.channel is None or not isinstance(interaction.channel, discord.TextChannel):
-        await interaction.response.send_message("Este comando debe usarse en un canal de texto.", ephemeral=True)
+        await interaction.response.send_message("This command must be used in a text channel.", ephemeral=True)
         return
     channel = interaction.channel
     if channel.id in wordchain_games:
@@ -381,7 +381,7 @@ async def slash_wordchain(interaction: discord.Interaction, timeout: int = 15):
     # add host as first player automatically
     game.add_player(interaction.user.id)
     # send lobby message and remember its id so we can edit it on join/leave
-    lobby_content = f"Vestíbulo de Cadena de Palabras creado por {interaction.user.mention}! Pulsa Unirse para participar. Tiempo por turno: {timeout}s. Host auto-joined.\n\nJugadores:\n{game.format_lobby()}"
+    lobby_content = f"Word Chain lobby created by {interaction.user.mention}! Click Join to participate. Turn timeout: {timeout}s. Host auto-joined.\n\nPlayers:\n{game.format_lobby()}"
     resp = await interaction.response.send_message(lobby_content, view=view)
     # when using response.send_message, the returned object isn't the message; fetch it from the channel
     try:
@@ -942,7 +942,7 @@ async def slash_mute(interaction: discord.Interaction, user_id: str, duration: s
 async def slash_settings_mod(interaction: discord.Interaction, command: str, role: discord.Role | None = None):
     # only allow owner or administrators
     if not interaction.guild:
-        await safe_reply(interaction, 'Este comando debe usarse en una guild (servidor).')
+        await safe_reply(interaction, 'This command must be used in a guild (server).')
         return
     try:
         member = interaction.guild.get_member(interaction.user.id) or await interaction.guild.fetch_member(interaction.user.id)
@@ -1046,7 +1046,7 @@ class TournamentView(discord.ui.View):
 
     @discord.ui.button(label="Join Tournament", style=discord.ButtonStyle.success, emoji="🏆")
     async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("Te has unido al torneo.", ephemeral=True)
+    await interaction.response.send_message("You have joined the tournament.", ephemeral=True)
         msg_id = interaction.message.id
         participants = tournaments.setdefault(msg_id, set())
         meta = tournaments_meta.get(msg_id, {})
@@ -1065,7 +1065,7 @@ class TournamentView(discord.ui.View):
 
     @discord.ui.button(label="Leave Tournament", style=discord.ButtonStyle.danger, emoji="🚪")
     async def leave_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("Has salido del torneo.", ephemeral=True)
+    await interaction.response.send_message("You have left the tournament.", ephemeral=True)
         msg_id = interaction.message.id
         participants = tournaments.setdefault(msg_id, set())
         if interaction.user.id not in participants:
@@ -1080,7 +1080,7 @@ class TournamentView(discord.ui.View):
 
     @discord.ui.button(label="Start Tournament", style=discord.ButtonStyle.primary, emoji="▶️")
     async def start_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("El torneo comienza! 🔥", ephemeral=False)
+    await interaction.response.send_message("Tournament starting! 🔥", ephemeral=False)
         # Only host or users with manage_guild can start
         if self.host and interaction.user != self.host and not interaction.user.guild_permissions.manage_guild:
             await interaction.response.send_message("Only the host or a manager can start the tournament.", ephemeral=True)
@@ -1371,7 +1371,7 @@ async def shop_list(interaction: discord.Interaction):
     if not items:
         items = list_shop_items(None)
     if not items:
-        await interaction.response.send_message("No hay artículos disponibles en la tienda.", ephemeral=True)
+        await interaction.response.send_message("No shop items available.", ephemeral=True)
         return
     lines = []
     for row in items:
@@ -1386,29 +1386,32 @@ async def shop_list(interaction: discord.Interaction):
 async def shop_buy(interaction: discord.Interaction, item_id: int):
     row = get_shop_item(item_id)
     if not row:
-        await interaction.response.send_message("Artículo no encontrado.", ephemeral=True)
+        await interaction.response.send_message("Item not found.", ephemeral=True)
         return
     _, guild_id, name, price, role_id, metadata = row
     # check guild scope
     if guild_id and (not interaction.guild or interaction.guild.id != guild_id):
-    await interaction.response.send_message("Este artículo no está disponible en este servidor.", ephemeral=True)
+        await interaction.response.send_message("This item is not available on this server.", ephemeral=True)
         return
     user_id = interaction.user.id
     bal = get_ghosts(user_id)
     if bal < price:
-    await interaction.response.send_message(f"No tienes suficientes {GHOST_EMOJI}. Tienes {bal}, pero el artículo cuesta {price}.", ephemeral=True)
+        await interaction.response.send_message(f"You don't have enough {GHOST_EMOJI}. You have {bal}, but the item costs {price}.", ephemeral=True)
         return
     # deduct
     add_ghosts(user_id, -price)
     # assign role if applicable
     if role_id and interaction.guild:
         try:
-            role = interaction.guild.get_role(role_id)
+            role = interaction.guild.get_role(role_id) if isinstance(role_id, int) else None
             if role:
-                await interaction.user.add_roles(role)
+                try:
+                    await interaction.user.add_roles(role)
+                except Exception:
+                    pass
         except Exception:
             pass
-    await interaction.response.send_message(f"Has comprado **{name}** por {price} {GHOST_EMOJI}.", ephemeral=True)
+    await interaction.response.send_message(f"You bought **{name}** for {price} {GHOST_EMOJI}.", ephemeral=True)
 
 
 @shop_group.command(name="add", description="(Admin) Add a shop item to this server or global")
@@ -1418,7 +1421,7 @@ async def shop_add(interaction: discord.Interaction, name: str, price: int, role
     gid = None if global_item else (interaction.guild.id if interaction.guild else None)
     role_id = role.id if role else None
     add_shop_item(name=name, price=price, guild_id=gid, role_id=role_id)
-    await interaction.response.send_message(f"Artículo añadido a la tienda: {name} — {price} {GHOST_EMOJI}", ephemeral=True)
+    await interaction.response.send_message(f"Added shop item: {name} — {price} {GHOST_EMOJI}", ephemeral=True)
 
 
 @shop_group.command(name="remove", description="(Admin) Remove a shop item by id")
@@ -1513,7 +1516,7 @@ async def update_tournament_message(message: discord.Message):
             part_lines.append(f"<@{uid}>")
         participants_text = "\n".join(part_lines)
     else:
-        participants_text = "No furbys joined yet."
+    participants_text = "No participants yet."
 
     # include max participants info if available
     meta = tournaments_meta.get(msg_id, {})
