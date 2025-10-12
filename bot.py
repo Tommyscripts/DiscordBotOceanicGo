@@ -1046,49 +1046,97 @@ class TournamentView(discord.ui.View):
 
     @discord.ui.button(label="Join Tournament", style=discord.ButtonStyle.success, emoji="🏆")
     async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-    await interaction.response.send_message("You have joined the tournament.", ephemeral=True)
+        # Acknowledge quickly
+        try:
+            await interaction.response.send_message("You have joined the tournament.", ephemeral=True)
+        except Exception:
+            try:
+                await interaction.followup.send("You have joined the tournament.", ephemeral=True)
+            except Exception:
+                pass
+
         msg_id = interaction.message.id
         participants = tournaments.setdefault(msg_id, set())
         meta = tournaments_meta.get(msg_id, {})
         maxp = meta.get("max_participants", 50)
+
         if interaction.user.id in participants:
-            await interaction.response.send_message("you're in.", ephemeral=True)
+            # already joined
+            try:
+                await safe_reply(interaction, "You are already in the tournament.")
+            except Exception:
+                pass
             return
         if len(participants) >= maxp:
-            await interaction.response.send_message(f"Tournament is fulle ({maxp} participants). you can't join.", ephemeral=True)
+            try:
+                await safe_reply(interaction, f"Tournament is full ({maxp} participants). You can't join.")
+            except Exception:
+                pass
             return
+
         participants.add(interaction.user.id)
         # build a small participant preview
         preview = "\n".join([f"<@{uid}>" for uid in list(participants)[:20]])
-        await interaction.response.send_message(f"{interaction.user.mention} just joined the tournament.\nParticipants: {len(participants)}/{maxp}\n\n{preview}", ephemeral=True)
+        try:
+            await safe_reply(interaction, f"{interaction.user.mention} just joined the tournament.\nParticipants: {len(participants)}/{maxp}\n\n{preview}")
+        except Exception:
+            pass
         await update_tournament_message(interaction.message)
 
     @discord.ui.button(label="Leave Tournament", style=discord.ButtonStyle.danger, emoji="🚪")
     async def leave_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-    await interaction.response.send_message("You have left the tournament.", ephemeral=True)
+        try:
+            await interaction.response.send_message("You have left the tournament.", ephemeral=True)
+        except Exception:
+            try:
+                await interaction.followup.send("You have left the tournament.", ephemeral=True)
+            except Exception:
+                pass
+
         msg_id = interaction.message.id
         participants = tournaments.setdefault(msg_id, set())
         if interaction.user.id not in participants:
-                        await interaction.response.send_message("You are not in the tournament.", ephemeral=True)
-                        return
+            try:
+                await safe_reply(interaction, "You are not in the tournament.")
+            except Exception:
+                pass
+            return
         participants.remove(interaction.user.id)
         meta = tournaments_meta.get(msg_id, {})
         maxp = meta.get("max_participants", 50)
         preview = "\n".join([f"<@{uid}>" for uid in list(participants)[:20]])
-        await interaction.response.send_message(f"{interaction.user.mention} left the tournament.\nParticipants: {len(participants)}/{maxp}\n\n{preview if preview else 'No participants.'}", ephemeral=True)
+        try:
+            await safe_reply(interaction, f"{interaction.user.mention} left the tournament.\nParticipants: {len(participants)}/{maxp}\n\n{preview if preview else 'No participants.'}")
+        except Exception:
+            pass
         await update_tournament_message(interaction.message)
 
     @discord.ui.button(label="Start Tournament", style=discord.ButtonStyle.primary, emoji="▶️")
     async def start_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-    await interaction.response.send_message("Tournament starting! 🔥", ephemeral=False)
+        # Acknowledge start (non-ephemeral)
+        try:
+            await interaction.response.send_message("Tournament starting! 🔥", ephemeral=False)
+        except Exception:
+            try:
+                await interaction.followup.send("Tournament starting! 🔥", ephemeral=False)
+            except Exception:
+                pass
+
         # Only host or users with manage_guild can start
         if self.host and interaction.user != self.host and not interaction.user.guild_permissions.manage_guild:
-            await interaction.response.send_message("Only the host or a manager can start the tournament.", ephemeral=True)
+            try:
+                await safe_reply(interaction, "Only the host or a manager can start the tournament.")
+            except Exception:
+                pass
             return
+
         msg_id = interaction.message.id
         participants = tournaments.get(msg_id, set())
         if len(participants) < 2:
-            await interaction.response.send_message("Need at least 2 furbys to start.", ephemeral=True)
+            try:
+                await safe_reply(interaction, "Need at least 2 participants to start.")
+            except Exception:
+                pass
             return
 
         # Start a fun battle simulation with messages in the channel.
