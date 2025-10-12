@@ -1059,7 +1059,7 @@ class TournamentView(discord.ui.View):
         participants.add(interaction.user.id)
         # build a small participant preview
         preview = "\n".join([f"<@{uid}>" for uid in list(participants)[:20]])
-        await interaction.response.send_message(f"{interaction.user.mention} just joined tournament.\nParticipantes: {len(participants)}/{maxp}\n\n{preview}", ephemeral=True)
+    await interaction.response.send_message(f"{interaction.user.mention} just joined the tournament.\nParticipants: {len(participants)}/{maxp}\n\n{preview}", ephemeral=True)
         await update_tournament_message(interaction.message)
 
     @discord.ui.button(label="Leave Tournament", style=discord.ButtonStyle.danger, emoji="🚪")
@@ -1067,13 +1067,13 @@ class TournamentView(discord.ui.View):
         msg_id = interaction.message.id
         participants = tournaments.setdefault(msg_id, set())
         if interaction.user.id not in participants:
-            await interaction.response.send_message("No estás en el torneo.", ephemeral=True)
+              await interaction.response.send_message("You are not in the tournament.", ephemeral=True)
             return
         participants.remove(interaction.user.id)
         meta = tournaments_meta.get(msg_id, {})
         maxp = meta.get("max_participants", 50)
         preview = "\n".join([f"<@{uid}>" for uid in list(participants)[:20]])
-        await interaction.response.send_message(f"{interaction.user.mention} left tournament.\nParticipants: {len(participants)}/{maxp}\n\n{preview if preview else 'No hay participantes.'}", ephemeral=True)
+    await interaction.response.send_message(f"{interaction.user.mention} left the tournament.\nParticipants: {len(participants)}/{maxp}\n\n{preview if preview else 'No participants.'}", ephemeral=True)
         await update_tournament_message(interaction.message)
 
     @discord.ui.button(label="Start Tournament", style=discord.ButtonStyle.primary, emoji="▶️")
@@ -1436,8 +1436,8 @@ except Exception:
     pass
 
 
-@settings_group.command(name="set_staff_role", description="(Owner) Configurar el rol de staff para este servidor")
-@app_commands.describe(role="Role to be considered staff. Omitir para limpiar.")
+@settings_group.command(name="set_staff_role", description="(Owner) Configure the staff role for this server")
+@app_commands.describe(role="Role to be considered staff. Omit to clear.")
 async def settings_set_staff_role(interaction: discord.Interaction, role: discord.Role | None = None):
     if not interaction.guild:
         await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
@@ -1457,7 +1457,7 @@ async def settings_set_staff_role(interaction: discord.Interaction, role: discor
         await interaction.response.send_message(f"Failed to set staff role: {e}", ephemeral=True)
 
 
-@settings_group.command(name="get_staff_role", description="Mostrar el role configurado como staff para este servidor")
+@settings_group.command(name="get_staff_role", description="Show the configured staff role for this server")
 async def settings_get_staff_role(interaction: discord.Interaction):
     if not interaction.guild:
         await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
