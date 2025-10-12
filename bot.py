@@ -797,10 +797,10 @@ async def on_connect():
 @app_commands.describe(user_id='ID of the user to ban', reason='Optional reason')
 async def slash_ban(interaction: discord.Interaction, user_id: str, reason: str | None = None):
     if not interaction.guild:
-        await safe_reply(interaction, 'Este comando debe usarse en una guild (servidor).')
+        await safe_reply(interaction, 'This command must be used in a guild (server).')
         return
     if not await has_mod_permission(interaction, 'ban'):
-        await safe_reply(interaction, "No tienes permiso para usar este comando.")
+        await safe_reply(interaction, "You do not have permission to use this command.")
         return
     # try to resolve as member or id
     uid = None
@@ -818,13 +818,13 @@ async def slash_ban(interaction: discord.Interaction, user_id: str, reason: str 
         except Exception:
             uid = None
     if uid is None:
-        await safe_reply(interaction, 'ID de usuario o mención inválida.')
+        await safe_reply(interaction, 'Invalid user id or mention.')
         return
     try:
         # attempt to ban by object id (works even if user not in guild)
         await interaction.guild.ban(discord.Object(id=uid), reason=reason)
         log_moderation(interaction.guild.id, 'ban', uid, interaction.user.id, reason)
-    await safe_reply(interaction, f'Baneado <@{uid}>.')
+        await safe_reply(interaction, f'Banned <@{uid}>.')
     except Exception as e:
         await safe_reply(interaction, f'Failed to ban: {e}')
 
@@ -833,26 +833,26 @@ async def slash_ban(interaction: discord.Interaction, user_id: str, reason: str 
 @app_commands.describe(user_id='ID of the user to kick', reason='Optional reason')
 async def slash_kick(interaction: discord.Interaction, user_id: str, reason: str | None = None):
     if not interaction.guild:
-        await safe_reply(interaction, 'Este comando debe usarse en una guild (servidor).')
+        await safe_reply(interaction, 'This command must be used in a guild (server).')
         return
     if not await has_mod_permission(interaction, 'kick'):
-        await safe_reply(interaction, "No tienes permiso para usar este comando.")
+        await safe_reply(interaction, "You do not have permission to use this command.")
         return
     # resolve id
     cleaned = user_id.strip().lstrip('<@!').rstrip('>') if isinstance(user_id, str) else str(user_id)
     try:
         uid = int(cleaned)
     except Exception:
-        await safe_reply(interaction, 'ID de usuario o mención inválida.')
+        await safe_reply(interaction, 'Invalid user id or mention.')
         return
     try:
         member = interaction.guild.get_member(uid) or await interaction.guild.fetch_member(uid)
         if not member:
-            await safe_reply(interaction, 'Miembro no encontrado en la guild.')
+            await safe_reply(interaction, 'Member not found in guild.')
             return
         await member.kick(reason=reason)
         log_moderation(interaction.guild.id, 'kick', member.id, interaction.user.id, reason)
-    await safe_reply(interaction, f'Expulsado {member.mention}.')
+        await safe_reply(interaction, f'Kicked {member.mention}.')
     except Exception as e:
         await safe_reply(interaction, f'Failed to kick: {e}')
 
@@ -861,10 +861,10 @@ async def slash_kick(interaction: discord.Interaction, user_id: str, reason: str
 @app_commands.describe(user_id='ID of the user to mute', duration='Duration like 10m, 2h, 1d (optional, default permanent)', reason='Optional reason')
 async def slash_mute(interaction: discord.Interaction, user_id: str, duration: str | None = None, reason: str | None = None):
     if not interaction.guild:
-        await safe_reply(interaction, 'Este comando debe usarse en una guild (servidor).')
+        await safe_reply(interaction, 'This command must be used in a guild (server).')
         return
     if not await has_mod_permission(interaction, 'mute'):
-        await safe_reply(interaction, "No tienes permiso para usar este comando.")
+        await safe_reply(interaction, "You do not have permission to use this command.")
         return
     cleaned = user_id.strip().lstrip('<@!').rstrip('>') if isinstance(user_id, str) else str(user_id)
     try:
@@ -898,7 +898,7 @@ async def slash_mute(interaction: discord.Interaction, user_id: str, duration: s
                 secs = int(val) * mult
                 unmute_ts = time.time() + secs
             except Exception:
-                    await safe_reply(interaction, 'Formato de duración inválido.')
+                await safe_reply(interaction, 'Invalid duration format.')
                 return
         # prefer Discord timeout (mute) if available
         try:
@@ -932,7 +932,7 @@ async def slash_mute(interaction: discord.Interaction, user_id: str, duration: s
             users = muted_until.setdefault(interaction.guild.id, {})
             users[member.id] = unmute_ts
         log_moderation(interaction.guild.id, 'mute', member.id, interaction.user.id, reason)
-    await safe_reply(interaction, f'{member.mention} ha sido silenciado.')
+        await safe_reply(interaction, f'{member.mention} has been muted.')
     except Exception as e:
         await safe_reply(interaction, f'Failed to mute: {e}')
 
