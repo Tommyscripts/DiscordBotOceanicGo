@@ -2154,7 +2154,7 @@ async def house_create(interaction: discord.Interaction, mode: str = "solo", max
     # initialize a small map for the house
     game.init_map(width=3, height=3)
 
-    await interaction.response.send_message(f"Created private House channel {ch.mention}. Invite players with `/house invite @user`. Mode: {mode}.", ephemeral=False)
+    await interaction.response.send_message(f"Created private House channel {ch.mention}. Invite players with `/house invite <user_id>` or mention. Mode: {mode}.", ephemeral=False)
 
 
 # Subcommand to explain how to play 'house' (module-level so it registers)
@@ -2203,8 +2203,8 @@ async def slash_mm(interaction: discord.Interaction):
 
 
 @house_group.command(name="invite", description="Invite a user to your House game (host only). Uses your active lobby.)")
-@app_commands.describe(user="User to invite")
-async def house_invite(interaction: discord.Interaction, user: discord.Member):
+@app_commands.describe(user="User ID or mention to invite")
+async def house_invite(interaction: discord.Interaction, user: str):
     # infer the host's lobby game
     game = find_lobby_game_by_host(interaction.user)
     if not game:
@@ -2213,18 +2213,53 @@ async def house_invite(interaction: discord.Interaction, user: discord.Member):
     if interaction.user.id != game.host_id and not interaction.user.guild_permissions.manage_guild:
         await interaction.response.send_message("Only the host or a manager can invite.", ephemeral=True)
         return
-    if user.id in game.players:
-        await interaction.response.send_message(f"{user.mention} is already invited or joined.", ephemeral=True)
+    # Resolve user: accept either a mention (<@...>) or a raw numeric ID
+    target_member = None
+    cleaned = user.strip()
+    # handle mention formats like <@12345> or <@!12345>
+    if cleaned.startswith('<@') and cleaned.endswith('>'):
+        cleaned = cleaned.lstrip('<@!').rstrip('>')
+    # now if it's digits, try to fetch the member
+    if cleaned.isdigit():
+        try:
+            uid = int(cleaned)
+        except Exception:
+            uid = None
+        else:
+            try:
+                target_member = interaction.guild.get_member(uid) or await interaction.guild.fetch_member(uid)
+            except Exception:
+                target_member = None
+    else:
+        # try to resolve by name (fallback) - not ideal but best-effort
+        try:
+            # try to find by display name or name
+            for m in interaction.guild.members:
+                if m.display_name == cleaned or m.name == cleaned:
+                    target_member = m
+                    break
+        except Exception:
+            target_member = None
+
+    if not target_member:
+        await interaction.response.send_message("Could not resolve that user. Provide a valid user ID or mention.", ephemeral=True)
+        return
+
+    if target_member.id in game.players:
+        await interaction.response.send_message(f"<@{target_member.id}> is already invited or joined.", ephemeral=True)
+        return
+    if len(game.players) >= game.max_players:
+        await interaction.response.send_message("Game is full.", ephemeral=True)
         return
     if len(game.players) >= game.max_players:
         await interaction.response.send_message("Game is full.", ephemeral=True)
         return
     # add invited player as not accepted yet
-    game.players[user.id] = {"accepted": False, "hp": 10, "inventory": [], "position": None}
+    game.players[target_member.id] = {"accepted": False, "hp": 10, "inventory": [], "position": None}
 
     # DM the invite with instructions
     try:
-        dm = await user.create_dm()
+        dm = await target_member.create_dm()
         try:
             await dm.send(f"You have been invited to the House game by {interaction.user.display_name}. To accept, run `/house accept` here or on the server. The game channel will be {interaction.guild.get_channel(game.channel_id).mention} once added.")
         except Exception:
@@ -2233,7 +2268,7 @@ async def house_invite(interaction: discord.Interaction, user: discord.Member):
         # fallback: mention in the lobby channel
         pass
 
-    await interaction.response.send_message(f"Invited {user.mention} to the game. They must accept with `/house accept`.", ephemeral=True)
+    await interaction.response.send_message(f"Invited <@{target_member.id}> to the game. They must accept with `/house accept`.", ephemeral=True)
 
 
 @house_group.command(name="accept", description="Accept an invitation to a House game.")
