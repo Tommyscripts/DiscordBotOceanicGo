@@ -2128,6 +2128,10 @@ async def house_create(interaction: discord.Interaction, mode: str = "solo", max
         await interaction.response.send_message("Mode must be 'solo' or 'multi'.", ephemeral=True)
         return
     max_players = max(1, min(8, int(max_players)))
+    # For multiplayer mode, a default of 1 is confusing (would be full immediately).
+    # If the user requested multi and left default, bump to a sensible minimum (4).
+    if mode == "multi" and max_players <= 1:
+        max_players = 5
     # create game object
     game = HouseGame(guild=interaction.guild, host_id=interaction.user.id, mode=mode, max_players=max_players)
     house_games[game.id] = game
@@ -2247,9 +2251,6 @@ async def house_invite(interaction: discord.Interaction, user: str):
 
     if target_member.id in game.players:
         await interaction.response.send_message(f"<@{target_member.id}> is already invited or joined.", ephemeral=True)
-        return
-    if len(game.players) >= game.max_players:
-        await interaction.response.send_message("Game is full.", ephemeral=True)
         return
     if len(game.players) >= game.max_players:
         await interaction.response.send_message("Game is full.", ephemeral=True)
