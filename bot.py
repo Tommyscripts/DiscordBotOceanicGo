@@ -13,6 +13,8 @@ import time
 import random
 import math
 import logging
+import shutil
+from pathlib import Path
 from datetime import date, datetime, timedelta
 
 load_dotenv()
@@ -427,11 +429,37 @@ wheels: dict[int, Set[int]] = {}
 wheels_meta: dict[int, dict] = {}
 
 # SQLite for simple stats: wins per user (global) and per guild
-# Path to SQLite DB. Allow overriding via environment variable FURBY_DB_PATH
-# This helps when running in ephemeral environments (containers) or when you
-# want the DB in a persistent location. If not set, fall back to repo-local
-# `furby_stats.db` for backward compatibility.
-DB_PATH = os.getenv("FURBY_DB_PATH") or os.path.join(os.path.dirname(__file__), "furby_stats.db")
+# Path to SQLite DB. Allow overriding via environment variable FURBY_DB_PATH.
+# Default to a user data directory (~/.local/share/furby/furby_stats.db) so the
+# DB persists across bot restarts and when the repository working directory is
+# ephemeral. If an existing repo-local `furby_stats.db` exists, try to migrate it.
+env_db = os.getenv("FURBY_DB_PATH")
+if env_db:
+    DB_PATH = env_db
+else:
+    # follow XDG_DATA_HOME if set, otherwise use ~/.local/share
+    data_home = os.getenv("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
+    default_dir = os.path.join(data_home, "furby")
+    try:
+        os.makedirs(default_dir, exist_ok=True)
+    except Exception:
+        # fallback to repo-local if we can't create the directory
+        default_dir = os.path.dirname(__file__)
+    DB_PATH = os.path.join(default_dir, "furby_stats.db")
+
+# Try to migrate an existing repo-local DB into the chosen DB_PATH if present
+repo_local_db = os.path.join(os.path.dirname(__file__), "furby_stats.db")
+try:
+    if os.path.exists(repo_local_db) and not os.path.exists(DB_PATH):
+        try:
+            shutil.copy2(repo_local_db, DB_PATH)
+            logging.info(f"Migrated existing DB from {repo_local_db} to {DB_PATH}")
+        except Exception as e:
+            logging.warning(f"Failed to migrate DB from {repo_local_db} to {DB_PATH}: {e}")
+    logging.info(f"Using DB at: {DB_PATH}")
+except Exception:
+    # best-effort only; any failures shouldn't prevent the bot from running
+    pass
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
