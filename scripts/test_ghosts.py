@@ -7,7 +7,8 @@ import os
 import random
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-DB_PATH = os.path.join(ROOT, 'furby_stats.db')
+# Respect FURBY_DB_PATH environment variable if present, otherwise use repo-local DB
+DB_PATH = os.getenv('FURBY_DB_PATH') or os.path.join(ROOT, 'furby_stats.db')
 
 print('DB_PATH:', DB_PATH)
 if not os.path.isfile(DB_PATH):

@@ -2,7 +2,8 @@ import os
 import sqlite3
 
 ROOT = os.path.dirname(os.path.dirname(__file__))
-DB_PATH = os.path.join(ROOT, 'furby_stats.db')
+# Use same DB override mechanism as the bot
+DB_PATH = os.getenv('FURBY_DB_PATH') or os.path.join(ROOT, 'furby_stats.db')
 
 def column_exists(conn, table, column):
     cur = conn.cursor()

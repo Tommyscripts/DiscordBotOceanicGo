@@ -427,7 +427,11 @@ wheels: dict[int, Set[int]] = {}
 wheels_meta: dict[int, dict] = {}
 
 # SQLite for simple stats: wins per user (global) and per guild
-DB_PATH = os.path.join(os.path.dirname(__file__), "furby_stats.db")
+# Path to SQLite DB. Allow overriding via environment variable FURBY_DB_PATH
+# This helps when running in ephemeral environments (containers) or when you
+# want the DB in a persistent location. If not set, fall back to repo-local
+# `furby_stats.db` for backward compatibility.
+DB_PATH = os.getenv("FURBY_DB_PATH") or os.path.join(os.path.dirname(__file__), "furby_stats.db")
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
