@@ -18,26 +18,6 @@ if not os.path.isfile(DB_PATH):
 conn = sqlite3.connect(DB_PATH)
 cur = conn.cursor()
 
-#!/usr/bin/env python3
-"""Prueba rápida de la BD de turkeys y settings.
-No importa `bot.py` para evitar efectos secundarios; usa SQL directo en `furby_stats.db`.
-"""
-import sqlite3
-import os
-import random
-
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-# Respect FURBY_DB_PATH environment variable if present, otherwise use repo-local DB
-DB_PATH = os.getenv('FURBY_DB_PATH') or os.path.join(ROOT, 'furby_stats.db')
-
-print('DB_PATH:', DB_PATH)
-if not os.path.isfile(DB_PATH):
-    print('ERROR: DB file not found. Run the bot once to create the DB or check path.')
-    raise SystemExit(1)
-
-conn = sqlite3.connect(DB_PATH)
-cur = conn.cursor()
-
 print('\nTables in DB:')
 for row in cur.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall():
     print(' -', row[0])

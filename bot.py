@@ -282,11 +282,11 @@ class WordChainView(discord.ui.View):
 
 async def run_wordchain_game(game: WordChainGame):
     channel = game.channel
-    # Announce game start and ghosts award (100% probability)
+    # Announce game start and turkeys award (100% probability)
     try:
         participants_total = len(game.players)
-        ghosts_awarded = max(1, 2 * participants_total)
-        await channel.send(f"Word Chain: the game is live! The first player will be chosen from the lobby. Winner will receive {GHOST_EMOJI} {ghosts_awarded}.")
+        turkeys_awarded = max(1, 2 * participants_total)
+        await channel.send(f"Word Chain: the game is live! The first player will be chosen from the lobby. Winner will receive {TURKEY_EMOJI} {turkeys_awarded} turkeys.")
     except Exception:
         await channel.send("Word Chain: the game is live! The first player will be chosen from the lobby.")
     # pick starting player index 0
@@ -332,23 +332,23 @@ async def run_wordchain_game(game: WordChainGame):
         # advance to next player
         game.current_player_idx = (game.current_player_idx + 1) % max(1, len(game.players))
 
-    # announce winner and award ghosts (always)
+    # announce winner and award turkeys (always)
     survivors = game.alive_players()
     if survivors:
         winner = survivors[0]
         participants_total = len(game.players)
-        ghosts_awarded = max(1, 2 * participants_total)
+        turkeys_awarded = max(1, 2 * participants_total)
         try:
             guild = channel.guild if hasattr(channel, 'guild') else None
             if await is_staff_in_guild(guild, winner):
                 try:
-                    await channel.send(f"Game over! Winner is <@{winner}> 🎉 — Congrats! As staff you have unlimited {GHOST_EMOJI}.")
+                    await channel.send(f"Game over! Winner is <@{winner}> 🎉 — Congrats! As staff you have unlimited {TURKEY_EMOJI} turkeys.")
                 except Exception:
                     pass
             else:
-                add_ghosts(winner, ghosts_awarded)
+                add_turkeys(winner, turkeys_awarded)
                 try:
-                    await channel.send(f"Game over! Winner is <@{winner}> 🎉 — Congrats! You've won {GHOST_EMOJI} {ghosts_awarded}.")
+                    await channel.send(f"Game over! Winner is <@{winner}> 🎉 — Congrats! You've won {TURKEY_EMOJI} {turkeys_awarded} turkeys.")
                 except Exception:
                     pass
         except Exception:
@@ -494,15 +494,39 @@ def init_db():
         )
         """
     )
-    # Ghost currency balances
+    # Turkey currency balances. We'll create `turkeys_balances` and attempt to
+    # migrate any existing `ghosts_balances` table so existing balances are
+    # preserved.
     cur.execute(
         """
-        CREATE TABLE IF NOT EXISTS ghosts_balances (
+        CREATE TABLE IF NOT EXISTS turkeys_balances (
             user_id INTEGER PRIMARY KEY,
-            ghosts INTEGER NOT NULL DEFAULT 0
+            turkeys INTEGER NOT NULL DEFAULT 0
         )
         """
     )
+    # If the legacy table exists, try to migrate it into the new table.
+    try:
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='ghosts_balances'")
+        if cur.fetchone():
+            try:
+                # Fast path: rename the table (preserves indexes/constraints)
+                cur.execute("ALTER TABLE ghosts_balances RENAME TO turkeys_balances")
+                # Try to rename the column too (SQLite >= 3.25). If this fails,
+                # we'll fall back to copying rows below.
+                try:
+                    cur.execute("ALTER TABLE turkeys_balances RENAME COLUMN ghosts TO turkeys")
+                except Exception:
+                    pass
+            except Exception:
+                # Fallback: copy rows from old table into target and drop old
+                try:
+                    cur.execute("INSERT OR IGNORE INTO turkeys_balances(user_id, turkeys) SELECT user_id, ghosts FROM ghosts_balances")
+                    cur.execute("DROP TABLE IF EXISTS ghosts_balances")
+                except Exception:
+                    pass
+    except Exception:
+        pass
     # Shop items: guild_id NULL means global
     cur.execute(
         """
@@ -614,30 +638,43 @@ def ensure_participant_images(msg_id: int, participants: list[int]):
     tournaments_meta[msg_id] = meta
     return image_map
 
-# --------- Ghost currency helpers & shop ---------
-GHOST_EMOJI = "👻"
+# --------- Turkey currency helpers & shop ---------
+TURKEY_EMOJI = "🦃"
 
-def add_ghosts(user_id: int, amount: int):
+def add_turkeys(user_id: int, amount: int):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute("INSERT INTO ghosts_balances(user_id, ghosts) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET ghosts = ghosts + ?", (user_id, amount, amount))
+    cur.execute("INSERT INTO turkeys_balances(user_id, turkeys) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET turkeys = turkeys + ?", (user_id, amount, amount))
     conn.commit()
     conn.close()
 
-def get_ghosts(user_id: int) -> int:
+def get_turkeys(user_id: int) -> int:
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute("SELECT ghosts FROM ghosts_balances WHERE user_id = ?", (user_id,))
+    cur.execute("SELECT turkeys FROM turkeys_balances WHERE user_id = ?", (user_id,))
     row = cur.fetchone()
     conn.close()
     return row[0] if row else 0
 
-def set_ghosts(user_id: int, amount: int):
+def set_turkeys(user_id: int, amount: int):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute("INSERT INTO ghosts_balances(user_id, ghosts) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET ghosts = ?", (user_id, amount, amount))
+    cur.execute("INSERT INTO turkeys_balances(user_id, turkeys) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET turkeys = ?", (user_id, amount, amount))
     conn.commit()
     conn.close()
+
+
+# Backwards-compatibility wrappers for the old "ghosts" naming. These call the
+# new turkey-based functions so external scripts or leftover references keep
+# working during the migration.
+def add_ghosts(user_id: int, amount: int):
+    return add_turkeys(user_id, amount)
+
+def get_ghosts(user_id: int) -> int:
+    return get_turkeys(user_id)
+
+def set_ghosts(user_id: int, amount: int):
+    return set_turkeys(user_id, amount)
 
 
 async def is_staff_in_guild(guild: discord.Guild | None, user_id: int) -> bool:
@@ -1062,7 +1099,7 @@ def maybe_halloween_announce(channel: discord.abc.GuildChannel):
     if today.month == 10 and 25 <= today.day <= 31:
         if random.random() < 0.25:
             try:
-                asyncio.create_task(run_coro_safe(channel.send(f"Halloween event active! In this game the winner will receive {GHOST_EMOJI} ghosts."), name=f"halloween-announce-{getattr(channel, 'id', 'chan')}"))
+                asyncio.create_task(run_coro_safe(channel.send(f"Halloween event active! In this game the winner will receive {TURKEY_EMOJI} turkeys."), name=f"halloween-announce-{getattr(channel, 'id', 'chan')}"))
             except Exception:
                 pass
 
@@ -1348,27 +1385,27 @@ class TournamentView(discord.ui.View):
         except discord.HTTPException as e:
             print(f"Warning: failed to send final announcement: {e}")
 
-        # Award ghosts for the tournament: 2 ghosts per participant
+        # Award turkeys for the tournament: 2 turkeys per participant
         try:
             participants_total = len(participants)
-            ghosts_awarded = 2 * participants_total
-            # staff have unlimited ghosts (do not modify DB)
+            turkeys_awarded = 2 * participants_total
+            # staff have unlimited turkeys (do not modify DB)
             try:
                 if await is_staff_in_guild(interaction.guild, winner_id):
                     try:
-                        await channel.send(f"{GHOST_EMOJI} {winner_mention} is staff and has unlimited ghosts — congratulations!")
+                        await channel.send(f"{TURKEY_EMOJI} {winner_mention} is staff and has unlimited turkeys — congratulations!")
                     except Exception:
                         pass
                 else:
-                    add_ghosts(winner_id, ghosts_awarded)
+                    add_turkeys(winner_id, turkeys_awarded)
                     try:
-                        await channel.send(f"{GHOST_EMOJI} {ghosts_awarded} ghosts have been awarded to {winner_mention}!")
+                        await channel.send(f"{TURKEY_EMOJI} {turkeys_awarded} turkeys have been awarded to {winner_mention}!")
                     except Exception:
                         pass
             except Exception:
                 # fallback: attempt to award normally
                 try:
-                    add_ghosts(winner_id, ghosts_awarded)
+                    add_turkeys(winner_id, turkeys_awarded)
                 except Exception:
                     pass
         except Exception:
@@ -1432,18 +1469,18 @@ class TournamentView(discord.ui.View):
             print(f"Warning: failed to edit view for message {interaction.message.id}: {e}")
 
 
-# ---------------- Slash commands: ghosts balance & shop ----------------
-@bot.tree.command(name="ghosts", description="Check your ghost balance")
+# ---------------- Slash commands: turkey balance & shop ----------------
+@bot.tree.command(name="turkeys", description="Check your turkey balance")
 @app_commands.describe(user="User to check (optional)")
-async def ghosts_balance(interaction: discord.Interaction, user: discord.User | None = None):
+async def turkeys_balance(interaction: discord.Interaction, user: discord.User | None = None):
     target = user or interaction.user
-    bal = get_ghosts(target.id)
-    await interaction.response.send_message(f"{GHOST_EMOJI} {bal} ghosts — {target.mention}", ephemeral=True)
+    bal = get_turkeys(target.id)
+    await interaction.response.send_message(f"{TURKEY_EMOJI} {bal} turkeys — {target.mention}", ephemeral=True)
 
 
-@bot.tree.command(name="give_ghosts", description="(Staff) Give ghosts to a user")
-@app_commands.describe(target="Target user", amount="Amount of ghosts to give (can be negative)")
-async def give_ghosts(interaction: discord.Interaction, target: discord.User, amount: int):
+@bot.tree.command(name="give_turkeys", description="(Staff) Give turkeys to a user")
+@app_commands.describe(target="Target user", amount="Amount of turkeys to give (can be negative)")
+async def give_turkeys(interaction: discord.Interaction, target: discord.User, amount: int):
     # Only members with the configured staff role (or fallback perms) can use this
     try:
         guild = interaction.guild
@@ -1452,17 +1489,18 @@ async def give_ghosts(interaction: discord.Interaction, target: discord.User, am
             return
         # check configured staff role or fallback permissions
         if not await is_staff_in_guild(guild, interaction.user.id):
-            await safe_reply(interaction, "You are not authorized to give ghosts. Staff only.")
+            await safe_reply(interaction, "You are not authorized to give turkeys. Staff only.")
             return
-        # proceed to give ghosts
-        add_ghosts(target.id, amount)
-        bal = get_ghosts(target.id)
-        await safe_reply(interaction, f"{GHOST_EMOJI} {amount} ghosts given to {target.mention}. New balance: {bal}")
+
+        # proceed to give turkeys
+        add_turkeys(target.id, amount)
+        bal = get_turkeys(target.id)
+        await safe_reply(interaction, f"{TURKEY_EMOJI} {amount} turkeys given to {target.mention}. New balance: {bal}")
     except Exception as e:
-        await safe_reply(interaction, f"Error giving ghosts: {e}")
+        await safe_reply(interaction, f"Error giving turkeys: {e}")
 
 
-shop_group = app_commands.Group(name="shop", description="Ghost shop commands")
+shop_group = app_commands.Group(name="shop", description="Turkey shop commands")
 try:
     bot.tree.add_command(shop_group)
 except Exception:
@@ -1482,11 +1520,11 @@ async def shop_list(interaction: discord.Interaction):
     for row in items:
         item_id, name, price, role_id = row[0], row[1], row[2], row[3]
         role_part = f" (role: <@&{role_id}>)" if role_id else ""
-        lines.append(f"{item_id}: {name} — {price} {GHOST_EMOJI}{role_part}")
+    lines.append(f"{item_id}: {name} — {price} {TURKEY_EMOJI} turkeys{role_part}")
     await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
 
-@shop_group.command(name="buy", description="Buy a shop item using ghosts")
+@shop_group.command(name="buy", description="Buy a shop item using turkeys")
 @app_commands.describe(item_id="ID of the shop item to buy")
 async def shop_buy(interaction: discord.Interaction, item_id: int):
     row = get_shop_item(item_id)
@@ -1499,12 +1537,12 @@ async def shop_buy(interaction: discord.Interaction, item_id: int):
         await interaction.response.send_message("This item is not available on this server.", ephemeral=True)
         return
     user_id = interaction.user.id
-    bal = get_ghosts(user_id)
+    bal = get_turkeys(user_id)
     if bal < price:
-        await interaction.response.send_message(f"You don't have enough {GHOST_EMOJI}. You have {bal}, but the item costs {price}.", ephemeral=True)
+        await interaction.response.send_message(f"You don't have enough {TURKEY_EMOJI} turkeys. You have {bal}, but the item costs {price}.", ephemeral=True)
         return
     # deduct
-    add_ghosts(user_id, -price)
+    add_turkeys(user_id, -price)
     # assign role if applicable
     if role_id and interaction.guild:
         try:
@@ -1516,17 +1554,17 @@ async def shop_buy(interaction: discord.Interaction, item_id: int):
                     pass
         except Exception:
             pass
-    await interaction.response.send_message(f"You bought **{name}** for {price} {GHOST_EMOJI}.", ephemeral=True)
+    await interaction.response.send_message(f"You bought **{name}** for {price} {TURKEY_EMOJI} turkeys.", ephemeral=True)
 
 
 @shop_group.command(name="add", description="(Admin) Add a shop item to this server or global")
 @app_commands.checks.has_permissions(manage_guild=True)
-@app_commands.describe(name="Item name", price="Price in ghosts", role="Optional role to grant")
+@app_commands.describe(name="Item name", price="Price in turkeys", role="Optional role to grant")
 async def shop_add(interaction: discord.Interaction, name: str, price: int, role: discord.Role | None = None, global_item: bool = False):
     gid = None if global_item else (interaction.guild.id if interaction.guild else None)
     role_id = role.id if role else None
     add_shop_item(name=name, price=price, guild_id=gid, role_id=role_id)
-    await interaction.response.send_message(f"Added shop item: {name} — {price} {GHOST_EMOJI}", ephemeral=True)
+    await interaction.response.send_message(f"Added shop item: {name} — {price} {TURKEY_EMOJI}", ephemeral=True)
 
 
 @shop_group.command(name="remove", description="(Admin) Remove a shop item by id")
@@ -1755,11 +1793,11 @@ async def wheels_start(interaction: discord.Interaction):
         return
 
     # Acknowledge start and generate a graphical wheel image
-    # Announce spin and ghosts award (100% probability)
+    # Announce spin and turkeys award (100% probability)
     participants_count = len(participants)
-    ghosts_awarded = max(1, 2 * participants_count)
+    turkeys_awarded = max(1, 2 * participants_count)
     try:
-        await interaction.response.send_message(f"Spinning the wheel... 🎡 Winner will receive {GHOST_EMOJI} {ghosts_awarded}.", ephemeral=False)
+        await interaction.response.send_message(f"Spinning the wheel... 🎡 Winner will receive {TURKEY_EMOJI} {turkeys_awarded}.", ephemeral=False)
     except Exception:
         try:
             await interaction.response.send_message("Spinning the wheel... 🎡", ephemeral=False)
@@ -2002,24 +2040,24 @@ async def wheels_start(interaction: discord.Interaction):
     except Exception:
         pass
 
-    # Award ghosts to the winner (unless staff)
+    # Award turkeys to the winner (unless staff)
     try:
         try:
             if await is_staff_in_guild(interaction.guild, winner_id):
                 try:
-                    await channel.send(f"{GHOST_EMOJI} {winner_mention} is staff and has unlimited ghosts — congratulations!")
+                    await channel.send(f"{TURKEY_EMOJI} {winner_mention} is staff and has unlimited turkeys — congratulations!")
                 except Exception:
                     pass
             else:
-                add_ghosts(winner_id, ghosts_awarded)
+                add_turkeys(winner_id, turkeys_awarded)
                 try:
-                    await channel.send(f"{GHOST_EMOJI} {ghosts_awarded} ghosts have been awarded to {winner_mention}!")
+                    await channel.send(f"{TURKEY_EMOJI} {turkeys_awarded} turkeys have been awarded to {winner_mention}!")
                 except Exception:
                     pass
         except Exception:
             # fallback: award normally
             try:
-                add_ghosts(winner_id, ghosts_awarded)
+                add_turkeys(winner_id, turkeys_awarded)
             except Exception:
                 pass
     except Exception:
