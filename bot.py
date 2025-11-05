@@ -505,28 +505,43 @@ def init_db():
         )
         """
     )
-    # If the legacy table exists, try to migrate it into the new table.
+    # If the legacy table exists, migrate it into the new table in a
+    # non-destructive, safe way: create a backup, copy rows from
+    # `ghosts_balances` into `turkeys_balances` (INSERT OR REPLACE) and leave
+    # the legacy table in place for inspection. This prevents data loss if
+    # the DB file path changes or an ALTER TABLE would fail.
     try:
         cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='ghosts_balances'")
         if cur.fetchone():
+            # Create a timestamped backup before touching the DB (best-effort).
             try:
-                # Fast path: rename the table (preserves indexes/constraints)
-                cur.execute("ALTER TABLE ghosts_balances RENAME TO turkeys_balances")
-                # Try to rename the column too (SQLite >= 3.25). If this fails,
-                # we'll fall back to copying rows below.
-                try:
-                    cur.execute("ALTER TABLE turkeys_balances RENAME COLUMN ghosts TO turkeys")
-                except Exception:
-                    pass
+                bak = DB_PATH + '.bak.' + time.strftime('%Y%m%dT%H%M%S')
+                shutil.copy2(DB_PATH, bak)
+                logging.info(f"Created DB backup before migration: {bak}")
+            except Exception as e:
+                logging.warning(f"Failed to create DB backup before migration: {e}")
+
+            try:
+                # Safe copy: overwrite turkeys values with ghosts values so we
+                # fully recover prior balances. If you prefer additive merge,
+                # change to DO UPDATE SET turkeys = turkeys + excluded.turkeys.
+                cur.execute("INSERT OR REPLACE INTO turkeys_balances(user_id, turkeys) SELECT user_id, ghosts FROM ghosts_balances")
+                conn.commit()
+                logging.info("Copied rows from ghosts_balances to turkeys_balances (safe copy).")
+            except Exception as e:
+                logging.warning(f"Failed to copy rows from ghosts_balances: {e}")
+
+            # Optional: try to rename the table/column for cleanliness, but do
+            # not DROP the legacy table automatically. We attempt a rename as
+            # a convenience but it's non-destructive fallback is already done.
+            try:
+                cur.execute("ALTER TABLE ghosts_balances RENAME TO turkeys_balances_old")
+                logging.info("Renamed legacy ghosts_balances -> turkeys_balances_old for inspection.")
             except Exception:
-                # Fallback: copy rows from old table into target and drop old
-                try:
-                    cur.execute("INSERT OR IGNORE INTO turkeys_balances(user_id, turkeys) SELECT user_id, ghosts FROM ghosts_balances")
-                    cur.execute("DROP TABLE IF EXISTS ghosts_balances")
-                except Exception:
-                    pass
+                # If rename fails, leave the legacy table as-is.
+                pass
     except Exception:
-        pass
+        logging.exception('Error during currency migration (ghosts->turkeys)')
     # Shop items: guild_id NULL means global
     cur.execute(
         """
