@@ -2133,10 +2133,13 @@ class HouseGame:
         # internal flags to avoid spamming prompts
         self._sent_intro = False
         self._last_prompt_turn: int | None = None
+        # track current turn interaction view/message so we can disable on advance
+        self._current_turn_message_id: int | None = None
+        self._current_turn_view: "HouseTurnView" | None = None
 
     def init_map(self, width: int = 3, height: int = 3):
         """Initialize a simple rectangular map and place players in the center by default."""
-        self.map = {"width": width, "height": height, "rooms": {}}
+        self.map = {"width": width, "height": height, "rooms": {}, "exit_pos": (0, 0), "exit_locked": True}
         for x in range(width):
             for y in range(height):
                 # simple flavour descriptions; could be expanded later
@@ -2145,6 +2148,10 @@ class HouseGame:
                 if (x + y) % 3 == 0:
                     desc = f"A cold room at ({x+1},{y+1}) with a faint whispering sound."
                 self.map["rooms"][(x, y)] = {"desc": desc, "items": []}
+        # mark an exit door at exit_pos
+        ex = self.map["exit_pos"]
+        if ex in self.map["rooms"]:
+            self.map["rooms"][ex]["desc"] = "A heavy wooden door with an ancient lock. It might open with the right key."
         # starting position: center
         sx = width // 2
         sy = height // 2
@@ -2192,6 +2199,249 @@ class HouseGame:
 
     def accepted_players(self) -> list[int]:
         return [uid for uid, meta in self.players.items() if meta.get("accepted")]
+
+
+# ---------------- Shared action execution for House game (slash + buttons) ----------------
+def execute_house_action(game: HouseGame, uid: int, action: str, target: str | None) -> str:
+    """Execute an action for a player and return narration text.
+
+    Does NOT advance turn index; caller is responsible for that.
+    """
+    action = (action or "").strip().lower()
+    # movement direction normalization (includes spanish shortcuts)
+    dir_aliases = {"up", "down", "left", "right", "u", "d", "l", "r",
+                   "arriba", "abajo", "izquierda", "derecha", "arr", "abj", "izq", "der"}
+    # allow bare direction as action
+    if action in dir_aliases and not target:
+        target = action
+        action = "move"
+    if (not action) and target and target.lower() in dir_aliases:
+        action = "move"
+
+    # Helper lambdas
+    def normalize_direction(dir_raw: str) -> str:
+        d = dir_raw.lower().strip()
+        mapping = {
+            "u": "up", "up": "up", "arriba": "up", "arr": "up",
+            "d": "down", "down": "down", "abajo": "down", "abj": "down",
+            "l": "left", "left": "left", "izquierda": "left", "izq": "left",
+            "r": "right", "right": "right", "derecha": "right", "der": "right"
+        }
+        return mapping.get(d, d)
+
+    if action == "search":
+        roll = random.random()
+        if roll < 0.2:
+            item = "ancient key"
+            game.players[uid]["inventory"].append(item)
+            return f"You search the room and find an **{item}**!"
+        elif roll < 0.4:
+            dmg = random.randint(1, 3)
+            game.players[uid]["hp"] -= dmg
+            return f"A hidden snare grazes you! You take {dmg} damage. (HP now {game.players[uid]['hp']})"
+        else:
+            return "You search but find nothing useful. The house groans..."
+
+    if action == "explore":
+        pos = game.players[uid].get("position")
+        if pos and game.map:
+            x, y = pos
+            room = game.map["rooms"].get((x, y), {})
+            items = room.get("items", [])
+            items_text = ", ".join(items) if items else "none"
+            moves = game.valid_moves_for(uid)
+            extra = ""
+            if tuple(pos) == tuple(game.map.get("exit_pos")):
+                if game.map.get("exit_locked", True):
+                    extra = " The door is locked; perhaps an ancient key could open it."
+                else:
+                    extra = " The exit door is unlocked! You can leave any time (narratively)."
+            return f"You explore the room ({x+1},{y+1}): {room.get('desc', 'An empty room.')}{extra}. Items: {items_text}. You can move: {', '.join(moves) if moves else 'nowhere'}."
+        return "You feel disoriented. There's nothing here."
+
+    if action == "move":
+        if not target:
+            return "Specify a direction: up/down/left/right."
+        direction = normalize_direction(target)
+        moved = game.move_player(uid, direction)
+        if moved:
+            pos = game.players[uid]["position"]
+            room = game.map["rooms"].get(pos, {})
+            return f"You move {direction} to room ({pos[0]+1},{pos[1]+1}). {room.get('desc', '')}"
+        moves = game.valid_moves_for(uid)
+        return f"Cannot move {direction}. Valid moves: {', '.join(moves) if moves else 'none'}."
+
+    if action == "use":
+        if not target:
+            return "Specify an item to use (e.g. key)."
+        item = target.lower()
+        inv = game.players[uid].get("inventory", [])
+        if item in inv:
+            if item in ("ancient key", "key"):
+                pos = game.players[uid].get("position")
+                exit_pos = game.map.get("exit_pos")
+                if pos and exit_pos and tuple(pos) == tuple(exit_pos):
+                    if game.map.get("exit_locked", True):
+                        inv.remove(item)
+                        game.map["exit_locked"] = False
+                        # end the game with a win condition
+                        game.state = "finished"
+                        return "You insert the ancient key and unlock the heavy door. It swings open — you escape the Haunted House!"
+                    else:
+                        return "The exit door is already unlocked."
+                else:
+                    return "You try the key here, but there's no matching lock in this room."
+            return f"You try to use {item} but nothing obvious happens."
+        return f"You don't have {item} in your inventory."
+
+    return "Action not recognized. Supported: search, explore, move, use."
+
+
+class HouseTurnView(discord.ui.View):
+    """Interactive buttons for a single player's turn in the House game."""
+    def __init__(self, game: HouseGame, acting_uid: int):
+        super().__init__(timeout=None)
+        self.game = game
+        self.acting_uid = acting_uid
+        # Dynamically add movement buttons based on valid moves
+        moves = game.valid_moves_for(acting_uid)
+        # order for consistency
+        order = ["up", "down", "left", "right"]
+        for m in order:
+            if m in moves:
+                btn = discord.ui.Button(label=m.capitalize(), style=discord.ButtonStyle.primary, custom_id=f"house_move_{m}")
+                async def cb(interaction: discord.Interaction, direction=m):  # type: ignore
+                    if not await self.interaction_check(interaction):
+                        return
+                    await self._handle_action(interaction, "move", direction)
+                btn.callback = cb  # type: ignore
+                self.add_item(btn)
+        # Basic action buttons with callbacks
+        async def explore_cb(interaction: discord.Interaction):
+            if not await self.interaction_check(interaction):
+                return
+            await self._handle_action(interaction, "explore")
+        btn_explore = discord.ui.Button(label="Explore", style=discord.ButtonStyle.secondary, custom_id="house_explore")
+        btn_explore.callback = explore_cb  # type: ignore
+        self.add_item(btn_explore)
+
+        async def search_cb(interaction: discord.Interaction):
+            if not await self.interaction_check(interaction):
+                return
+            await self._handle_action(interaction, "search")
+        btn_search = discord.ui.Button(label="Search", style=discord.ButtonStyle.secondary, custom_id="house_search")
+        btn_search.callback = search_cb  # type: ignore
+        self.add_item(btn_search)
+
+        # Use button will open a Select menu if there are items
+        async def use_cb(interaction: discord.Interaction):
+            if not await self.interaction_check(interaction):
+                return
+            inv = self.game.players.get(self.acting_uid, {}).get("inventory", [])
+            if not inv:
+                await interaction.response.send_message("No tienes objetos en el inventario.", ephemeral=True)
+                return
+            # Build a small view with a Select to choose item
+            select_view = discord.ui.View(timeout=60)
+            options = [discord.SelectOption(label=item, value=item) for item in inv[:25]]
+            class UseSelect(discord.ui.Select):
+                def __init__(self):
+                    super().__init__(placeholder="Selecciona un objeto...", options=options, min_values=1, max_values=1)
+                async def callback(self, inter: discord.Interaction):  # type: ignore
+                    if inter.user.id != interaction.user.id:
+                        await inter.response.send_message("No puedes usar el inventario de otro.", ephemeral=True)
+                        return
+                    choice = self.values[0]
+                    narration = execute_house_action(self.view.parent_game, self.view.parent_uid, "use", choice)  # type: ignore
+                    # disable original turn view and advance
+                    await self.view.parent_view.disable_and_advance(inter, narration=narration)  # type: ignore
+            # attach helpers to view for callback context
+            select = UseSelect()
+            select_view.add_item(select)
+            # attach references
+            setattr(select_view, 'parent_game', self.game)
+            setattr(select_view, 'parent_uid', self.acting_uid)
+            setattr(select_view, 'parent_view', self)
+            await interaction.response.send_message("Elige el objeto a usar:", view=select_view, ephemeral=True)
+        btn_use = discord.ui.Button(label="Use", style=discord.ButtonStyle.success, custom_id="house_use")
+        btn_use.callback = use_cb  # type: ignore
+        self.add_item(btn_use)
+
+        async def skip_cb(interaction: discord.Interaction):
+            if not await self.interaction_check(interaction):
+                return
+            await self.disable_and_advance(interaction, narration="You skip your turn, the house creaks ominously.")
+        btn_skip = discord.ui.Button(label="Skip", style=discord.ButtonStyle.danger, custom_id="house_skip")
+        btn_skip.callback = skip_cb  # type: ignore
+        self.add_item(btn_skip)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # Only allow the acting player to click; others get ephemeral error
+        if interaction.user.id != self.acting_uid:
+            try:
+                await interaction.response.send_message("No es tu turno (espera a tu turno).", ephemeral=True)
+            except Exception:
+                pass
+            return False
+        return True
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item):
+        logging.exception("Error en HouseTurnView", exc_info=error)
+        if not interaction.response.is_done():
+            try:
+                await interaction.response.send_message("Ocurrió un error con el botón.", ephemeral=True)
+            except Exception:
+                pass
+
+    async def disable_and_advance(self, interaction: discord.Interaction, narration: str | None = None):
+        # Disable buttons
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                child.disabled = True
+        # Edit original message to reflect disabled state
+        try:
+            await interaction.message.edit(view=self)
+        except Exception:
+            pass
+        # Send narration to channel
+        if narration:
+            try:
+                ch = self.game.guild.get_channel(self.game.channel_id) if self.game.channel_id else None
+                if ch:
+                    await ch.send(f"**{interaction.user.display_name}**: {narration}")
+            except Exception:
+                pass
+        # Advance turn
+        accepted = self.game.accepted_players()
+        if accepted:
+            self.game.turn_index = (self.game.turn_index + 1) % max(1, len(accepted))
+        self.game._last_prompt_turn = None
+        self.game._current_turn_view = None
+        self.game._current_turn_message_id = None
+        if not interaction.response.is_done():
+            try:
+                await interaction.response.send_message("Acción registrada.", ephemeral=True)
+            except Exception:
+                pass
+
+    @discord.ui.button(label="Inventario", style=discord.ButtonStyle.success, custom_id="house_inventory")
+    async def inventory_button(self, interaction: discord.Interaction, button: discord.ui.Button):  # type: ignore[override]
+        inv = self.game.players.get(self.acting_uid, {}).get("inventory", [])
+        inv_text = ", ".join(inv) if inv else "(vacío)"
+        try:
+            await interaction.response.send_message(f"Inventario: {inv_text}", ephemeral=True)
+        except Exception:
+            pass
+
+    async def _handle_action(self, interaction: discord.Interaction, action: str, target: str | None = None):
+        narration = execute_house_action(self.game, self.acting_uid, action, target)
+        await self.disable_and_advance(interaction, narration=narration)
+
+    async def on_timeout(self):
+        # If not advanced manually, auto-skip (this won't fire since timeout=None) kept for future use
+        pass
+
+    # We rely on per-button callbacks above; no generic dispatcher needed
 
 
 house_group = app_commands.Group(name="house", description="Haunted House: solo or co-op private text adventures")
@@ -2340,15 +2590,35 @@ async def house_invite(interaction: discord.Interaction, user: str):
     game.players[target_member.id] = {"accepted": False, "hp": 10, "inventory": [], "position": None}
 
     # DM the invite with instructions
-    try:
-        dm = await target_member.create_dm()
+    async def send_invite_dm(member: discord.Member):
+        text = (
+            f"You have been invited to a House game by {interaction.user.display_name}.\n"
+            f"To accept: go to the server and run /house accept OR reply here with /house accept if commands are enabled in DMs.\n"
+            f"Channel: {interaction.guild.get_channel(game.channel_id).mention if interaction.guild.get_channel(game.channel_id) else 'N/A'}"
+        )
         try:
-            await dm.send(f"You have been invited to the House game by {interaction.user.display_name}. To accept, run `/house accept` here or on the server. The game channel will be {interaction.guild.get_channel(game.channel_id).mention} once added.")
-        except Exception:
-            pass
+            # Use Member.send which internally opens the DM channel ensuring permissions
+            await member.send(text)
+            return True
+        except discord.Forbidden:
+            logging.info(f"DM blocked or privacy settings for user {member.id}; falling back to channel mention.")
+        except discord.HTTPException as e:
+            logging.warning(f"Failed sending DM to {member.id}: {e}")
+        return False
+
+    sent_dm = False
+    try:
+        sent_dm = await send_invite_dm(target_member)
     except Exception:
-        # fallback: mention in the lobby channel
-        pass
+        sent_dm = False
+    if not sent_dm:
+        # fallback: public notice in lobby channel (game channel or invoking channel)
+        lobby_channel = interaction.guild.get_channel(game.channel_id) or interaction.channel
+        if lobby_channel:
+            try:
+                await lobby_channel.send(f"<@{target_member.id}> (DM no disponible) invitado. Usa `/house accept` para unirte.")
+            except Exception:
+                pass
 
     await interaction.response.send_message(f"Invited <@{target_member.id}> to the game. They must accept with `/house accept`.", ephemeral=True)
 
@@ -2414,7 +2684,7 @@ async def house_start(interaction: discord.Interaction):
             x, y = pos
             room = game.map["rooms"].get((x, y))
             intro_lines.append(f"{f'<@{uid}>'} starts in room ({x+1},{y+1}): {room.get('desc') if room else 'An empty room.'}")
-    intro_lines.append("When it's your turn you'll receive a prompt in this channel. Use `/house action move <direction>` or `/house action explore` or `/house action search`. Directions: up/down/left/right.")
+    intro_lines.append("Cuando sea tu turno recibirás un aviso en este canal. Puedes USAR LOS BOTONES o los comandos `/house action move <direction>`, `/house action explore`, `/house action search`. Direcciones: up/down/left/right.")
     try:
         await ch.send("\n".join(intro_lines))
     except Exception:
@@ -2456,110 +2726,18 @@ async def house_action(interaction: discord.Interaction, action: str = "", targe
         await interaction.response.send_message(f"It's not your turn. It's <@{current_uid}>'s turn.", ephemeral=True)
         return
 
-    # handle actions: search, explore, move, use, attack (basic)
-    # normalize and be forgiving: strip whitespace, accept direction-only as move,
-    # and accept common Spanish aliases and single-letter shortcuts.
-    action = (action or "").strip().lower()
-    # If user passed a bare direction as the action (e.g. `/house action up`) treat as move
-    dir_aliases = {"up", "down", "left", "right", "u", "d", "l", "r",
-                   "arriba", "abajo", "izquierda", "derecha", "arr", "abj", "izq", "der"}
-    # Case A: user put direction in the action field
-    if action in dir_aliases and not target:
-        target = action
-        action = "move"
-    # Case B: user left action empty but provided a direction as target (common with slash UI)
-    if (not action) and target:
-        tnorm = (target or "").strip().lower()
-        if tnorm in dir_aliases:
-            action = "move"
-            target = tnorm
+    # Execute action and narrate using shared function
+    narration = execute_house_action(game, interaction.user.id, action, target)
     ch = game.guild.get_channel(game.channel_id) if game.channel_id else None
-
-    # helper to send narration to game channel and ephemeral ack
-    async def narrate(text: str):
-        if ch:
-            try:
-                await ch.send(f"**{interaction.user.display_name}**: {text}")
-            except Exception:
-                pass
-        await interaction.response.send_message("Action registered.", ephemeral=True)
-
-    if action == "search":
-        roll = random.random()
-        if roll < 0.2:
-            item = "ancient key"
-            game.players[interaction.user.id]["inventory"].append(item)
-            text = f"You search the room and find an **{item}**!"
-        elif roll < 0.4:
-            dmg = random.randint(1, 3)
-            game.players[interaction.user.id]["hp"] -= dmg
-            text = f"A hidden snare grazes you! You take {dmg} damage. (HP now {game.players[interaction.user.id]['hp']})"
-        else:
-            text = "You search but find nothing useful. The house groans..."
-        await narrate(text)
-
-    elif action == "explore":
-        pos = game.players[interaction.user.id].get("position")
-        if pos and game.map:
-            x, y = pos
-            room = game.map["rooms"].get((x, y), {})
-            # show description and items, and available moves
-            items = room.get("items", [])
-            items_text = ", ".join(items) if items else "none"
-            moves = game.valid_moves_for(interaction.user.id)
-            text = f"You explore the room ({x+1},{y+1}): {room.get('desc', 'An empty room.')}. Items: {items_text}. You can move: {', '.join(moves) if moves else 'nowhere'}."
-        else:
-            text = "You feel disoriented. There's nothing here."
-        await narrate(text)
-
-    elif action == "move":
-        if not target:
-            await interaction.response.send_message("Specify a direction: up/down/left/right. Example: `/house action move up`", ephemeral=True)
-            return
-        dir = (target or "").strip().lower()
-        # map Spanish/common aliases to canonical directions
-        if dir in ("arriba", "u", "up", "arr"):
-            dir = "up"
-        elif dir in ("abajo", "d", "down", "abj"):
-            dir = "down"
-        elif dir in ("izquierda", "l", "left", "izq"):
-            dir = "left"
-        elif dir in ("derecha", "r", "right", "der"):
-            dir = "right"
-        moved = game.move_player(interaction.user.id, dir)
-        if moved:
-            pos = game.players[interaction.user.id]["position"]
-            room = game.map["rooms"].get(pos, {})
-            text = f"You move {dir} to room ({pos[0]+1},{pos[1]+1}). {room.get('desc', '')}"
-        else:
-            moves = game.valid_moves_for(interaction.user.id)
-            text = f"Cannot move {dir}. Valid moves: {', '.join(moves) if moves else 'none'}."
-        await narrate(text)
-
-    elif action == "use":
-        if not target:
-            await interaction.response.send_message("Specify an item to use (example: `/house action use key`).", ephemeral=True)
-            return
-        item = target.lower()
-        inv = game.players[interaction.user.id].get("inventory", [])
-        if item in inv:
-            # simple use: consume key to unlock something if present
-            if item in ("ancient key", "key"):
-                inv.remove(item)
-                text = "You use the key. Somewhere a distant door unlocks with a creak..."
-            else:
-                text = f"You try to use {item} but nothing obvious happens."
-        else:
-            text = f"You don't have {item} in your inventory."
-        await narrate(text)
-
-    else:
-        await interaction.response.send_message("Action not recognized. Supported: search, explore, move, use. When in game channel you can omit the game id.", ephemeral=True)
-        return
-
+    if ch:
+        try:
+            await ch.send(f"**{interaction.user.display_name}**: {narration}")
+        except Exception:
+            pass
+    await interaction.response.send_message("Acción registrada.", ephemeral=True)
     # advance turn
+    accepted = game.accepted_players()
     game.turn_index = (game.turn_index + 1) % max(1, len(accepted))
-    # reset prompt tracking so next turn will show prompt for new player
     game._last_prompt_turn = None
 
 
@@ -2658,47 +2836,60 @@ async def run_house_game(game: HouseGame):
                 await ch.send("No active players remain. Ending game.")
                 break
             current_uid = accepted[game.turn_index % len(accepted)]
-            # Build a concise prompt: mention player, show HP, position and valid moves
             meta = game.players.get(current_uid, {})
             hp = meta.get("hp", 0)
             pos = meta.get("position")
             pos_text = f"({pos[0]+1},{pos[1]+1})" if pos else "N/A"
             moves = game.valid_moves_for(current_uid)
             moves_text = ", ".join(moves) if moves else "none"
-            prompt_lines = [f"It's <@{current_uid}>'s turn — HP: {hp} — Position: {pos_text}.", f"Valid moves: {moves_text}."]
-            # only show brief guidance once at start to avoid spam
-            if not game._sent_intro:
-                prompt_lines.append("You can use `/house action move <direction>`, `/house action explore` or `/house action search`. You may omit the game id when in this channel.")
-                game._sent_intro = True
+            prompt = (f"Turno de <@{current_uid}> — HP: {hp} — Posición: {pos_text}. "
+                      f"Movimientos válidos: {moves_text if moves_text else 'none'}. Usa botones o comandos.")
 
-            # avoid repeating the exact same prompt for the same player
-            if game._last_prompt_turn == game.turn_index:
-                # skip sending duplicate prompt
-                pass
-            else:
+            # Avoid duplicate prompt for same turn
+            if game._last_prompt_turn != game.turn_index:
+                # create interactive view for current player's turn
+                view = HouseTurnView(game, current_uid)
                 try:
-                    await ch.send(" ".join(prompt_lines))
+                    msg = await ch.send(prompt, view=view)
+                    game._current_turn_message_id = msg.id
+                    game._current_turn_view = view
                 except Exception:
-                    pass
+                    # fallback without view
+                    try:
+                        await ch.send(prompt)
+                    except Exception:
+                        pass
                 game._last_prompt_turn = game.turn_index
 
-            # wait a limited time for the turn to be used; if no action, auto-pass
-            await asyncio.sleep(20)
+            # Wait for up to 25s for buttons or slash action to advance
+            waited = 0
+            while waited < 25 and game.state == "started" and game._last_prompt_turn == game.turn_index:
+                await asyncio.sleep(5)
+                waited += 5
 
-            # check if player still alive
-            if game.players.get(current_uid, {}).get("hp", 0) <= 0:
-                # mark removed and announce
-                game.players[current_uid]["accepted"] = False
+            # If still same turn (no interaction), auto-skip
+            if game._last_prompt_turn == game.turn_index:
+                narration = "Tiempo agotado. El turno se pierde y la casa cruje en la oscuridad."
                 try:
-                    await ch.send(f"<@{current_uid}> has fallen and is out.")
+                    await ch.send(f"**Auto**: {narration}")
                 except Exception:
                     pass
-                # do not increment turn_index relative to old accepted list --- recompute next
-                # simply continue to next loop which will pick next accepted player
-                continue
-
-            # advance
-            game.turn_index = (game.turn_index + 1) % max(1, len(accepted))
+                # Advance turn
+                if accepted:
+                    game.turn_index = (game.turn_index + 1) % max(1, len(accepted))
+                game._last_prompt_turn = None
+                # disable previous view if exists
+                if game._current_turn_view and game._current_turn_message_id:
+                    try:
+                        for child in game._current_turn_view.children:
+                            if isinstance(child, discord.ui.Button):
+                                child.disabled = True
+                        msg = await ch.fetch_message(game._current_turn_message_id)
+                        await msg.edit(view=game._current_turn_view)
+                    except Exception:
+                        pass
+                    game._current_turn_view = None
+                    game._current_turn_message_id = None
         game.state = "finished"
         try:
             await ch.send("The Haunted House session has ended. Thanks for playing!")

@@ -73,6 +73,28 @@ New features added
 - Persistent tournament view: Tournament buttons no longer auto-expire. The lobby will remain active until someone starts or cancels the tournament.
 - Public titles: When creating a tournament using `/furbytournament`, the title and embed are sent as a public message visible to everyone in the channel (not ephemeral).
 
+Haunted House (Escape) — now with buttons
+-----------------------------------------
+A lightweight escape-room style mini-game is included under the `/house` command group.
+
+- `/house create` — Crea una partida privada (solo/multi). El bot crea un canal privado.
+- `/house invite` y `/house accept` — Invita y acepta jugadores (multi).
+- `/house start` — Empieza la partida.
+
+Durante la partida, el bot mostrará BOTONES de acción por turno para el jugador activo:
+
+- Mover: Up/Down/Left/Right (solo si son válidos desde la sala actual)
+- Explore (Explorar)
+- Search (Buscar)
+- Skip (Pasar turno)
+
+También puedes seguir usando los comandos de acción si lo prefieres:
+`/house action move <direction>`, `/house action explore`, `/house action search`.
+
+Notas:
+- El mapa se genera automáticamente (3x3) y se evita código repetitivo para crear salas.
+- Las vistas (botones) son persistentes y se desactivan al avanzar el turno.
+
 How to test the mention
 -----------------------
 1. Run the bot (see above).
