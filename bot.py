@@ -86,18 +86,57 @@ async def run_coro_safe(coro, name: str | None = None):
         logging.exception(f"Uncaught exception in background task {name}")
 
 
-@bot.event
-async def on_ready():
-    try:
-        logging.info(f"Bot ready. Logged in as: {bot.user} (id={getattr(bot.user, 'id', None)})")
-        # attempt to sync commands and log the count
+def safe_reply(interaction: discord.Interaction, text: str, ephemeral: bool = True):
+    """Helper to reply to an interaction safely from other contexts.
+
+    Use sparingly; returns a coroutine that will attempt to send via response or channel.
+    """
+    async def _inner():
         try:
-            synced = await bot.tree.sync()
-            logging.info(f"Synced {len(synced)} application commands")
-        except Exception as e:
-            logging.warning(f"Failed to sync commands: {e}")
-    except Exception:
-        logging.exception("Exception in on_ready")
+            if not interaction.response.is_done():
+                await interaction.response.send_message(text, ephemeral=ephemeral)
+                return
+        except Exception:
+            pass
+        # fallback to channel send
+        try:
+            if interaction.channel:
+                await interaction.channel.send(text)
+                return
+        except Exception:
+            pass
+    return _inner()
+
+
+async def end_game(game: HouseGame, announce: bool = True, delete_channel: bool = False):
+    """Cleanly end a House game: announce, revoke permissions, optionally delete channel and remove game from memory."""
+    try:
+        ch = game.guild.get_channel(game.channel_id) if game.channel_id else None
+        if announce and ch:
+            try:
+                await ch.send("The Haunted House session has ended. Thanks for playing!")
+            except Exception:
+                pass
+        # revoke channel permissions for players
+        if ch:
+            for uid in list(game.players.keys()):
+                try:
+                    member = await game.guild.fetch_member(uid)
+                    await ch.set_permissions(member, overwrite=None)
+                except Exception:
+                    pass
+        # optionally delete the channel
+        if delete_channel and ch:
+            try:
+                await ch.delete(reason="House game ended")
+            except Exception:
+                pass
+    finally:
+        # remove game from in-memory registry
+        try:
+            house_games.pop(game.id, None)
+        except Exception:
+            pass
 
 # ---------------- WORD CHAIN GAME (in-memory) ----------------
 class WordChainGame:
@@ -2339,7 +2378,7 @@ class HouseTurnView(discord.ui.View):
                 return
             inv = self.game.players.get(self.acting_uid, {}).get("inventory", [])
             if not inv:
-                await interaction.response.send_message("No tienes objetos en el inventario.", ephemeral=True)
+                await interaction.response.send_message("You have no items in your inventory.", ephemeral=True)
                 return
             # Build a small view with a Select to choose item
             select_view = discord.ui.View(timeout=60)
@@ -2349,7 +2388,7 @@ class HouseTurnView(discord.ui.View):
                     super().__init__(placeholder="Selecciona un objeto...", options=options, min_values=1, max_values=1)
                 async def callback(self, inter: discord.Interaction):  # type: ignore
                     if inter.user.id != interaction.user.id:
-                        await inter.response.send_message("No puedes usar el inventario de otro.", ephemeral=True)
+                        await inter.response.send_message("You cannot use another player's inventory.", ephemeral=True)
                         return
                     choice = self.values[0]
                     narration = execute_house_action(self.view.parent_game, self.view.parent_uid, "use", choice)  # type: ignore
@@ -2362,7 +2401,7 @@ class HouseTurnView(discord.ui.View):
             setattr(select_view, 'parent_game', self.game)
             setattr(select_view, 'parent_uid', self.acting_uid)
             setattr(select_view, 'parent_view', self)
-            await interaction.response.send_message("Elige el objeto a usar:", view=select_view, ephemeral=True)
+            await interaction.response.send_message("Choose an item to use:", view=select_view, ephemeral=True)
         btn_use = discord.ui.Button(label="Use", style=discord.ButtonStyle.success, custom_id="house_use")
         btn_use.callback = use_cb  # type: ignore
         self.add_item(btn_use)
@@ -2379,7 +2418,7 @@ class HouseTurnView(discord.ui.View):
         # Only allow the acting player to click; others get ephemeral error
         if interaction.user.id != self.acting_uid:
             try:
-                await interaction.response.send_message("No es tu turno (espera a tu turno).", ephemeral=True)
+                await interaction.response.send_message("It's not your turn (please wait).", ephemeral=True)
             except Exception:
                 pass
             return False
@@ -2389,7 +2428,7 @@ class HouseTurnView(discord.ui.View):
         logging.exception("Error en HouseTurnView", exc_info=error)
         if not interaction.response.is_done():
             try:
-                await interaction.response.send_message("Ocurrió un error con el botón.", ephemeral=True)
+                await interaction.response.send_message("An error occurred with the button.", ephemeral=True)
             except Exception:
                 pass
 
@@ -2398,9 +2437,24 @@ class HouseTurnView(discord.ui.View):
         for child in self.children:
             if isinstance(child, discord.ui.Button):
                 child.disabled = True
-        # Edit original message to reflect disabled state
+        # Edit the original turn message to reflect disabled state. Prefer stored message id
         try:
-            await interaction.message.edit(view=self)
+            ch = self.game.guild.get_channel(self.game.channel_id) if self.game.channel_id else None
+            if ch and self.game._current_turn_message_id:
+                try:
+                    orig = await ch.fetch_message(self.game._current_turn_message_id)
+                    await orig.edit(view=self)
+                except Exception:
+                    # fallback to editing interaction.message if available
+                    try:
+                        await interaction.message.edit(view=self)
+                    except Exception:
+                        pass
+            else:
+                try:
+                    await interaction.message.edit(view=self)
+                except Exception:
+                    pass
         except Exception:
             pass
         # Send narration to channel
@@ -2420,16 +2474,16 @@ class HouseTurnView(discord.ui.View):
         self.game._current_turn_message_id = None
         if not interaction.response.is_done():
             try:
-                await interaction.response.send_message("Acción registrada.", ephemeral=True)
+                await interaction.response.send_message("Action registered.", ephemeral=True)
             except Exception:
                 pass
 
-    @discord.ui.button(label="Inventario", style=discord.ButtonStyle.success, custom_id="house_inventory")
+    @discord.ui.button(label="Inventory", style=discord.ButtonStyle.success, custom_id="house_inventory")
     async def inventory_button(self, interaction: discord.Interaction, button: discord.ui.Button):  # type: ignore[override]
         inv = self.game.players.get(self.acting_uid, {}).get("inventory", [])
-        inv_text = ", ".join(inv) if inv else "(vacío)"
+        inv_text = ", ".join(inv) if inv else "(empty)"
         try:
-            await interaction.response.send_message(f"Inventario: {inv_text}", ephemeral=True)
+            await interaction.response.send_message(f"Inventory: {inv_text}", ephemeral=True)
         except Exception:
             pass
 
@@ -2616,7 +2670,7 @@ async def house_invite(interaction: discord.Interaction, user: str):
         lobby_channel = interaction.guild.get_channel(game.channel_id) or interaction.channel
         if lobby_channel:
             try:
-                await lobby_channel.send(f"<@{target_member.id}> (DM no disponible) invitado. Usa `/house accept` para unirte.")
+                await lobby_channel.send(f"<@{target_member.id}> could not be DM'd. They have been invited — please ask them to run `/house accept` to join.")
             except Exception:
                 pass
 
@@ -2684,7 +2738,7 @@ async def house_start(interaction: discord.Interaction):
             x, y = pos
             room = game.map["rooms"].get((x, y))
             intro_lines.append(f"{f'<@{uid}>'} starts in room ({x+1},{y+1}): {room.get('desc') if room else 'An empty room.'}")
-    intro_lines.append("Cuando sea tu turno recibirás un aviso en este canal. Puedes USAR LOS BOTONES o los comandos `/house action move <direction>`, `/house action explore`, `/house action search`. Direcciones: up/down/left/right.")
+    intro_lines.append("When it's your turn you'll receive a prompt in this channel. You can USE THE BUTTONS or the commands `/house action move <direction>`, `/house action explore`, `/house action search`. Directions: up/down/left/right.")
     try:
         await ch.send("\n".join(intro_lines))
     except Exception:
@@ -2734,7 +2788,7 @@ async def house_action(interaction: discord.Interaction, action: str = "", targe
             await ch.send(f"**{interaction.user.display_name}**: {narration}")
         except Exception:
             pass
-    await interaction.response.send_message("Acción registrada.", ephemeral=True)
+    await interaction.response.send_message("Action registered.", ephemeral=True)
     # advance turn
     accepted = game.accepted_players()
     game.turn_index = (game.turn_index + 1) % max(1, len(accepted))
@@ -2842,8 +2896,8 @@ async def run_house_game(game: HouseGame):
             pos_text = f"({pos[0]+1},{pos[1]+1})" if pos else "N/A"
             moves = game.valid_moves_for(current_uid)
             moves_text = ", ".join(moves) if moves else "none"
-            prompt = (f"Turno de <@{current_uid}> — HP: {hp} — Posición: {pos_text}. "
-                      f"Movimientos válidos: {moves_text if moves_text else 'none'}. Usa botones o comandos.")
+            prompt = (f"It's <@{current_uid}>'s turn — HP: {hp} — Position: {pos_text}. "
+                      f"Valid moves: {moves_text if moves_text else 'none'}. Use buttons or commands.")
 
             # Avoid duplicate prompt for same turn
             if game._last_prompt_turn != game.turn_index:
@@ -2869,7 +2923,7 @@ async def run_house_game(game: HouseGame):
 
             # If still same turn (no interaction), auto-skip
             if game._last_prompt_turn == game.turn_index:
-                narration = "Tiempo agotado. El turno se pierde y la casa cruje en la oscuridad."
+                narration = "Time's up. The turn is skipped and the house creaks in the dark."
                 try:
                     await ch.send(f"**Auto**: {narration}")
                 except Exception:
@@ -2892,9 +2946,13 @@ async def run_house_game(game: HouseGame):
                     game._current_turn_message_id = None
         game.state = "finished"
         try:
-            await ch.send("The Haunted House session has ended. Thanks for playing!")
+            await end_game(game, announce=True, delete_channel=False)
         except Exception:
-            pass
+            # fallback: send simple message
+            try:
+                await ch.send("The Haunted House session has ended. Thanks for playing!")
+            except Exception:
+                pass
     except Exception as e:
         print("Error in run_house_game:", e)
 
