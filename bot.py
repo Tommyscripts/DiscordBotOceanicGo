@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import asyncio
 import sys
@@ -108,13 +110,22 @@ def safe_reply(interaction: discord.Interaction, text: str, ephemeral: bool = Tr
     return _inner()
 
 
-async def end_game(game: HouseGame, announce: bool = True, delete_channel: bool = False):
-    """Cleanly end a House game: announce, revoke permissions, optionally delete channel and remove game from memory."""
+async def end_game(game: "HouseGame", announce: bool = True, delete_channel: bool = False):
+    """Cleanly end a House game: announce, revoke permissions, optionally delete channel and remove game from memory.
+
+    If the game has a 'winner' key in its map (or a caller provides a winner via
+    game._last_winner_display_name), include that in the announcement.
+    """
     try:
         ch = game.guild.get_channel(game.channel_id) if game.channel_id else None
+        # build announcement message
+        winner_name = getattr(game, '_last_winner_display_name', None)
         if announce and ch:
             try:
-                await ch.send("The Haunted House session has ended. Thanks for playing!")
+                if winner_name:
+                    await ch.send(f"{winner_name} unlocked the door and escaped! The Haunted House session has ended. Thanks for playing!")
+                else:
+                    await ch.send("The Haunted House session has ended. Thanks for playing!")
             except Exception:
                 pass
         # revoke channel permissions for players
@@ -2241,10 +2252,11 @@ class HouseGame:
 
 
 # ---------------- Shared action execution for House game (slash + buttons) ----------------
-def execute_house_action(game: HouseGame, uid: int, action: str, target: str | None) -> str:
-    """Execute an action for a player and return narration text.
+def execute_house_action(game: HouseGame, uid: int, action: str, target: str | None) -> tuple[str, bool]:
+    """Execute an action for a player and return (narration, ended).
 
-    Does NOT advance turn index; caller is responsible for that.
+    Returns a tuple where `ended` is True if the action finished the game
+    (for example, unlocking the exit). Does NOT advance the turn index; caller is responsible.
     """
     action = (action or "").strip().lower()
     # movement direction normalization (includes spanish shortcuts)
@@ -2273,13 +2285,13 @@ def execute_house_action(game: HouseGame, uid: int, action: str, target: str | N
         if roll < 0.2:
             item = "ancient key"
             game.players[uid]["inventory"].append(item)
-            return f"You search the room and find an **{item}**!"
+            return f"You search the room and find an **{item}**!", False
         elif roll < 0.4:
             dmg = random.randint(1, 3)
             game.players[uid]["hp"] -= dmg
-            return f"A hidden snare grazes you! You take {dmg} damage. (HP now {game.players[uid]['hp']})"
+            return f"A hidden snare grazes you! You take {dmg} damage. (HP now {game.players[uid]['hp']})", False
         else:
-            return "You search but find nothing useful. The house groans..."
+            return "You search but find nothing useful. The house groans...", False
 
     if action == "explore":
         pos = game.players[uid].get("position")
@@ -2295,24 +2307,24 @@ def execute_house_action(game: HouseGame, uid: int, action: str, target: str | N
                     extra = " The door is locked; perhaps an ancient key could open it."
                 else:
                     extra = " The exit door is unlocked! You can leave any time (narratively)."
-            return f"You explore the room ({x+1},{y+1}): {room.get('desc', 'An empty room.')}{extra}. Items: {items_text}. You can move: {', '.join(moves) if moves else 'nowhere'}."
+            return f"You explore the room ({x+1},{y+1}): {room.get('desc', 'An empty room.')}{extra}. Items: {items_text}. You can move: {', '.join(moves) if moves else 'nowhere'}.", False
         return "You feel disoriented. There's nothing here."
 
     if action == "move":
         if not target:
-            return "Specify a direction: up/down/left/right."
+            return "Specify a direction: up/down/left/right.", False
         direction = normalize_direction(target)
         moved = game.move_player(uid, direction)
         if moved:
             pos = game.players[uid]["position"]
             room = game.map["rooms"].get(pos, {})
-            return f"You move {direction} to room ({pos[0]+1},{pos[1]+1}). {room.get('desc', '')}"
+            return f"You move {direction} to room ({pos[0]+1},{pos[1]+1}). {room.get('desc', '')}", False
         moves = game.valid_moves_for(uid)
-        return f"Cannot move {direction}. Valid moves: {', '.join(moves) if moves else 'none'}."
+        return f"Cannot move {direction}. Valid moves: {', '.join(moves) if moves else 'none'}.", False
 
     if action == "use":
         if not target:
-            return "Specify an item to use (e.g. key)."
+            return "Specify an item to use (e.g. key).", False
         item = target.lower()
         inv = game.players[uid].get("inventory", [])
         if item in inv:
@@ -2323,17 +2335,17 @@ def execute_house_action(game: HouseGame, uid: int, action: str, target: str | N
                     if game.map.get("exit_locked", True):
                         inv.remove(item)
                         game.map["exit_locked"] = False
-                        # end the game with a win condition
+                        # mark game finished; caller should run end_game
                         game.state = "finished"
-                        return "You insert the ancient key and unlock the heavy door. It swings open — you escape the Haunted House!"
+                        return "You insert the ancient key and unlock the heavy door. It swings open — you escape the Haunted House!", True
                     else:
-                        return "The exit door is already unlocked."
+                        return "The exit door is already unlocked.", False
                 else:
-                    return "You try the key here, but there's no matching lock in this room."
-            return f"You try to use {item} but nothing obvious happens."
-        return f"You don't have {item} in your inventory."
+                    return "You try the key here, but there's no matching lock in this room.", False
+            return f"You try to use {item} but nothing obvious happens.", False
+        return f"You don't have {item} in your inventory.", False
 
-    return "Action not recognized. Supported: search, explore, move, use."
+    return "Action not recognized. Supported: search, explore, move, use.", False
 
 
 class HouseTurnView(discord.ui.View):
@@ -2385,15 +2397,26 @@ class HouseTurnView(discord.ui.View):
             options = [discord.SelectOption(label=item, value=item) for item in inv[:25]]
             class UseSelect(discord.ui.Select):
                 def __init__(self):
-                    super().__init__(placeholder="Selecciona un objeto...", options=options, min_values=1, max_values=1)
+                    super().__init__(placeholder="Select an item...", options=options, min_values=1, max_values=1)
                 async def callback(self, inter: discord.Interaction):  # type: ignore
                     if inter.user.id != interaction.user.id:
                         await inter.response.send_message("You cannot use another player's inventory.", ephemeral=True)
                         return
                     choice = self.values[0]
-                    narration = execute_house_action(self.view.parent_game, self.view.parent_uid, "use", choice)  # type: ignore
-                    # disable original turn view and advance
+                    narration, ended = execute_house_action(self.view.parent_game, self.view.parent_uid, "use", choice)  # type: ignore
+                    # disable original turn view and advance (will also send narration)
                     await self.view.parent_view.disable_and_advance(inter, narration=narration)  # type: ignore
+                    # if this ended the game, call end_game and include winner name
+                    if ended:
+                        try:
+                            # store winner display name for announcement
+                            self.view.parent_game._last_winner_display_name = interaction.user.display_name
+                        except Exception:
+                            pass
+                        try:
+                            await end_game(self.view.parent_game, announce=True, delete_channel=False)
+                        except Exception:
+                            pass
             # attach helpers to view for callback context
             select = UseSelect()
             select_view.add_item(select)
@@ -2488,7 +2511,22 @@ class HouseTurnView(discord.ui.View):
             pass
 
     async def _handle_action(self, interaction: discord.Interaction, action: str, target: str | None = None):
-        narration = execute_house_action(self.game, self.acting_uid, action, target)
+        narration, ended = execute_house_action(self.game, self.acting_uid, action, target)
+        if ended:
+            # disable view and then run end_game (include winner name)
+            try:
+                await self.disable_and_advance(interaction, narration=narration)
+            except Exception:
+                pass
+            try:
+                self.game._last_winner_display_name = interaction.user.display_name
+            except Exception:
+                pass
+            try:
+                await end_game(self.game, announce=True, delete_channel=False)
+            except Exception:
+                pass
+            return
         await self.disable_and_advance(interaction, narration=narration)
 
     async def on_timeout(self):
@@ -2781,7 +2819,7 @@ async def house_action(interaction: discord.Interaction, action: str = "", targe
         return
 
     # Execute action and narrate using shared function
-    narration = execute_house_action(game, interaction.user.id, action, target)
+    narration, ended = execute_house_action(game, interaction.user.id, action, target)
     ch = game.guild.get_channel(game.channel_id) if game.channel_id else None
     if ch:
         try:
@@ -2789,6 +2827,16 @@ async def house_action(interaction: discord.Interaction, action: str = "", targe
         except Exception:
             pass
     await interaction.response.send_message("Action registered.", ephemeral=True)
+    if ended:
+        try:
+            game._last_winner_display_name = interaction.user.display_name
+        except Exception:
+            pass
+        try:
+            await end_game(game, announce=True, delete_channel=False)
+        except Exception:
+            pass
+        return
     # advance turn
     accepted = game.accepted_players()
     game.turn_index = (game.turn_index + 1) % max(1, len(accepted))
