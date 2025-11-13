@@ -79,6 +79,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # In-memory store to track channels locked by the bot and previous overwrites
 locked_channels: dict[int, dict[tuple[str, int], dict[str, bool | None]]] = {}
 
+# Global lock to serialize permission-modifying operations to avoid concurrent PUT bursts
+permission_op_lock = asyncio.Lock()
+
 # Basic logging so we can see exceptions in hosted environments (Railway etc.)
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [%(levelname)s] %(name)s: %(message)s')
 
@@ -147,16 +150,17 @@ async def end_game(game: "HouseGame", announce: bool = True, delete_channel: boo
                             except Exception:
                                 pass
                     if modified:
-                        try:
-                            await ch.edit(overwrites=current_overwrites)
-                        except Exception:
-                            # fallback to per-member removal if edit fails
-                            for uid in list(game.players.keys()):
-                                try:
-                                    member = await game.guild.fetch_member(uid)
-                                    await ch.set_permissions(member, overwrite=None)
-                                except Exception:
-                                    pass
+                        async with permission_op_lock:
+                            try:
+                                await ch.edit(overwrites=current_overwrites)
+                            except Exception:
+                                # fallback to per-member removal if edit fails
+                                for uid in list(game.players.keys()):
+                                    try:
+                                        member = await game.guild.fetch_member(uid)
+                                        await ch.set_permissions(member, overwrite=None)
+                                    except Exception:
+                                        pass
                     else:
                         # nothing to change via edit; try per-member removal to be safe
                         for uid in list(game.players.keys()):
@@ -1013,6 +1017,7 @@ async def on_message(message: discord.Message):
     guild = message.guild
 
     if cmd == 'lock':
+        logging.info(f"Lock command invoked by {message.author} in {ch.id}")
         # Save the full existing overwrites so we can restore them later
         try:
             original_overwrites = dict(ch.overwrites)
@@ -1064,20 +1069,24 @@ async def on_message(message: discord.Message):
                     new_overwrites[target] = ow
 
         # Apply all overwrites in a single edit call to avoid rate-limiting per-role
-        try:
-            await ch.edit(overwrites=new_overwrites)
-        except Exception:
-            # Best-effort fallback: try to set perms per-role (may be rate-limited)
-            for role, ow in new_overwrites.items():
-                try:
-                    await ch.set_permissions(role, overwrite=ow)
-                except Exception:
-                    pass
+        async with permission_op_lock:
+            try:
+                await ch.edit(overwrites=new_overwrites)
+                logging.info(f"Channel {ch.id} locked with {len(new_overwrites)} overwrites (single edit).")
+            except Exception as e:
+                logging.warning(f"ch.edit failed during lock in channel {ch.id}: {e}. Falling back to per-target set_permissions.")
+                # Best-effort fallback: try to set perms per-role (may be rate-limited)
+                for role, ow in new_overwrites.items():
+                    try:
+                        await ch.set_permissions(role, overwrite=ow)
+                    except Exception:
+                        pass
 
         try:
             await ch.send("Channel locked: only staff can send messages. Viewing permissions were not changed.")
         except Exception:
             pass
+        logging.info(f"Lock applied for channel {ch.id}, stored original overwrites count={len(original_overwrites)}")
         return
 
     if cmd == 'unlock':
@@ -1090,15 +1099,18 @@ async def on_message(message: discord.Message):
             return
 
         # Restore the original overwrites in a single edit call
-        try:
-            await ch.edit(overwrites=prev)
-        except Exception:
-            # Fallback: restore per-target
-            for target, ow in prev.items():
-                try:
-                    await ch.set_permissions(target, overwrite=ow)
-                except Exception:
-                    pass
+        async with permission_op_lock:
+            try:
+                await ch.edit(overwrites=prev)
+                logging.info(f"Channel {ch.id} unlocked with {len(prev)} overwrites restored (single edit).")
+            except Exception as e:
+                logging.warning(f"ch.edit failed during unlock in channel {ch.id}: {e}. Falling back to per-target restore.")
+                # Fallback: restore per-target
+                for target, ow in prev.items():
+                    try:
+                        await ch.set_permissions(target, overwrite=ow)
+                    except Exception:
+                        pass
 
         try:
             del locked_channels[ch.id]
@@ -2970,16 +2982,17 @@ async def house_start(interaction: discord.Interaction):
                     member = None
                 if member:
                     new_overwrites[member] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
-            try:
-                await ch.edit(overwrites=new_overwrites)
-            except Exception:
-                # fallback to per-member set_permissions
-                for uid in accepted:
-                    try:
-                        member = await game.guild.fetch_member(uid)
-                        await ch.set_permissions(member, view_channel=True, send_messages=True)
-                    except Exception:
-                        pass
+            async with permission_op_lock:
+                try:
+                    await ch.edit(overwrites=new_overwrites)
+                except Exception:
+                    # fallback to per-member set_permissions
+                    for uid in accepted:
+                        try:
+                            member = await game.guild.fetch_member(uid)
+                            await ch.set_permissions(member, view_channel=True, send_messages=True)
+                        except Exception:
+                            pass
         # post intro with brief instructions and initial positions
         players_list = ', '.join([f'<@{u}>' for u in accepted])
     intro_lines = [f"Welcome to the Haunted House — session", f"Mode: {game.mode}", f"Players: {players_list}"]
