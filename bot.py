@@ -979,28 +979,67 @@ async def on_message(message: discord.Message):
     guild = message.guild
 
     if cmd == 'lock':
-        # Save previous send_messages overwrites for roles so we can restore later
-        prev: dict[tuple[str, int], dict[str, bool | None]] = {}
+        # Save the full existing overwrites so we can restore them later
+        try:
+            original_overwrites = dict(ch.overwrites)
+        except Exception:
+            # Fallback: build a mapping from roles that currently have any overwrite
+            original_overwrites = {}
+            for role in guild.roles:
+                try:
+                    ow = ch.overwrites_for(role)
+                except Exception:
+                    ow = None
+                if ow is not None:
+                    original_overwrites[role] = ow
+
+        # Store original overwrites in-memory so unlock can restore them
+        locked_channels[ch.id] = original_overwrites
+
+        # Build a new overwrites mapping based on the original one but forcing
+        # send_messages to False for non-staff roles while preserving view_channel.
+        new_overwrites: dict[discord.abc.Snowflake, discord.PermissionOverwrite] = {}
         staff_role_id = get_staff_role(guild.id)
         for role in guild.roles:
+            prev_ow = original_overwrites.get(role)
+            prev_view = None
+            if prev_ow is not None:
+                try:
+                    prev_view = prev_ow.view_channel
+                except Exception:
+                    prev_view = None
+            # decide who can still send
+            allowed = False
             try:
-                ow = ch.overwrites_for(role)
-            except Exception:
-                ow = None
-            prev_val = None
-            if ow is not None:
-                prev_val = ow.send_messages
-            prev[('role', role.id)] = {'send_messages': prev_val}
-            try:
-                # keep staff/admin roles able to send
                 if (staff_role_id and role.id == staff_role_id) or role.permissions.administrator or role.permissions.manage_guild:
-                    await ch.set_permissions(role, send_messages=True)
-                else:
-                    await ch.set_permissions(role, send_messages=False)
+                    allowed = True
             except Exception:
-                pass
+                allowed = False
+            # create overwrite preserving view_channel
+            ow = discord.PermissionOverwrite()
+            ow.send_messages = True if allowed else False
+            if prev_view is not None:
+                ow.view_channel = prev_view
+            new_overwrites[role] = ow
 
-        locked_channels[ch.id] = prev
+        # Also include any member-specific original overwrites so we don't lose them
+        for target, ow in original_overwrites.items():
+            if isinstance(target, (discord.Member, discord.User)):
+                # only add if not already present
+                if target not in new_overwrites:
+                    new_overwrites[target] = ow
+
+        # Apply all overwrites in a single edit call to avoid rate-limiting per-role
+        try:
+            await ch.edit(overwrites=new_overwrites)
+        except Exception:
+            # Best-effort fallback: try to set perms per-role (may be rate-limited)
+            for role, ow in new_overwrites.items():
+                try:
+                    await ch.set_permissions(role, overwrite=ow)
+                except Exception:
+                    pass
+
         try:
             await ch.send("Channel locked: only staff can send messages. Viewing permissions were not changed.")
         except Exception:
@@ -1016,18 +1055,14 @@ async def on_message(message: discord.Message):
                 pass
             return
 
-        for key, data in prev.items():
-            typ, ident = key
-            if typ == 'role':
-                role = guild.get_role(ident)
-                if not role:
-                    continue
-                prev_send = data.get('send_messages')
+        # Restore the original overwrites in a single edit call
+        try:
+            await ch.edit(overwrites=prev)
+        except Exception:
+            # Fallback: restore per-target
+            for target, ow in prev.items():
                 try:
-                    if prev_send is None:
-                        await ch.set_permissions(role, overwrite=None)
-                    else:
-                        await ch.set_permissions(role, send_messages=prev_send)
+                    await ch.set_permissions(target, overwrite=ow)
                 except Exception:
                     pass
 
