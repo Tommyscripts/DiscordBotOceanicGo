@@ -76,6 +76,9 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# In-memory store to track channels locked by the bot and previous overwrites
+locked_channels: dict[int, dict[tuple[str, int], dict[str, bool | None]]] = {}
+
 # Basic logging so we can see exceptions in hosted environments (Railway etc.)
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [%(levelname)s] %(name)s: %(message)s')
 
@@ -925,6 +928,118 @@ async def on_connect():
         bot.loop.create_task(schedule_unmute_check())
     except Exception:
         pass
+
+
+@bot.event
+async def on_message(message: discord.Message):
+    """Handle simple dot-prefixed moderation commands (.lock /.unlock).
+
+    .lock will prevent non-staff roles from sending messages in the channel
+    while keeping view permissions unchanged. .unlock restores previous
+    send_messages overwrites saved when locking.
+    """
+    # ignore bots
+    if message.author.bot:
+        return
+
+    content = (message.content or "").strip()
+    if not content.startswith('.'):
+        # let other command processors handle it
+        await bot.process_commands(message)
+        return
+
+    parts = content.split()
+    cmd = parts[0][1:].lower() if parts else ''
+
+    if cmd not in ('lock', 'unlock'):
+        await bot.process_commands(message)
+        return
+
+    # must be used in a guild text channel
+    if not message.guild or not isinstance(message.channel, discord.TextChannel):
+        try:
+            await message.channel.send("This command must be used in a server text channel.")
+        except Exception:
+            pass
+        return
+
+    # permission check: only staff may run lock/unlock
+    try:
+        allowed = await is_staff_in_guild(message.guild, message.author.id)
+    except Exception:
+        allowed = False
+    if not allowed:
+        try:
+            await message.channel.send("You do not have permission to use this command.")
+        except Exception:
+            pass
+        return
+
+    ch: discord.TextChannel = message.channel
+    guild = message.guild
+
+    if cmd == 'lock':
+        # Save previous send_messages overwrites for roles so we can restore later
+        prev: dict[tuple[str, int], dict[str, bool | None]] = {}
+        staff_role_id = get_staff_role(guild.id)
+        for role in guild.roles:
+            try:
+                ow = ch.overwrites_for(role)
+            except Exception:
+                ow = None
+            prev_val = None
+            if ow is not None:
+                prev_val = ow.send_messages
+            prev[('role', role.id)] = {'send_messages': prev_val}
+            try:
+                # keep staff/admin roles able to send
+                if (staff_role_id and role.id == staff_role_id) or role.permissions.administrator or role.permissions.manage_guild:
+                    await ch.set_permissions(role, send_messages=True)
+                else:
+                    await ch.set_permissions(role, send_messages=False)
+            except Exception:
+                pass
+
+        locked_channels[ch.id] = prev
+        try:
+            await ch.send("Channel locked: only staff can send messages. Viewing permissions were not changed.")
+        except Exception:
+            pass
+        return
+
+    if cmd == 'unlock':
+        prev = locked_channels.get(ch.id)
+        if not prev:
+            try:
+                await ch.send("Channel is not locked by me or no previous state saved.")
+            except Exception:
+                pass
+            return
+
+        for key, data in prev.items():
+            typ, ident = key
+            if typ == 'role':
+                role = guild.get_role(ident)
+                if not role:
+                    continue
+                prev_send = data.get('send_messages')
+                try:
+                    if prev_send is None:
+                        await ch.set_permissions(role, overwrite=None)
+                    else:
+                        await ch.set_permissions(role, send_messages=prev_send)
+                except Exception:
+                    pass
+
+        try:
+            del locked_channels[ch.id]
+        except KeyError:
+            pass
+        try:
+            await ch.send("Channel unlocked and previous send permissions restored.")
+        except Exception:
+            pass
+        return
 
 
 @bot.tree.command(name='ban', description='Ban a user by ID. Optional reason.')
