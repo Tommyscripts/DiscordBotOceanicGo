@@ -133,12 +133,46 @@ async def end_game(game: "HouseGame", announce: bool = True, delete_channel: boo
                 pass
         # revoke channel permissions for players
         if ch:
-            for uid in list(game.players.keys()):
                 try:
-                    member = await game.guild.fetch_member(uid)
-                    await ch.set_permissions(member, overwrite=None)
+                    # Remove member-specific overwrites for all players in a single edit
+                    current_overwrites = dict(ch.overwrites)
+                    modified = False
+                    # keys in current_overwrites can be Role, Member, or User
+                    for uid in list(game.players.keys()):
+                        for target in list(current_overwrites.keys()):
+                            try:
+                                if hasattr(target, 'id') and getattr(target, 'id') == uid:
+                                    current_overwrites.pop(target, None)
+                                    modified = True
+                            except Exception:
+                                pass
+                    if modified:
+                        try:
+                            await ch.edit(overwrites=current_overwrites)
+                        except Exception:
+                            # fallback to per-member removal if edit fails
+                            for uid in list(game.players.keys()):
+                                try:
+                                    member = await game.guild.fetch_member(uid)
+                                    await ch.set_permissions(member, overwrite=None)
+                                except Exception:
+                                    pass
+                    else:
+                        # nothing to change via edit; try per-member removal to be safe
+                        for uid in list(game.players.keys()):
+                            try:
+                                member = await game.guild.fetch_member(uid)
+                                await ch.set_permissions(member, overwrite=None)
+                            except Exception:
+                                pass
                 except Exception:
-                    pass
+                    # best-effort per-member cleanup
+                    for uid in list(game.players.keys()):
+                        try:
+                            member = await game.guild.fetch_member(uid)
+                            await ch.set_permissions(member, overwrite=None)
+                        except Exception:
+                            pass
         # optionally delete the channel
         if delete_channel and ch:
             try:
@@ -1198,12 +1232,24 @@ async def slash_mute(interaction: discord.Interaction, user_id: str, duration: s
                 # try to create role
                 try:
                     muted_role = await interaction.guild.create_role(name='Muted', reason='Create muted role for mute command')
-                    # try to set permissions in channels
-                    for ch in interaction.guild.channels:
-                        try:
-                            await ch.set_permissions(muted_role, send_messages=False, speak=False)
-                        except Exception:
-                            pass
+                    # apply channel overwrites in background with delays to avoid rate limits
+                    async def _apply_muted_overwrites():
+                        for ch in interaction.guild.channels:
+                            try:
+                                await ch.set_permissions(muted_role, send_messages=False, speak=False)
+                            except Exception:
+                                pass
+                            await asyncio.sleep(0.25)
+
+                    try:
+                        asyncio.create_task(run_coro_safe(_apply_muted_overwrites(), name=f"apply-muted-{interaction.guild.id}"))
+                    except Exception:
+                        # best-effort synchronous fallback (may hit rate limits)
+                        for ch in interaction.guild.channels:
+                            try:
+                                await ch.set_permissions(muted_role, send_messages=False, speak=False)
+                            except Exception:
+                                pass
                 except Exception:
                     pass
             if muted_role:
@@ -2911,11 +2957,29 @@ async def house_start(interaction: discord.Interaction):
     ch = game.guild.get_channel(game.channel_id) if game.channel_id else None
     if ch:
         for uid in accepted:
+            # Apply member-specific overwrites in a single edit to avoid many PUTs
             try:
-                member = await game.guild.fetch_member(uid)
-                await ch.set_permissions(member, view_channel=True, send_messages=True)
+                original_overwrites = dict(ch.overwrites)
             except Exception:
-                pass
+                original_overwrites = {}
+            new_overwrites = dict(original_overwrites)
+            for uid in accepted:
+                try:
+                    member = await game.guild.fetch_member(uid)
+                except Exception:
+                    member = None
+                if member:
+                    new_overwrites[member] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+            try:
+                await ch.edit(overwrites=new_overwrites)
+            except Exception:
+                # fallback to per-member set_permissions
+                for uid in accepted:
+                    try:
+                        member = await game.guild.fetch_member(uid)
+                        await ch.set_permissions(member, view_channel=True, send_messages=True)
+                    except Exception:
+                        pass
         # post intro with brief instructions and initial positions
         players_list = ', '.join([f'<@{u}>' for u in accepted])
     intro_lines = [f"Welcome to the Haunted House — session", f"Mode: {game.mode}", f"Players: {players_list}"]
