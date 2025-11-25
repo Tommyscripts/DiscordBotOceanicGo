@@ -993,7 +993,11 @@ async def apply_lock_channel(ch: discord.TextChannel, guild: discord.Guild, staf
     and deny send for any role that previously had an explicit allow but is not staff/admin.
     Stores original overwrites in `locked_channels` for later restore.
     """
+    start = time.time()
     original_overwrites = await _gather_original_overwrites(ch)
+    # if already locked, warn (we will overwrite saved state)
+    if ch.id in locked_channels:
+        logging.warning(f"apply_lock_channel: Channel {ch.id} was already locked; overwriting saved state.")
     locked_channels[ch.id] = original_overwrites
 
     new_overwrites = dict(original_overwrites)
@@ -1064,31 +1068,56 @@ async def apply_lock_channel(ch: discord.TextChannel, guild: discord.Guild, staf
     except Exception:
         pass
 
+    fallback_used = False
+    per_target_success = 0
+    per_target_fail = 0
     async with permission_op_lock:
         try:
             await ch.edit(overwrites=new_overwrites)
-        except Exception:
+        except Exception as e:
+            fallback_used = True
+            logging.warning(f"apply_lock_channel: ch.edit failed for channel {ch.id}: {e}. Falling back to per-target set_permissions.")
             for target, ow in new_overwrites.items():
                 try:
                     await ch.set_permissions(target, overwrite=ow)
+                    per_target_success += 1
                 except Exception:
+                    per_target_fail += 1
                     pass
+    elapsed = time.time() - start
+    if fallback_used:
+        logging.info(f"apply_lock_channel: Channel {ch.id} locked in {elapsed:.3f}s (fallback used). Per-target successes={per_target_success} failures={per_target_fail}")
+    else:
+        logging.info(f"apply_lock_channel: Channel {ch.id} locked in {elapsed:.3f}s (single edit).")
 
 
 async def apply_unlock_channel(ch: discord.TextChannel):
     """Restore overwrites previously saved by apply_lock_channel."""
+    start = time.time()
     prev = locked_channels.get(ch.id)
     if not prev:
         raise RuntimeError("No locked state saved for channel")
+    fallback_used = False
+    per_target_success = 0
+    per_target_fail = 0
     async with permission_op_lock:
         try:
             await ch.edit(overwrites=prev)
-        except Exception:
+        except Exception as e:
+            fallback_used = True
+            logging.warning(f"apply_unlock_channel: ch.edit failed for channel {ch.id}: {e}. Falling back to per-target restore.")
             for target, ow in prev.items():
                 try:
                     await ch.set_permissions(target, overwrite=ow)
+                    per_target_success += 1
                 except Exception:
+                    per_target_fail += 1
                     pass
+    elapsed = time.time() - start
+    if fallback_used:
+        logging.info(f"apply_unlock_channel: Channel {ch.id} unlocked in {elapsed:.3f}s (fallback used). Per-target successes={per_target_success} failures={per_target_fail}")
+    else:
+        logging.info(f"apply_unlock_channel: Channel {ch.id} unlocked in {elapsed:.3f}s (single edit).")
     try:
         del locked_channels[ch.id]
     except KeyError:
@@ -1153,6 +1182,8 @@ async def on_message(message: discord.Message):
             original_overwrites = {}
 
         # Store original overwrites in-memory so unlock can restore them
+        if ch.id in locked_channels:
+            logging.warning(f"on_message .lock: Channel {ch.id} already locked; overwriting saved state.")
         locked_channels[ch.id] = original_overwrites
 
         # Strategy: minimize changed targets. Deny @everyone send_messages and
@@ -1233,17 +1264,29 @@ async def on_message(message: discord.Message):
             pass
 
         # Apply in a single edit under the permission_op_lock for safety
+        start = time.time()
+        fallback_used = False
+        per_target_success = 0
+        per_target_fail = 0
         async with permission_op_lock:
             try:
                 await ch.edit(overwrites=new_overwrites)
                 logging.info(f"Channel {ch.id} locked (minimal changes).")
             except Exception as e:
+                fallback_used = True
                 logging.warning(f"ch.edit failed during optimized lock in channel {ch.id}: {e}. Falling back to per-target set_permissions.")
                 for target, ow in new_overwrites.items():
                     try:
                         await ch.set_permissions(target, overwrite=ow)
+                        per_target_success += 1
                     except Exception:
+                        per_target_fail += 1
                         pass
+        elapsed = time.time() - start
+        if fallback_used:
+            logging.info(f"on_message .lock: Channel {ch.id} locked in {elapsed:.3f}s (fallback used). Per-target successes={per_target_success} failures={per_target_fail}")
+        else:
+            logging.info(f"on_message .lock: Channel {ch.id} locked in {elapsed:.3f}s (single edit).")
 
         try:
             await ch.send("Channel locked: only staff can send messages. Viewing permissions were not changed.")
@@ -1261,18 +1304,27 @@ async def on_message(message: discord.Message):
             return
 
         # Restore the original overwrites in a single edit call
+        start = time.time()
+        fallback_used = False
+        per_target_success = 0
+        per_target_fail = 0
         async with permission_op_lock:
             try:
                 await ch.edit(overwrites=prev)
-                logging.info(f"Channel {ch.id} unlocked with {len(prev)} overwrites restored (single edit).")
+                elapsed = time.time() - start
+                logging.info(f"Channel {ch.id} unlocked with {len(prev)} overwrites restored (single edit) in {elapsed:.3f}s.")
             except Exception as e:
+                fallback_used = True
                 logging.warning(f"ch.edit failed during unlock in channel {ch.id}: {e}. Falling back to per-target restore.")
-                # Fallback: restore per-target
                 for target, ow in prev.items():
                     try:
                         await ch.set_permissions(target, overwrite=ow)
+                        per_target_success += 1
                     except Exception:
+                        per_target_fail += 1
                         pass
+                elapsed = time.time() - start
+                logging.info(f"on_message .unlock: Channel {ch.id} unlocked in {elapsed:.3f}s (fallback used). Per-target successes={per_target_success} failures={per_target_fail}")
 
         try:
             del locked_channels[ch.id]
