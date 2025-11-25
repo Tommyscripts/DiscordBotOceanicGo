@@ -95,6 +95,56 @@ Notas:
 - El mapa se genera automáticamente (3x3) y se evita código repetitivo para crear salas.
 - Las vistas (botones) son persistentes y se desactivan al avanzar el turno.
 
+**Commands**
+
+- **Moderation:**
+   - ` /ban <user_id> [reason]` : Ban a user by ID (admin/moderation command).
+   - ` /kick <user_id> [reason]` : Kick a user by ID (admin/moderation command).
+   - ` /mute <user_id> [duration] [reason]` : Mute a user for a duration or assign a Muted role as fallback.
+   - ` /settings_mod <command> <role>` : Configure which role can use moderation commands (ban/kick/mute). Admins only.
+   - ` /settings set_staff_role <role>` : (Owner) Configure the staff role for the server.
+   - ` /settings get_staff_role` : Show the configured staff role for the server.
+
+- **House (Haunted House) game (`/house` group):**
+   - ` /house create [mode] [max_players]` : Create a private House game channel (mode: solo|multi).
+   - ` /house invite <user>` : Invite a user to your House game (host only).
+   - ` /house accept` : Accept an invitation to a House game.
+   - ` /house start` : Start the House game (host only).
+   - ` /house action <action> [target]` : Perform an in-game action (search|explore|move|use).
+   - ` /house move <direction>` : Shortcut to move (up/down/left/right).
+   - ` /house explore` : Shortcut to explore the current room.
+   - ` /house status` : Show current game status and player positions.
+   - ` /house leave` : Leave the House game and revoke channel access.
+   - ` /house end` : End the House game and optionally remove the private channel (host or admin).
+
+- **Games & Tournaments:**
+   - ` /wordchain [timeout]` : Start a Word Chain game lobby (players join with buttons).
+   - ` /furby_tournament [title]` : Create a Furby tournament embed with Join/Leave/Start buttons.
+   - ` /mm` : Quick explanation of how to play "mm".
+   - ` /wheels create <text>` : Create a reaction-based wheel (users react to join).
+   - ` /wheels start` : Start a wheel and pick a random winner from reactors.
+
+- **Economy & Shop:**
+   - ` /turkeys [user]` : Check your turkey currency balance (or another user's if specified).
+   - ` /give_turkeys <user> <amount>` : (Staff) Give or remove turkeys from a user.
+   - ` /shop list` : List available shop items for this server or global items.
+   - ` /shop buy <item_id>` : Buy a shop item using turkeys.
+   - ` /shop add <name> <price> [role] [global]` : (Admin) Add a shop item to this server or globally.
+   - ` /shop remove <item_id>` : (Admin) Remove a shop item by id.
+
+- **Scheduling:**
+   - ` /schedule show` : Show today's schedule (24 slots UTC).
+   - ` /schedule add <slot> <game>` : Add yourself to a numbered slot (1-24).
+   - ` /schedule delete <slot>` : Remove your signup from a numbered slot (1-24).
+
+- **Utilities & Admin:**
+   - ` /resync_commands` : Force re-sync of application commands in this guild (admins only).
+
+- **Dot commands (prefix-style):**
+   - `.lock` : Lock the current text channel so that non-staff cannot send messages; preserves view permissions and saves prior overwrites.
+   - `.unlock` : Restore the channel's previous permissions saved by `.lock`.
+
+
 How to test the mention
 -----------------------
 1. Run the bot (see above).
