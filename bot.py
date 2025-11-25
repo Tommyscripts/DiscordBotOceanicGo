@@ -968,6 +968,134 @@ async def on_connect():
         pass
 
 
+async def _gather_original_overwrites(ch: discord.TextChannel) -> dict:
+    try:
+        return dict(ch.overwrites)
+    except Exception:
+        # best-effort: try to build from roles that have explicit overwrites
+        out = {}
+        try:
+            # this may raise depending on object shape
+            for role in getattr(ch, 'guild', getattr(ch, 'guild', None)).roles:
+                try:
+                    ow = ch.overwrites_for(role)
+                except Exception:
+                    ow = None
+                if ow is not None:
+                    out[role] = ow
+        except Exception:
+            pass
+        return out
+
+
+async def apply_lock_channel(ch: discord.TextChannel, guild: discord.Guild, staff_role_id: int | None = None):
+    """Apply a minimal lock on `ch`: deny @everyone sending, allow staff and bot,
+    and deny send for any role that previously had an explicit allow but is not staff/admin.
+    Stores original overwrites in `locked_channels` for later restore.
+    """
+    original_overwrites = await _gather_original_overwrites(ch)
+    locked_channels[ch.id] = original_overwrites
+
+    new_overwrites = dict(original_overwrites)
+    # deny @everyone send_messages (preserve view)
+    try:
+        everyone = guild.default_role
+        prev = new_overwrites.get(everyone)
+        ow = discord.PermissionOverwrite()
+        ow.send_messages = False
+        if prev and getattr(prev, 'view_channel', None) is not None:
+            ow.view_channel = prev.view_channel
+        new_overwrites[everyone] = ow
+    except Exception:
+        pass
+
+    # allow staff role if provided
+    try:
+        if staff_role_id:
+            staff_role = guild.get_role(staff_role_id)
+            if staff_role:
+                prev = new_overwrites.get(staff_role)
+                ow = discord.PermissionOverwrite()
+                ow.send_messages = True
+                if prev and getattr(prev, 'view_channel', None) is not None:
+                    ow.view_channel = prev.view_channel
+                new_overwrites[staff_role] = ow
+    except Exception:
+        pass
+
+    # ensure bot can still send
+    try:
+        me = guild.me
+        prev = new_overwrites.get(me)
+        ow = discord.PermissionOverwrite()
+        ow.send_messages = True
+        if prev and getattr(prev, 'view_channel', None) is not None:
+            ow.view_channel = prev.view_channel
+        new_overwrites[me] = ow
+    except Exception:
+        pass
+
+    # adjust roles that had explicit allow previously
+    try:
+        for target, prev_ow in list(original_overwrites.items()):
+            if isinstance(target, discord.Role):
+                try:
+                    prev_allow = getattr(prev_ow, 'send_messages', None)
+                except Exception:
+                    prev_allow = None
+                if prev_allow:
+                    is_staff = False
+                    try:
+                        if staff_role_id and target.id == staff_role_id:
+                            is_staff = True
+                        if target.permissions.administrator or target.permissions.manage_guild:
+                            is_staff = True
+                    except Exception:
+                        pass
+                    if not is_staff:
+                        ow = discord.PermissionOverwrite()
+                        ow.send_messages = False
+                        try:
+                            if getattr(prev_ow, 'view_channel', None) is not None:
+                                ow.view_channel = prev_ow.view_channel
+                        except Exception:
+                            pass
+                        new_overwrites[target] = ow
+    except Exception:
+        pass
+
+    async with permission_op_lock:
+        try:
+            await ch.edit(overwrites=new_overwrites)
+        except Exception:
+            for target, ow in new_overwrites.items():
+                try:
+                    await ch.set_permissions(target, overwrite=ow)
+                except Exception:
+                    pass
+
+
+async def apply_unlock_channel(ch: discord.TextChannel):
+    """Restore overwrites previously saved by apply_lock_channel."""
+    prev = locked_channels.get(ch.id)
+    if not prev:
+        raise RuntimeError("No locked state saved for channel")
+    async with permission_op_lock:
+        try:
+            await ch.edit(overwrites=prev)
+        except Exception:
+            for target, ow in prev.items():
+                try:
+                    await ch.set_permissions(target, overwrite=ow)
+                except Exception:
+                    pass
+    try:
+        del locked_channels[ch.id]
+    except KeyError:
+        pass
+
+
+
 @bot.event
 async def on_message(message: discord.Message):
     """Handle simple dot-prefixed moderation commands (.lock /.unlock).
@@ -1022,63 +1150,98 @@ async def on_message(message: discord.Message):
         try:
             original_overwrites = dict(ch.overwrites)
         except Exception:
-            # Fallback: build a mapping from roles that currently have any overwrite
             original_overwrites = {}
-            for role in guild.roles:
-                try:
-                    ow = ch.overwrites_for(role)
-                except Exception:
-                    ow = None
-                if ow is not None:
-                    original_overwrites[role] = ow
 
         # Store original overwrites in-memory so unlock can restore them
         locked_channels[ch.id] = original_overwrites
 
-        # Build a new overwrites mapping based on the original one but forcing
-        # send_messages to False for non-staff roles while preserving view_channel.
-        new_overwrites: dict[discord.abc.Snowflake, discord.PermissionOverwrite] = {}
+        # Strategy: minimize changed targets. Deny @everyone send_messages and
+        # explicitly allow staff and bot. Also, for any role that currently has
+        # an explicit overwrite allowing send_messages and is not staff/admin,
+        # flip it to deny so non-staff can't send.
+        new_overwrites = dict(original_overwrites)  # start from original
         staff_role_id = get_staff_role(guild.id)
-        for role in guild.roles:
-            prev_ow = original_overwrites.get(role)
-            prev_view = None
-            if prev_ow is not None:
-                try:
-                    prev_view = prev_ow.view_channel
-                except Exception:
-                    prev_view = None
-            # decide who can still send
-            allowed = False
-            try:
-                if (staff_role_id and role.id == staff_role_id) or role.permissions.administrator or role.permissions.manage_guild:
-                    allowed = True
-            except Exception:
-                allowed = False
-            # create overwrite preserving view_channel
+
+        # Ensure @everyone is denied send_messages (preserve view_channel)
+        try:
+            everyone = guild.default_role
+            prev = new_overwrites.get(everyone)
             ow = discord.PermissionOverwrite()
-            ow.send_messages = True if allowed else False
-            if prev_view is not None:
-                ow.view_channel = prev_view
-            new_overwrites[role] = ow
+            ow.send_messages = False
+            if prev and getattr(prev, 'view_channel', None) is not None:
+                ow.view_channel = prev.view_channel
+            new_overwrites[everyone] = ow
+        except Exception:
+            pass
 
-        # Also include any member-specific original overwrites so we don't lose them
-        for target, ow in original_overwrites.items():
-            if isinstance(target, (discord.Member, discord.User)):
-                # only add if not already present
-                if target not in new_overwrites:
-                    new_overwrites[target] = ow
+        # Ensure staff role (if configured) can send
+        try:
+            if staff_role_id:
+                staff_role = guild.get_role(staff_role_id)
+                if staff_role:
+                    prev = new_overwrites.get(staff_role)
+                    ow = discord.PermissionOverwrite()
+                    ow.send_messages = True
+                    if prev and getattr(prev, 'view_channel', None) is not None:
+                        ow.view_channel = prev.view_channel
+                    new_overwrites[staff_role] = ow
+        except Exception:
+            pass
 
-        # Apply all overwrites in a single edit call to avoid rate-limiting per-role
+        # Ensure bot can still send
+        try:
+            me = guild.me
+            prev = new_overwrites.get(me)
+            ow = discord.PermissionOverwrite()
+            ow.send_messages = True
+            if prev and getattr(prev, 'view_channel', None) is not None:
+                ow.view_channel = prev.view_channel
+            new_overwrites[me] = ow
+        except Exception:
+            pass
+
+        # For any role that had explicit allow send_messages and is not staff/admin,
+        # set send_messages=False to prevent bypass.
+        try:
+            for target, prev_ow in list(original_overwrites.items()):
+                if isinstance(target, discord.Role):
+                    try:
+                        prev_allow = getattr(prev_ow, 'send_messages', None)
+                    except Exception:
+                        prev_allow = None
+                    if prev_allow:
+                        # check staff/admin
+                        is_staff = False
+                        try:
+                            if staff_role_id and target.id == staff_role_id:
+                                is_staff = True
+                            if target.permissions.administrator or target.permissions.manage_guild:
+                                is_staff = True
+                        except Exception:
+                            pass
+                        if not is_staff:
+                            # change to deny send_messages but preserve view_channel
+                            ow = discord.PermissionOverwrite()
+                            ow.send_messages = False
+                            try:
+                                if getattr(prev_ow, 'view_channel', None) is not None:
+                                    ow.view_channel = prev_ow.view_channel
+                            except Exception:
+                                pass
+                            new_overwrites[target] = ow
+        except Exception:
+            pass
+
+        # Apply in a single edit under the permission_op_lock for safety
         async with permission_op_lock:
             try:
                 await ch.edit(overwrites=new_overwrites)
-                logging.info(f"Channel {ch.id} locked with {len(new_overwrites)} overwrites (single edit).")
+                logging.info(f"Channel {ch.id} locked (minimal changes).")
             except Exception as e:
-                logging.warning(f"ch.edit failed during lock in channel {ch.id}: {e}. Falling back to per-target set_permissions.")
-                # Best-effort fallback: try to set perms per-role (may be rate-limited)
-                for role, ow in new_overwrites.items():
+                logging.warning(f"ch.edit failed during optimized lock in channel {ch.id}: {e}. Falling back to per-target set_permissions.")
+                for target, ow in new_overwrites.items():
                     try:
-                        await ch.set_permissions(role, overwrite=ow)
+                        await ch.set_permissions(target, overwrite=ow)
                     except Exception:
                         pass
 
@@ -1086,7 +1249,6 @@ async def on_message(message: discord.Message):
             await ch.send("Channel locked: only staff can send messages. Viewing permissions were not changed.")
         except Exception:
             pass
-        logging.info(f"Lock applied for channel {ch.id}, stored original overwrites count={len(original_overwrites)}")
         return
 
     if cmd == 'unlock':
