@@ -377,7 +377,7 @@ async def run_wordchain_game(game: WordChainGame):
     try:
         participants_total = len(game.players)
         turkeys_awarded = max(1, 2 * participants_total)
-        await channel.send(f"Word Chain: the game is live! The first player will be chosen from the lobby. Winner will receive {TURKEY_EMOJI} {turkeys_awarded} turkeys.")
+        await channel.send(f"Word Chain: the game is live! The first player will be chosen from the lobby. Winner will receive {fmt_currency(getattr(channel.guild, 'id', None), turkeys_awarded)}.")
     except Exception:
         await channel.send("Word Chain: the game is live! The first player will be chosen from the lobby.")
     # pick starting player index 0
@@ -433,13 +433,14 @@ async def run_wordchain_game(game: WordChainGame):
             guild = channel.guild if hasattr(channel, 'guild') else None
             if await is_staff_in_guild(guild, winner):
                 try:
-                    await channel.send(f"Game over! Winner is <@{winner}> 🎉 — Congrats! As staff you have unlimited {TURKEY_EMOJI} turkeys.")
+                    emoji, name = get_currency_display(getattr(channel.guild, 'id', None))
+                    await channel.send(f"Game over! Winner is <@{winner}> 🎉 — Congrats! As staff you have unlimited {emoji} {name}.")
                 except Exception:
                     pass
             else:
                 add_turkeys(winner, turkeys_awarded)
                 try:
-                    await channel.send(f"Game over! Winner is <@{winner}> 🎉 — Congrats! You've won {TURKEY_EMOJI} {turkeys_awarded} turkeys.")
+                    await channel.send(f"Game over! Winner is <@{winner}> 🎉 — Congrats! You've won {fmt_currency(getattr(channel.guild, 'id', None), turkeys_awarded)}.")
                 except Exception:
                     pass
         except Exception:
@@ -654,10 +655,21 @@ def init_db():
             staff_role_id INTEGER,
             mod_ban_role_id INTEGER,
             mod_kick_role_id INTEGER,
-            mod_mute_role_id INTEGER
+            mod_mute_role_id INTEGER,
+            currency_display_name TEXT,
+            currency_emoji TEXT
         )
         """
     )
+    # Best-effort: add new columns for older DBs where `settings` already exists.
+    try:
+        cur.execute("ALTER TABLE settings ADD COLUMN currency_display_name TEXT")
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE settings ADD COLUMN currency_emoji TEXT")
+    except Exception:
+        pass
     # moderation log
     cur.execute(
         """
@@ -746,6 +758,54 @@ def ensure_participant_images(msg_id: int, participants: list[int]):
 
 # --------- Turkey currency helpers & shop ---------
 TURKEY_EMOJI = "🦃"
+
+# Currency display defaults (front only): do NOT change DB balance naming.
+DEFAULT_CURRENCY_NAME = "Snuggles"
+DEFAULT_CURRENCY_EMOJI = TURKEY_EMOJI
+
+
+def get_currency_display(guild_id: int | None) -> tuple[str, str]:
+    """Return (emoji, name) for currency display.
+
+    This is UI-only: balances remain stored as turkeys in the DB.
+    """
+    if not guild_id:
+        return DEFAULT_CURRENCY_EMOJI, DEFAULT_CURRENCY_NAME
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT currency_display_name, currency_emoji FROM settings WHERE guild_id = ?", (guild_id,))
+        row = cur.fetchone()
+        conn.close()
+        name = (row[0] if row and row[0] else DEFAULT_CURRENCY_NAME)
+        emoji = (row[1] if row and row[1] else DEFAULT_CURRENCY_EMOJI)
+        return emoji, name
+    except Exception:
+        return DEFAULT_CURRENCY_EMOJI, DEFAULT_CURRENCY_NAME
+
+
+def set_currency_display(guild_id: int, name: str | None, emoji: str | None):
+    """Set UI-only currency display values for a guild."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO settings(guild_id, currency_display_name, currency_emoji) VALUES (?, ?, ?) "
+        "ON CONFLICT(guild_id) DO UPDATE SET currency_display_name = ?, currency_emoji = ?",
+        (guild_id, name, emoji, name, emoji),
+    )
+    conn.commit()
+    conn.close()
+
+
+def fmt_currency(guild_id: int | None, amount: int | str) -> str:
+    emoji, name = get_currency_display(guild_id)
+    # keep name pluralization simple but nice
+    try:
+        n = int(amount)
+        unit = name if n == 1 else f"{name}s"
+    except Exception:
+        unit = f"{name}s"
+    return f"{emoji} {amount} {unit}"
 
 def add_turkeys(user_id: int, amount: int):
     conn = sqlite3.connect(DB_PATH)
@@ -1039,10 +1099,14 @@ async def apply_lock_channel(ch: discord.TextChannel, guild: discord.Guild, staf
     except Exception:
         pass
 
-    # adjust roles that had explicit allow previously
+    # adjust role targets that had explicit allow previously
+    # (support both real discord.Role and test fakes)
     try:
         for target, prev_ow in list(original_overwrites.items()):
-            if isinstance(target, discord.Role):
+            is_role_target = isinstance(target, discord.Role) or (
+                hasattr(target, 'id') and hasattr(target, 'permissions')
+            )
+            if is_role_target:
                 try:
                     prev_allow = getattr(prev_ow, 'send_messages', None)
                 except Exception:
@@ -1127,10 +1191,13 @@ async def apply_unlock_channel(ch: discord.TextChannel):
 
 @bot.event
 async def on_message(message: discord.Message):
-    """Handle simple dot-prefixed moderation commands (.lock /.unlock).
+    """Handle simple message-based moderation commands.
 
-    .lock will prevent non-staff roles from sending messages in the channel
-    while keeping view permissions unchanged. .unlock restores previous
+    Supported forms:
+    - `/m lock` / `/m unlock`
+
+    `lock` will prevent non-staff roles from sending messages in the channel
+    while keeping view permissions unchanged. `unlock` restores previous
     send_messages overwrites saved when locking.
     """
     # ignore bots
@@ -1138,13 +1205,16 @@ async def on_message(message: discord.Message):
         return
 
     content = (message.content or "").strip()
-    if not content.startswith('.'):
+
+    cmd = ''
+    parts = content.split()
+
+    if len(parts) >= 2 and parts[0].lower() == '/m':
+        cmd = parts[1].lower()
+    else:
         # let other command processors handle it
         await bot.process_commands(message)
         return
-
-    parts = content.split()
-    cmd = parts[0][1:].lower() if parts else ''
 
     if cmd not in ('lock', 'unlock'):
         await bot.process_commands(message)
@@ -1586,7 +1656,8 @@ def maybe_halloween_announce(channel: discord.abc.GuildChannel):
     if today.month == 10 and 25 <= today.day <= 31:
         if random.random() < 0.25:
             try:
-                asyncio.create_task(run_coro_safe(channel.send(f"Halloween event active! In this game the winner will receive {TURKEY_EMOJI} turkeys."), name=f"halloween-announce-{getattr(channel, 'id', 'chan')}"))
+                emoji, name = get_currency_display(getattr(channel, 'guild', None).id if getattr(channel, 'guild', None) else None)
+                asyncio.create_task(run_coro_safe(channel.send(f"Halloween event active! In this game the winner will receive {emoji} {name}."), name=f"halloween-announce-{getattr(channel, 'id', 'chan')}"))
             except Exception:
                 pass
 
@@ -1962,7 +2033,7 @@ class TournamentView(discord.ui.View):
 async def turkeys_balance(interaction: discord.Interaction, user: discord.User | None = None):
     target = user or interaction.user
     bal = get_turkeys(target.id)
-    await interaction.response.send_message(f"{TURKEY_EMOJI} {bal} turkeys — {target.mention}", ephemeral=True)
+    await interaction.response.send_message(f"{fmt_currency(getattr(interaction.guild, 'id', None), bal)} — {target.mention}", ephemeral=True)
 
 
 @bot.tree.command(name="give_turkeys", description="(Staff) Give turkeys to a user")
@@ -1976,13 +2047,14 @@ async def give_turkeys(interaction: discord.Interaction, target: discord.User, a
             return
         # check configured staff role or fallback permissions
         if not await is_staff_in_guild(guild, interaction.user.id):
-            await safe_reply(interaction, "You are not authorized to give turkeys. Staff only.")
+            emoji, name = get_currency_display(guild.id)
+            await safe_reply(interaction, f"You are not authorized to give {emoji} {name}. Staff only.")
             return
 
         # proceed to give turkeys
         add_turkeys(target.id, amount)
         bal = get_turkeys(target.id)
-        await safe_reply(interaction, f"{TURKEY_EMOJI} {amount} turkeys given to {target.mention}. New balance: {bal}")
+        await safe_reply(interaction, f"{fmt_currency(guild.id, amount)} given to {target.mention}. New balance: {fmt_currency(guild.id, bal)}")
     except Exception as e:
         await safe_reply(interaction, f"Error giving turkeys: {e}")
 
@@ -2007,7 +2079,7 @@ async def shop_list(interaction: discord.Interaction):
     for row in items:
         item_id, name, price, role_id = row[0], row[1], row[2], row[3]
         role_part = f" (role: <@&{role_id}>)" if role_id else ""
-    lines.append(f"{item_id}: {name} — {price} {TURKEY_EMOJI} turkeys{role_part}")
+        lines.append(f"{item_id}: {name} — {fmt_currency(gid, price)}{role_part}")
     await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
 
@@ -2026,7 +2098,11 @@ async def shop_buy(interaction: discord.Interaction, item_id: int):
     user_id = interaction.user.id
     bal = get_turkeys(user_id)
     if bal < price:
-        await interaction.response.send_message(f"You don't have enough {TURKEY_EMOJI} turkeys. You have {bal}, but the item costs {price}.", ephemeral=True)
+        emoji, cname = get_currency_display(getattr(interaction.guild, 'id', None))
+        await interaction.response.send_message(
+            f"You don't have enough {emoji} {cname}. You have {fmt_currency(getattr(interaction.guild, 'id', None), bal)}, but the item costs {fmt_currency(getattr(interaction.guild, 'id', None), price)}.",
+            ephemeral=True,
+        )
         return
     # deduct
     add_turkeys(user_id, -price)
@@ -2041,7 +2117,7 @@ async def shop_buy(interaction: discord.Interaction, item_id: int):
                     pass
         except Exception:
             pass
-    await interaction.response.send_message(f"You bought **{name}** for {price} {TURKEY_EMOJI} turkeys.", ephemeral=True)
+    await interaction.response.send_message(f"You bought **{name}** for {fmt_currency(getattr(interaction.guild, 'id', None), price)}.", ephemeral=True)
 
 
 @shop_group.command(name="add", description="(Admin) Add a shop item to this server or global")
@@ -2051,7 +2127,7 @@ async def shop_add(interaction: discord.Interaction, name: str, price: int, role
     gid = None if global_item else (interaction.guild.id if interaction.guild else None)
     role_id = role.id if role else None
     add_shop_item(name=name, price=price, guild_id=gid, role_id=role_id)
-    await interaction.response.send_message(f"Added shop item: {name} — {price} {TURKEY_EMOJI}", ephemeral=True)
+    await interaction.response.send_message(f"Added shop item: {name} — {fmt_currency(gid, price)}", ephemeral=True)
 
 
 @shop_group.command(name="remove", description="(Admin) Remove a shop item by id")
@@ -2070,6 +2146,45 @@ try:
     bot.tree.add_command(settings_group)
 except Exception:
     pass
+
+
+@settings_group.command(name="currency", description="Configure the display name and emoji for the currency system (UI only)")
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.describe(name="Currency display name (e.g., Snuggles)", emoji="Emoji for currency (e.g., 🦃)")
+async def settings_currency(interaction: discord.Interaction, name: str | None = None, emoji: str | None = None):
+    if not interaction.guild:
+        await safe_reply(interaction, "This command must be used in a server.")
+        return
+    # Normalize inputs
+    try:
+        if name is not None:
+            name = name.strip() or None
+        if emoji is not None:
+            emoji = emoji.strip() or None
+    except Exception:
+        pass
+
+    # If neither provided, show current settings
+    if name is None and emoji is None:
+        e, n = get_currency_display(interaction.guild.id)
+        await safe_reply(interaction, f"Current currency display: {e} {n} (UI only)")
+        return
+
+    # Allow clearing back to defaults by passing '-' for either field
+    if name == '-':
+        name = None
+    if emoji == '-':
+        emoji = None
+
+    try:
+        # Merge with existing values to avoid wiping the other field
+        cur_emoji, cur_name = get_currency_display(interaction.guild.id)
+        new_name = cur_name if name is None else name
+        new_emoji = cur_emoji if emoji is None else emoji
+        set_currency_display(interaction.guild.id, new_name, new_emoji)
+        await safe_reply(interaction, f"Updated currency display: {new_emoji} {new_name} (UI only)")
+    except Exception as e:
+        await safe_reply(interaction, f"Failed to update currency settings: {e}")
 
 
 @settings_group.command(name="set_staff_role", description="(Owner) Configure the staff role for this server")

@@ -125,12 +125,15 @@ Notas:
    - ` /wheels start` : Start a wheel and pick a random winner from reactors.
 
 - **Economy & Shop:**
-   - ` /turkeys [user]` : Check your turkey currency balance (or another user's if specified).
-   - ` /give_turkeys <user> <amount>` : (Staff) Give or remove turkeys from a user.
+   - ` /turkeys [user]` : Check your currency balance (display name/emoji configurable; defaults to Snuggles).
+   - ` /give_turkeys <user> <amount>` : (Staff) Give or remove currency from a user (UI only; balances remain stored as "turkeys").
    - ` /shop list` : List available shop items for this server or global items.
-   - ` /shop buy <item_id>` : Buy a shop item using turkeys.
+   - ` /shop buy <item_id>` : Buy a shop item using the currency.
    - ` /shop add <name> <price> [role] [global]` : (Admin) Add a shop item to this server or globally.
    - ` /shop remove <item_id>` : (Admin) Remove a shop item by id.
+
+- **Settings:**
+   - ` /settings currency [name] [emoji]` : Set currency display (UI only). Use `-` to reset a field to default.
 
 - **Scheduling:**
    - ` /schedule show` : Show today's schedule (24 slots UTC).
@@ -140,9 +143,9 @@ Notas:
 - **Utilities & Admin:**
    - ` /resync_commands` : Force re-sync of application commands in this guild (admins only).
 
-- **Dot commands (prefix-style):**
-   - `.lock` : Lock the current text channel so that non-staff cannot send messages; preserves view permissions and saves prior overwrites.
-   - `.unlock` : Restore the channel's previous permissions saved by `.lock`.
+- **Message mod commands:**
+   - `/m lock` : Lock the current text channel so that non-staff cannot send messages; preserves view permissions and saves prior overwrites.
+   - `/m unlock` : Restore the channel's previous permissions saved by the lock.
 
 
 How to test the mention
