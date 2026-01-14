@@ -1028,6 +1028,42 @@ async def on_connect():
         pass
 
 
+@bot.event
+async def on_ready():
+    """Sync application (slash) commands so `/m lock`, `/m unlock` and `/settings ...` appear.
+
+    If `GUILD_ID` is set, sync only to that guild (fast, dev-friendly).
+    Otherwise do a global sync (may take longer to propagate across Discord).
+    """
+    if getattr(bot, "_did_initial_sync", False):
+        return
+    bot._did_initial_sync = True
+
+    try:
+        logging.info(f"Logged in as {bot.user} (id={getattr(bot.user, 'id', None)})")
+    except Exception:
+        pass
+
+    # Print a ready-made invite URL if we have the application id
+    try:
+        if APPLICATION_ID:
+            invite = f"https://discord.com/oauth2/authorize?client_id={APPLICATION_ID}&scope=bot%20applications.commands&permissions={BOT_PERMISSIONS}"
+            logging.info(f"Invite URL: {invite}")
+    except Exception:
+        pass
+
+    try:
+        if GUILD_ID:
+            gid = int(str(GUILD_ID).strip())
+            synced = await bot.tree.sync(guild=discord.Object(id=gid))
+            logging.info(f"Synced {len(synced)} commands to guild {gid}")
+        else:
+            synced = await bot.tree.sync()
+            logging.info(f"Synced {len(synced)} global commands")
+    except Exception:
+        logging.exception("Failed to sync application commands")
+
+
 async def _gather_original_overwrites(ch: discord.TextChannel) -> dict:
     try:
         return dict(ch.overwrites)
@@ -1209,8 +1245,13 @@ async def on_message(message: discord.Message):
     cmd = ''
     parts = content.split()
 
-    if len(parts) >= 2 and parts[0].lower() == '/m':
-        cmd = parts[1].lower()
+    if len(parts) >= 2:
+        first = parts[0].lower()
+        # Allow sending as a literal message by escaping the slash: `\/m lock`
+        if first.startswith('\\'):
+            first = first[1:]
+        if first == '/m':
+            cmd = parts[1].lower()
     else:
         # let other command processors handle it
         await bot.process_commands(message)
@@ -2146,6 +2187,116 @@ try:
     bot.tree.add_command(settings_group)
 except Exception:
     pass
+
+
+class CurrencySettingsModal(discord.ui.Modal, title="Configurar moneda"):
+    def __init__(self):
+        super().__init__(timeout=180)
+        self.currency_name = discord.ui.TextInput(
+            label="Nombre de la moneda",
+            required=False,
+            max_length=32,
+            placeholder="Ej: Snuggles",
+        )
+        self.currency_emoji = discord.ui.TextInput(
+            label="Emoji",
+            required=False,
+            max_length=32,
+            placeholder="Ej: 🦃",
+        )
+        self.add_item(self.currency_name)
+        self.add_item(self.currency_emoji)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await safe_reply(interaction, "Este comando debe usarse en un servidor.")
+            return
+
+        # Permisos: similar a @has_permissions(manage_guild=True) pero con mensaje claro.
+        try:
+            member = interaction.guild.get_member(interaction.user.id) or await interaction.guild.fetch_member(interaction.user.id)
+            perms = member.guild_permissions
+            if not (perms.manage_guild or perms.administrator):
+                await safe_reply(interaction, "Necesitas el permiso **Manage Server** para cambiar la moneda.")
+                return
+        except Exception:
+            await safe_reply(interaction, "No pude comprobar tus permisos.")
+            return
+
+        name = (str(self.currency_name.value).strip() if self.currency_name.value is not None else "")
+        emoji = (str(self.currency_emoji.value).strip() if self.currency_emoji.value is not None else "")
+
+        # Si no pone nada, mostramos el estado actual
+        if not name and not emoji:
+            e, n = get_currency_display(interaction.guild.id)
+            await safe_reply(interaction, f"Moneda actual: {e} {n} (solo UI)")
+            return
+
+        # Permitir reset con '-'
+        if name == '-':
+            name = ""
+        if emoji == '-':
+            emoji = ""
+
+        try:
+            cur_emoji, cur_name = get_currency_display(interaction.guild.id)
+            new_name = cur_name if name == "" else name
+            new_emoji = cur_emoji if emoji == "" else emoji
+            set_currency_display(interaction.guild.id, new_name, new_emoji)
+            await safe_reply(interaction, f"Moneda actualizada: {new_emoji} {new_name} (solo UI)")
+        except Exception as e:
+            await safe_reply(interaction, f"No se pudo actualizar la moneda: {e}")
+
+
+class SettingsMenuView(discord.ui.View):
+    def __init__(self, author_id: int):
+        super().__init__(timeout=180)
+        self.author_id = author_id
+
+    async def _guard(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.author_id:
+            await safe_reply(interaction, "Solo la persona que abrió este menú puede usarlo.")
+            return False
+        if not interaction.guild:
+            await safe_reply(interaction, "Este menú solo funciona en un servidor.")
+            return False
+        return True
+
+    @discord.ui.select(
+        placeholder="¿Qué quieres configurar?",
+        min_values=1,
+        max_values=1,
+        options=[
+            discord.SelectOption(
+                label="Moneda (turkeys)",
+                value="currency",
+                description="Cambiar nombre y emoji (solo UI)",
+                emoji=TURKEY_EMOJI,
+            ),
+        ],
+    )
+    async def select_settings(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if not await self._guard(interaction):
+            return
+        choice = (select.values[0] if select.values else "")
+        if choice == "currency":
+            try:
+                await interaction.response.send_modal(CurrencySettingsModal())
+            except Exception as e:
+                await safe_reply(interaction, f"No pude abrir el formulario: {e}")
+
+
+@settings_group.command(name="menu", description="Abrir un menú interactivo de configuración")
+async def settings_menu(interaction: discord.Interaction):
+    if not interaction.guild:
+        await safe_reply(interaction, "Este comando debe usarse en un servidor.")
+        return
+    view = SettingsMenuView(author_id=interaction.user.id)
+    await interaction.response.send_message(
+        "Menú de configuración: elige una opción para abrir el formulario.",
+        ephemeral=True,
+        view=view,
+    )
 
 
 # Slash moderation group for legacy message commands (Discord does not deliver plain messages starting with '/')
