@@ -2148,6 +2148,64 @@ except Exception:
     pass
 
 
+# Slash moderation group for legacy message commands (Discord does not deliver plain messages starting with '/')
+m_group = app_commands.Group(name="m", description="Moderation utilities")
+try:
+    bot.tree.add_command(m_group)
+except Exception:
+    pass
+
+
+@m_group.command(name="lock", description="Lock the current text channel so non-staff cannot send messages")
+async def slash_m_lock(interaction: discord.Interaction):
+    if not interaction.guild:
+        await safe_reply(interaction, "This command must be used in a server.")
+        return
+    if not isinstance(interaction.channel, discord.TextChannel):
+        await safe_reply(interaction, "This command must be used in a server text channel.")
+        return
+    try:
+        allowed = await is_staff_in_guild(interaction.guild, interaction.user.id)
+    except Exception:
+        allowed = False
+    if not allowed:
+        await safe_reply(interaction, "You do not have permission to use this command.")
+        return
+
+    staff_role_id = get_staff_role(interaction.guild.id)
+    try:
+        await apply_lock_channel(interaction.channel, interaction.guild, staff_role_id=staff_role_id)
+        await safe_reply(interaction, "Channel locked: only staff can send messages. Viewing permissions were not changed.", ephemeral=False)
+    except Exception as e:
+        await safe_reply(interaction, f"Failed to lock channel: {e}")
+
+
+@m_group.command(name="unlock", description="Unlock the current text channel and restore previous permissions")
+async def slash_m_unlock(interaction: discord.Interaction):
+    if not interaction.guild:
+        await safe_reply(interaction, "This command must be used in a server.")
+        return
+    if not isinstance(interaction.channel, discord.TextChannel):
+        await safe_reply(interaction, "This command must be used in a server text channel.")
+        return
+    try:
+        allowed = await is_staff_in_guild(interaction.guild, interaction.user.id)
+    except Exception:
+        allowed = False
+    if not allowed:
+        await safe_reply(interaction, "You do not have permission to use this command.")
+        return
+
+    if interaction.channel.id not in locked_channels:
+        await safe_reply(interaction, "Channel is not locked by me or no previous state saved.")
+        return
+    try:
+        await apply_unlock_channel(interaction.channel)
+        await safe_reply(interaction, "Channel unlocked and previous send permissions restored.", ephemeral=False)
+    except Exception as e:
+        await safe_reply(interaction, f"Failed to unlock channel: {e}")
+
+
 @settings_group.command(name="currency", description="Configure the display name and emoji for the currency system (UI only)")
 @app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.describe(name="Currency display name (e.g., Snuggles)", emoji="Emoji for currency (e.g., 🦃)")
@@ -2226,6 +2284,69 @@ async def settings_get_staff_role(interaction: discord.Interaction):
         await interaction.response.send_message("No staff role configured.", ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"Failed to read staff role: {e}", ephemeral=True)
+
+
+@settings_group.command(name="show", description="Show key server settings (currency, staff role, mod roles)")
+async def settings_show(interaction: discord.Interaction):
+    if not interaction.guild:
+        await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
+        return
+    gid = interaction.guild.id
+    try:
+        emoji, cname = get_currency_display(gid)
+    except Exception:
+        emoji, cname = DEFAULT_CURRENCY_EMOJI, DEFAULT_CURRENCY_NAME
+    try:
+        staff_role_id = get_staff_role(gid)
+    except Exception:
+        staff_role_id = None
+
+    try:
+        ban_role_id = get_mod_role(gid, 'ban')
+        kick_role_id = get_mod_role(gid, 'kick')
+        mute_role_id = get_mod_role(gid, 'mute')
+    except Exception:
+        ban_role_id = kick_role_id = mute_role_id = None
+
+    staff_txt = f"<@&{staff_role_id}>" if staff_role_id else "(not set)"
+    lines = [
+        f"Currency: {emoji} {cname} (UI only)",
+        f"Staff role: {staff_txt}",
+        f"Mod role (ban): {f'<@&{ban_role_id}>' if ban_role_id else '(not set)'}",
+        f"Mod role (kick): {f'<@&{kick_role_id}>' if kick_role_id else '(not set)'}",
+        f"Mod role (mute): {f'<@&{mute_role_id}>' if mute_role_id else '(not set)'}",
+    ]
+    await interaction.response.send_message("\n".join(lines), ephemeral=True)
+
+
+@settings_group.command(name="mod_role", description="(Owner/Admin) Configure which role can use ban/kick/mute")
+@app_commands.describe(command="Which command to set (ban/kick/mute)", role="Role to allow (omit to clear)")
+async def settings_mod_role(interaction: discord.Interaction, command: str, role: discord.Role | None = None):
+    if not interaction.guild:
+        await safe_reply(interaction, 'This command must be used in a guild (server).')
+        return
+    # only allow owner or administrators
+    try:
+        member = interaction.guild.get_member(interaction.user.id) or await interaction.guild.fetch_member(interaction.user.id)
+        perms = member.guild_permissions
+        if not (interaction.user.id == interaction.guild.owner_id or perms.administrator):
+            await safe_reply(interaction, 'Only the server owner or administrators may change moderation settings.')
+            return
+    except Exception:
+        await safe_reply(interaction, 'Failed to check permissions.')
+        return
+    if command not in ('ban', 'kick', 'mute'):
+        await safe_reply(interaction, 'Command must be one of: ban, kick, mute')
+        return
+    role_id = role.id if role else None
+    try:
+        set_mod_role(interaction.guild.id, command, role_id)
+        if role_id:
+            await safe_reply(interaction, f'Role {role.name} set for {command}.')
+        else:
+            await safe_reply(interaction, f'Role for {command} cleared.')
+    except Exception as e:
+        await safe_reply(interaction, f'Error updating settings: {e}')
     
 
 async def update_tournament_message(message: discord.Message):

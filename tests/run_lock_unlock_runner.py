@@ -1,5 +1,6 @@
 import asyncio
 import time
+import logging
 import sys
 import os
 
@@ -119,6 +120,8 @@ discord.abc = types.SimpleNamespace(Snowflake=object)
 glb = {
     'discord': discord,
     'asyncio': asyncio,
+    'time': time,
+    'logging': logging,
     'permission_op_lock': asyncio.Lock(),
     'locked_channels': {},
 }
