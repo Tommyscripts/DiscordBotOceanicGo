@@ -680,6 +680,11 @@ def init_db():
         cur.execute("ALTER TABLE settings ADD COLUMN currency_command_name TEXT")
     except Exception:
         pass
+    # Language preference for command descriptions (UI only): 'en' or 'es'
+    try:
+        cur.execute("ALTER TABLE settings ADD COLUMN language TEXT")
+    except Exception:
+        pass
     # Table to store official links (per guild)
     cur.execute(
         """
@@ -813,6 +818,131 @@ TURKEY_EMOJI = "🦃"
 DEFAULT_CURRENCY_NAME = "Snuggles"
 DEFAULT_CURRENCY_EMOJI = TURKEY_EMOJI
 
+# --------- Command descriptions (en / es) ---------
+# Keys for groups use the pattern "__<group>__"; subcommands use "<group>.<sub>".
+COMMAND_DESCRIPTIONS: dict[str, dict[str, str]] = {
+    "en": {
+        # Top-level
+        "wordchain": "Start a Word Chain game (join with buttons, start when ready)",
+        "ban": "Ban a user by ID. Optional reason.",
+        "kick": "Kick a user by ID. Optional reason.",
+        "mute": "Mute a user by ID for a duration. Optional reason. Time format: 10m, 2h, 1d",
+        "settings_mod": "Configure which role can use moderation commands (ban/kick/mute). Admins/owner only.",
+        "snuggles": "Check your Snuggles balance",
+        "give_snuggles": "(Staff) Give Snuggles to a user",
+        "rename_currency": "(Staff) Change the display name and/or emoji of the currency",
+        "furby_tournament": "Create a Furby tournament embed",
+        "mm": "Quick explanation of how to play 'mm'",
+        "setmonopolychannel": "Set the channel where Monopoly GO free reward links will be posted",
+        "unsetmonopolychannel": "Disable automatic Monopoly GO reward link posting in this server",
+        "custom": "Create a custom command for this server",
+        "deletecustom": "Delete a custom command from this server",
+        "set_official_links_channel": "Set the channel where official links will be posted",
+        "add_official_link": "Add an official link (e.g.: free dice/shield)",
+        "remove_official_link": "Remove an official link by name",
+        "list_official_links": "List the saved official links for this server",
+        "post_official_links": "Post official links in the configured channel (or this channel if none set)",
+        "resync_commands": "Force re-sync of commands in this guild (admins only)",
+        # Groups
+        "__shop__": "Shop commands",
+        "__settings__": "Server settings commands",
+        "__m__": "Moderation utilities",
+        "__wheels__": "Create and run reaction-based wheels (roulette)",
+        "__house__": "Haunted House: solo or co-op private text adventures",
+        "__schedule__": "Show or add schedule signups",
+        # Subcommands
+        "shop.list": "List available shop items for this server or global ones",
+        "shop.buy": "Buy a shop item using Snuggles",
+        "shop.add": "(Admin) Add a shop item to this server or global",
+        "shop.remove": "(Admin) Remove a shop item by id",
+        "settings.menu": "Open an interactive settings menu",
+        "settings.currency": "Configure the display name, emoji and balance command name for the currency (UI only)",
+        "settings.set_staff_role": "(Owner) Configure the staff role for this server",
+        "settings.get_staff_role": "Show the configured staff role for this server",
+        "settings.show": "Show key server settings (currency, staff role, mod roles)",
+        "settings.mod_role": "(Owner/Admin) Configure which role can use ban/kick/mute",
+        "settings.language": "Set the language for command descriptions (en/es)",
+        "m.lock": "Lock the current text channel so non-staff cannot send messages",
+        "m.unlock": "Unlock the current text channel and restore previous permissions",
+        "wheels.create": "Create a wheel post. Users who react with the bot's emoji will join.",
+        "wheels.start": "Start the wheel and pick a random winner from reactors",
+        "house.create": "Create a House game (creates a private channel).",
+        "house.howto": "Quick explanation of how to play Haunted House",
+        "house.invite": "Invite a user to your House game (host only).",
+        "house.accept": "Accept an invitation to a House game.",
+        "house.start": "Start the House game (host only).",
+        "house.action": "Perform an action in the House game when it's your turn.",
+        "house.move": "Shortcut to move in the current House game (direction: up/down/left/right)",
+        "house.explore": "Shortcut to explore the current room in the House game",
+        "house.status": "Show game status",
+        "house.leave": "Leave a House game",
+        "house.end": "End a House game and remove the private channel (host only).",
+        "schedule.show": "Show today's schedule (24 slots)",
+        "schedule.add": "Add yourself to a numbered slot (1-24)",
+        "schedule.delete": "Remove your signup from a numbered slot (1-24)",
+    },
+    "es": {
+        # Top-level
+        "wordchain": "Inicia un juego de Cadena de Palabras (únete con botones, empieza cuando estés listo)",
+        "ban": "Banea a un usuario por ID. Razón opcional.",
+        "kick": "Expulsa a un usuario por ID. Razón opcional.",
+        "mute": "Silencia a un usuario por ID durante un tiempo. Razón opcional. Formato: 10m, 2h, 1d",
+        "settings_mod": "Configura qué rol puede usar los comandos de moderación (ban/kick/mute). Solo admins/propietario.",
+        "snuggles": "Consulta tu saldo de Snuggles",
+        "give_snuggles": "(Staff) Da Snuggles a un usuario",
+        "rename_currency": "(Staff) Cambia el nombre y/o emoji de la moneda",
+        "furby_tournament": "Crea un embed de torneo Furby",
+        "mm": "Explicación rápida de cómo jugar a 'mm'",
+        "setmonopolychannel": "Configura el canal donde se publicarán los enlaces de recompensas de Monopoly GO",
+        "unsetmonopolychannel": "Desactiva la publicación automática de enlaces de Monopoly GO en este servidor",
+        "custom": "Crea un comando personalizado para este servidor",
+        "deletecustom": "Elimina un comando personalizado de este servidor",
+        "set_official_links_channel": "Configura el canal donde se publicarán los enlaces oficiales",
+        "add_official_link": "Añade un enlace oficial (ej: dado gratis/escudo)",
+        "remove_official_link": "Elimina un enlace oficial por su nombre",
+        "list_official_links": "Lista los enlaces oficiales guardados para este servidor",
+        "post_official_links": "Publica los enlaces oficiales en el canal configurado (o en este canal si no hay configurado)",
+        "resync_commands": "Fuerza la re-sincronización de comandos en este servidor (solo administradores)",
+        # Grupos
+        "__shop__": "Comandos de la tienda",
+        "__settings__": "Ajustes del servidor",
+        "__m__": "Utilidades de moderación",
+        "__wheels__": "Crea y ejecuta ruletas de reacción",
+        "__house__": "Casa Embrujada: aventuras de texto privadas en solitario o cooperativo",
+        "__schedule__": "Ver o añadir inscripciones a horarios",
+        # Subcomandos
+        "shop.list": "Lista los objetos disponibles en la tienda de este servidor o globales",
+        "shop.buy": "Compra un objeto de la tienda usando Snuggles",
+        "shop.add": "(Admin) Añade un objeto a la tienda de este servidor o global",
+        "shop.remove": "(Admin) Elimina un objeto de la tienda por id",
+        "settings.menu": "Abre un menú interactivo de configuración",
+        "settings.currency": "Configura el nombre, emoji y comando de saldo de la moneda (solo UI)",
+        "settings.set_staff_role": "(Propietario) Configura el rol de staff de este servidor",
+        "settings.get_staff_role": "Muestra el rol de staff configurado para este servidor",
+        "settings.show": "Muestra los ajustes principales del servidor (moneda, rol staff, roles mod)",
+        "settings.mod_role": "(Propietario/Admin) Configura qué rol puede usar ban/kick/mute",
+        "settings.language": "Cambia el idioma de las descripciones de los comandos (en/es)",
+        "m.lock": "Bloquea el canal de texto actual para que solo el staff pueda enviar mensajes",
+        "m.unlock": "Desbloquea el canal de texto actual y restaura los permisos anteriores",
+        "wheels.create": "Crea una ruleta. Los usuarios que reaccionen con el emoji del bot entrarán.",
+        "wheels.start": "Inicia la ruleta y elige un ganador aleatorio entre los participantes",
+        "house.create": "Crea una partida de Casa Embrujada (crea un canal privado).",
+        "house.howto": "Explicación rápida de cómo jugar a Casa Embrujada",
+        "house.invite": "Invita a un usuario a tu partida de Casa Embrujada (solo el host).",
+        "house.accept": "Acepta una invitación a una partida de Casa Embrujada.",
+        "house.start": "Inicia la partida de Casa Embrujada (solo el host).",
+        "house.action": "Realiza una acción en la partida cuando sea tu turno.",
+        "house.move": "Atajo para moverse en la partida (dirección: up/down/left/right)",
+        "house.explore": "Atajo para explorar la habitación actual en la partida",
+        "house.status": "Muestra el estado de la partida",
+        "house.leave": "Abandona una partida de Casa Embrujada",
+        "house.end": "Termina la partida y elimina el canal privado (solo el host).",
+        "schedule.show": "Muestra el horario de hoy (24 ranuras)",
+        "schedule.add": "Añádete a una ranura numerada (1-24)",
+        "schedule.delete": "Elimina tu inscripción de una ranura numerada (1-24)",
+    },
+}
+
 
 def get_currency_display(guild_id: int | None) -> tuple[str, str]:
     """Return (emoji, name) for currency display.
@@ -895,6 +1025,46 @@ def get_all_custom_command_names() -> list[tuple[int, str]]:
         return [(r[0], r[1]) for r in rows if r[1]]
     except Exception:
         return []
+
+
+def get_guild_language(guild_id: int) -> str:
+    """Return the language code for command descriptions for this guild ('en' or 'es'). Defaults to 'en'."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT language FROM settings WHERE guild_id = ?", (guild_id,))
+        row = cur.fetchone()
+        conn.close()
+        return (row[0] if row and row[0] in ("en", "es") else "en")
+    except Exception:
+        return "en"
+
+
+def set_guild_language(guild_id: int, lang: str):
+    """Persist the language preference for command descriptions for a guild."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO settings(guild_id, language) VALUES (?, ?) "
+        "ON CONFLICT(guild_id) DO UPDATE SET language = ?",
+        (guild_id, lang, lang),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_all_guild_languages() -> list[tuple[int, str]]:
+    """Return [(guild_id, lang), ...] for guilds with a non-default language set."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT guild_id, language FROM settings WHERE language IS NOT NULL AND language != 'en'")
+        rows = cur.fetchall()
+        conn.close()
+        return [(r[0], r[1]) for r in rows if r[1]]
+    except Exception:
+        return []
+
 
 def add_turkeys(user_id: int, amount: int):
     conn = sqlite3.connect(DB_PATH)
@@ -1167,6 +1337,119 @@ async def _apply_guild_currency_command(guild_id: int, new_cmd_name: str, old_cm
     )
     bot.tree.add_command(cmd, guild=guild_obj)
     await bot.tree.sync(guild=guild_obj)
+
+
+# Individual top-level command names managed by _apply_guild_language
+_TRANSLATABLE_TOP_LEVEL = [
+    "wordchain", "ban", "kick", "mute", "settings_mod",
+    "snuggles", "give_snuggles", "rename_currency",
+    "furby_tournament", "mm",
+    "setmonopolychannel", "unsetmonopolychannel",
+    "custom", "deletecustom",
+    "set_official_links_channel", "add_official_link", "remove_official_link",
+    "list_official_links", "post_official_links", "resync_commands",
+]
+
+# Subcommand names per group managed by _apply_guild_language
+_TRANSLATABLE_GROUPS: list[tuple[str, str, list[str]]] = [
+    ("shop",     "__shop__",     ["list", "buy", "add", "remove"]),
+    ("m",        "__m__",        ["lock", "unlock"]),
+    ("wheels",   "__wheels__",   ["create", "start"]),
+    ("house",    "__house__",    ["create", "howto", "invite", "accept", "start",
+                                  "action", "move", "explore", "status", "leave", "end"]),
+    ("schedule", "__schedule__", ["show", "add", "delete"]),
+    ("settings", "__settings__", ["menu", "currency", "set_staff_role", "get_staff_role",
+                                  "show", "mod_role", "language"]),
+]
+
+
+async def _apply_guild_language(guild_id: int, lang: str):
+    """Register guild-specific commands with descriptions in the requested language.
+
+    If lang == 'en' (default) and no custom balance command exists, clears guild
+    commands and falls back to global (English) ones.
+    DB balances are never affected.
+    """
+    guild_obj = discord.Object(id=guild_id)
+    descs = COMMAND_DESCRIPTIONS.get(lang, COMMAND_DESCRIPTIONS["en"])
+    custom_cmd = get_currency_command_name(guild_id)
+
+    if lang == "en" and (not custom_cmd or custom_cmd == "snuggles"):
+        # Clear guild overrides, fall back to global commands
+        try:
+            bot.tree.clear_commands(guild=guild_obj)
+            await bot.tree.sync(guild=guild_obj)
+        except Exception as _e:
+            logging.warning(f"_apply_guild_language clear failed for {guild_id}: {_e}")
+        return
+
+    # Clear current guild commands before re-registering with new language
+    try:
+        bot.tree.clear_commands(guild=guild_obj)
+    except Exception:
+        pass
+
+    # --- Individual top-level commands ---
+    for cmd_name in _TRANSLATABLE_TOP_LEVEL:
+        global_cmd = bot.tree.get_command(cmd_name)
+        if global_cmd is None:
+            continue
+        desc = descs.get(cmd_name, global_cmd.description)
+        try:
+            new_cmd = app_commands.Command(
+                name=cmd_name,
+                description=desc,
+                callback=global_cmd.callback,
+            )
+            bot.tree.add_command(new_cmd, guild=guild_obj, override=True)
+        except Exception:
+            pass
+
+    # Custom balance command name (may differ from 'snuggles')
+    if custom_cmd and custom_cmd != "snuggles":
+        global_snuggles = bot.tree.get_command("snuggles")
+        if global_snuggles:
+            balance_desc = descs.get("snuggles", global_snuggles.description)
+            try:
+                extra = app_commands.Command(
+                    name=custom_cmd,
+                    description=balance_desc,
+                    callback=global_snuggles.callback,
+                )
+                bot.tree.add_command(extra, guild=guild_obj, override=True)
+            except Exception:
+                pass
+
+    # --- Groups and their subcommands ---
+    for group_name, group_key, sub_names in _TRANSLATABLE_GROUPS:
+        global_group = bot.tree.get_command(group_name)
+        if global_group is None:
+            continue
+        group_desc = descs.get(group_key, global_group.description)
+        new_group = app_commands.Group(name=group_name, description=group_desc)
+        for sub_name in sub_names:
+            global_sub = global_group.get_command(sub_name)
+            if global_sub is None:
+                continue
+            sub_desc = descs.get(f"{group_name}.{sub_name}", global_sub.description)
+            try:
+                new_sub = app_commands.Command(
+                    name=sub_name,
+                    description=sub_desc,
+                    callback=global_sub.callback,
+                )
+                new_group.add_command(new_sub)
+            except Exception:
+                pass
+        try:
+            bot.tree.add_command(new_group, guild=guild_obj, override=True)
+        except Exception:
+            pass
+
+    try:
+        await bot.tree.sync(guild=guild_obj)
+    except Exception as _e:
+        logging.warning(f"_apply_guild_language sync failed for {guild_id}: {_e}")
 
 
 @bot.event
@@ -2750,7 +3033,34 @@ async def settings_mod_role(interaction: discord.Interaction, command: str, role
             await safe_reply(interaction, f'Role for {command} cleared.')
     except Exception as e:
         await safe_reply(interaction, f'Error updating settings: {e}')
-    
+
+
+@settings_group.command(name="language", description="Set the language for command descriptions (en/es)")
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.describe(lang="Language code: 'en' for English, 'es' for Spanish")
+@app_commands.choices(lang=[
+    app_commands.Choice(name="English (en)", value="en"),
+    app_commands.Choice(name="Español (es)", value="es"),
+])
+async def settings_language(interaction: discord.Interaction, lang: app_commands.Choice[str]):
+    if not interaction.guild:
+        await safe_reply(interaction, "This command must be used in a server.")
+        return
+    chosen = lang.value
+    set_guild_language(interaction.guild.id, chosen)
+    try:
+        await _apply_guild_language(interaction.guild.id, chosen)
+        lang_name = "English" if chosen == "en" else "Español"
+        await safe_reply(
+            interaction,
+            f"Command descriptions set to **{lang_name}**. "
+            f"The changes will be visible in Discord after a few seconds.\n"
+            f"*(Only descriptions change — balances and data are untouched.)*",
+            ephemeral=True,
+        )
+    except Exception as e:
+        await safe_reply(interaction, f"Failed to apply language: {e}")
+
 
 async def update_tournament_message(message: discord.Message):
     """Update the embed of the tournament message to reflect current participants."""
@@ -4118,6 +4428,22 @@ async def on_ready():
         print(f"Synced {len(synced)} commands: {names}")
     except Exception as e:
         print("Failed to sync commands:", e)
+
+    # Restore guild-specific language overrides
+    for _gid, _lang in get_all_guild_languages():
+        try:
+            await _apply_guild_language(_gid, _lang)
+            print(f"Restored language '{_lang}' for guild {_gid}")
+        except Exception as _e:
+            print(f"Could not restore language for guild {_gid}: {_e}")
+
+    # Restore guild-specific balance command names (for guilds with custom name but default language)
+    for _gid, _cmd_name in get_all_custom_command_names():
+        if get_guild_language(_gid) == "en":  # if non-en, _apply_guild_language already handled it
+            try:
+                await _apply_guild_currency_command(_gid, _cmd_name)
+            except Exception as _e:
+                print(f"Could not restore balance command for guild {_gid}: {_e}")
 
 @bot.tree.command(name="furby_tournament", description="Create a Furby tournament embed")
 @app_commands.describe(title="Title for the tournament")
