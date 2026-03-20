@@ -675,6 +675,11 @@ def init_db():
         cur.execute("ALTER TABLE settings ADD COLUMN official_links_channel_id INTEGER")
     except Exception:
         pass
+    # Slash command name used to check balance (UI only, does not rename DB columns)
+    try:
+        cur.execute("ALTER TABLE settings ADD COLUMN currency_command_name TEXT")
+    except Exception:
+        pass
     # Table to store official links (per guild)
     cur.execute(
         """
@@ -851,6 +856,45 @@ def fmt_currency(guild_id: int | None, amount: int | str) -> str:
     except Exception:
         unit = f"{name}s"
     return f"{emoji} {amount} {unit}"
+
+
+def get_currency_command_name(guild_id: int) -> str:
+    """Return the stored slash command name for the balance command (defaults to 'snuggles')."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT currency_command_name FROM settings WHERE guild_id = ?", (guild_id,))
+        row = cur.fetchone()
+        conn.close()
+        return (row[0] if row and row[0] else "snuggles")
+    except Exception:
+        return "snuggles"
+
+
+def set_currency_command_name(guild_id: int, cmd_name: str):
+    """Persist the slash command name for the balance command for a guild."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO settings(guild_id, currency_command_name) VALUES (?, ?) "
+        "ON CONFLICT(guild_id) DO UPDATE SET currency_command_name = ?",
+        (guild_id, cmd_name, cmd_name),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_all_custom_command_names() -> list[tuple[int, str]]:
+    """Return [(guild_id, cmd_name), ...] for all guilds with a custom balance command name."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT guild_id, currency_command_name FROM settings WHERE currency_command_name IS NOT NULL")
+        rows = cur.fetchall()
+        conn.close()
+        return [(r[0], r[1]) for r in rows if r[1]]
+    except Exception:
+        return []
 
 def add_turkeys(user_id: int, amount: int):
     conn = sqlite3.connect(DB_PATH)
@@ -1078,6 +1122,53 @@ async def on_connect():
         pass
 
 
+async def _apply_guild_currency_command(guild_id: int, new_cmd_name: str, old_cmd_name: str | None = None):
+    """Register (or rename) a guild-specific slash command for checking the balance.
+
+    The underlying DB uses 'turkeys' — this only affects the Discord command name.
+    Pass old_cmd_name to remove the previous command when renaming.
+    """
+    import re
+    clean = new_cmd_name.strip().lower()
+    if not re.match(r'^[\w-]{1,32}$', clean):
+        raise ValueError(
+            f"Invalid command name '{clean}': must be 1–32 chars using only letters, numbers, _ or -."
+        )
+
+    guild_obj = discord.Object(id=guild_id)
+
+    # Remove previous custom command if it's different from the new one
+    if old_cmd_name and old_cmd_name != clean:
+        try:
+            bot.tree.remove_command(old_cmd_name, guild=guild_obj)
+        except Exception:
+            pass
+
+    # Remove any pre-existing command with the target name in this guild (idempotent)
+    try:
+        bot.tree.remove_command(clean, guild=guild_obj)
+    except Exception:
+        pass
+
+    # Build the callback — mirrors the global /snuggles command
+    async def _balance_callback(interaction: discord.Interaction, user: discord.User | None = None):
+        target = user or interaction.user
+        bal = get_turkeys(target.id)
+        await interaction.response.send_message(
+            f"{fmt_currency(getattr(interaction.guild, 'id', None), bal)} — {target.mention}",
+            ephemeral=True,
+        )
+
+    _, cname = get_currency_display(guild_id)
+    cmd = app_commands.Command(
+        name=clean,
+        description=f"Check your {cname} balance",
+        callback=_balance_callback,
+    )
+    bot.tree.add_command(cmd, guild=guild_obj)
+    await bot.tree.sync(guild=guild_obj)
+
+
 @bot.event
 async def on_ready():
     """Sync application (slash) commands so `/m lock`, `/m unlock` and `/settings ...` appear.
@@ -1112,6 +1203,14 @@ async def on_ready():
             logging.info(f"Synced {len(synced)} global commands")
     except Exception:
         logging.exception("Failed to sync application commands")
+
+    # Re-register guild-specific balance commands for guilds with a custom command name
+    for _gid, _cmd_name in get_all_custom_command_names():
+        try:
+            await _apply_guild_currency_command(_gid, _cmd_name)
+            logging.info(f"Restored guild balance command '/{_cmd_name}' for guild {_gid}")
+        except Exception as _e:
+            logging.warning(f"Could not restore guild balance command for {_gid}: {_e}")
 
 
 async def _gather_original_overwrites(ch: discord.TextChannel) -> dict:
@@ -2058,13 +2157,14 @@ class TournamentView(discord.ui.View):
             try:
                 if await is_staff_in_guild(interaction.guild, winner_id):
                     try:
-                        await channel.send(f"{TURKEY_EMOJI} {winner_mention} is staff and has unlimited turkeys — congratulations!")
+                        _emoji, _cname = get_currency_display(getattr(interaction.guild, 'id', None))
+                        await channel.send(f"{_emoji} {winner_mention} is staff and has unlimited {_cname} — congratulations!")
                     except Exception:
                         pass
                 else:
                     add_turkeys(winner_id, turkeys_awarded)
                     try:
-                        await channel.send(f"{TURKEY_EMOJI} {turkeys_awarded} turkeys have been awarded to {winner_mention}!")
+                        await channel.send(f"{fmt_currency(getattr(interaction.guild, 'id', None), turkeys_awarded)} have been awarded to {winner_mention}!")
                     except Exception:
                         pass
             except Exception:
@@ -2134,8 +2234,8 @@ class TournamentView(discord.ui.View):
             print(f"Warning: failed to edit view for message {interaction.message.id}: {e}")
 
 
-# ---------------- Slash commands: turkey balance & shop ----------------
-@bot.tree.command(name="turkeys", description="Check your turkey balance")
+# ---------------- Slash commands: Snuggles balance & shop ----------------
+@bot.tree.command(name="snuggles", description="Check your Snuggles balance")
 @app_commands.describe(user="User to check (optional)")
 async def turkeys_balance(interaction: discord.Interaction, user: discord.User | None = None):
     target = user or interaction.user
@@ -2143,8 +2243,8 @@ async def turkeys_balance(interaction: discord.Interaction, user: discord.User |
     await interaction.response.send_message(f"{fmt_currency(getattr(interaction.guild, 'id', None), bal)} — {target.mention}", ephemeral=True)
 
 
-@bot.tree.command(name="give_turkeys", description="(Staff) Give turkeys to a user")
-@app_commands.describe(target="Target user", amount="Amount of turkeys to give (can be negative)")
+@bot.tree.command(name="give_snuggles", description="(Staff) Give Snuggles to a user")
+@app_commands.describe(target="Target user", amount="Amount of Snuggles to give (can be negative)")
 async def give_turkeys(interaction: discord.Interaction, target: discord.User, amount: int):
     # Only members with the configured staff role (or fallback perms) can use this
     try:
@@ -2163,10 +2263,37 @@ async def give_turkeys(interaction: discord.Interaction, target: discord.User, a
         bal = get_turkeys(target.id)
         await safe_reply(interaction, f"{fmt_currency(guild.id, amount)} given to {target.mention}. New balance: {fmt_currency(guild.id, bal)}")
     except Exception as e:
-        await safe_reply(interaction, f"Error giving turkeys: {e}")
+        await safe_reply(interaction, f"Error giving Snuggles: {e}")
 
 
-shop_group = app_commands.Group(name="shop", description="Turkey shop commands")
+@bot.tree.command(name="rename_currency", description="(Staff) Change the display name and/or emoji of the currency")
+@app_commands.describe(
+    name="New display name (e.g. Snuggles). Use '-' to reset to default.",
+    emoji="New emoji (e.g. 🦃). Use '-' to reset to default.",
+)
+async def rename_currency(interaction: discord.Interaction, name: str | None = None, emoji: str | None = None):
+    if not interaction.guild:
+        await safe_reply(interaction, "This command must be used in a server.")
+        return
+    if not await is_staff_in_guild(interaction.guild, interaction.user.id):
+        await safe_reply(interaction, "Only staff can rename the currency.")
+        return
+    if name is None and emoji is None:
+        e, n = get_currency_display(interaction.guild.id)
+        await safe_reply(interaction, f"Current currency display: {e} {n}\nUse `/rename_currency name:<name> emoji:<emoji>` to change it.", ephemeral=True)
+        return
+    if name == '-':
+        name = None
+    if emoji == '-':
+        emoji = None
+    cur_emoji, cur_name = get_currency_display(interaction.guild.id)
+    new_name = (name.strip() or cur_name) if name is not None else cur_name
+    new_emoji = (emoji.strip() or cur_emoji) if emoji is not None else cur_emoji
+    set_currency_display(interaction.guild.id, new_name, new_emoji)
+    await safe_reply(interaction, f"Currency renamed to: {new_emoji} {new_name}\n*(Display only — balances in the DB are unchanged.)*", ephemeral=True)
+
+
+shop_group = app_commands.Group(name="shop", description="Shop commands")
 try:
     bot.tree.add_command(shop_group)
 except Exception:
@@ -2190,7 +2317,7 @@ async def shop_list(interaction: discord.Interaction):
     await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
 
-@shop_group.command(name="buy", description="Buy a shop item using turkeys")
+@shop_group.command(name="buy", description="Buy a shop item using Snuggles")
 @app_commands.describe(item_id="ID of the shop item to buy")
 async def shop_buy(interaction: discord.Interaction, item_id: int):
     row = get_shop_item(item_id)
@@ -2229,7 +2356,7 @@ async def shop_buy(interaction: discord.Interaction, item_id: int):
 
 @shop_group.command(name="add", description="(Admin) Add a shop item to this server or global")
 @app_commands.checks.has_permissions(manage_guild=True)
-@app_commands.describe(name="Item name", price="Price in turkeys", role="Optional role to grant")
+@app_commands.describe(name="Item name", price="Price in Snuggles", role="Optional role to grant")
 async def shop_add(interaction: discord.Interaction, name: str, price: int, role: discord.Role | None = None, global_item: bool = False):
     gid = None if global_item else (interaction.guild.id if interaction.guild else None)
     role_id = role.id if role else None
@@ -2265,13 +2392,20 @@ class CurrencySettingsModal(discord.ui.Modal, title="Configurar moneda"):
             placeholder="Ej: Snuggles",
         )
         self.currency_emoji = discord.ui.TextInput(
-            label="Emoji",
+            label="Emoji (unicode o <:nombre:id> del servidor)",
+            required=False,
+            max_length=64,
+            placeholder="Ej: 🦃 o <:furby:123456789>",
+        )
+        self.cmd_name = discord.ui.TextInput(
+            label="Nombre del comando /balance (letras, números, _)",
             required=False,
             max_length=32,
-            placeholder="Ej: 🦃",
+            placeholder="Ej: snuggles  (deja vacío para no cambiar)",
         )
         self.add_item(self.currency_name)
         self.add_item(self.currency_emoji)
+        self.add_item(self.cmd_name)
 
     async def on_submit(self, interaction: discord.Interaction):
         if not interaction.guild:
@@ -2291,11 +2425,13 @@ class CurrencySettingsModal(discord.ui.Modal, title="Configurar moneda"):
 
         name = (str(self.currency_name.value).strip() if self.currency_name.value is not None else "")
         emoji = (str(self.currency_emoji.value).strip() if self.currency_emoji.value is not None else "")
+        cmd = (str(self.cmd_name.value).strip().lower() if self.cmd_name.value else "")
 
         # Si no pone nada, mostramos el estado actual
-        if not name and not emoji:
+        if not name and not emoji and not cmd:
             e, n = get_currency_display(interaction.guild.id)
-            await safe_reply(interaction, f"Moneda actual: {e} {n} (solo UI)")
+            cur_cmd = get_currency_command_name(interaction.guild.id)
+            await safe_reply(interaction, f"Moneda actual: {e} {n}  |  Comando: `/{cur_cmd}` (solo UI)")
             return
 
         # Permitir reset con '-'
@@ -2303,13 +2439,31 @@ class CurrencySettingsModal(discord.ui.Modal, title="Configurar moneda"):
             name = ""
         if emoji == '-':
             emoji = ""
+        if cmd == '-':
+            cmd = ""
 
         try:
             cur_emoji, cur_name = get_currency_display(interaction.guild.id)
             new_name = cur_name if name == "" else name
             new_emoji = cur_emoji if emoji == "" else emoji
             set_currency_display(interaction.guild.id, new_name, new_emoji)
-            await safe_reply(interaction, f"Moneda actualizada: {new_emoji} {new_name} (solo UI)")
+
+            # Registrar nuevo comando de guild si se especificó
+            cmd_info = ""
+            if cmd:
+                import re as _re
+                if not _re.match(r'^[\w-]{1,32}$', cmd):
+                    await safe_reply(interaction, f"Nombre de comando inválido `{cmd}`: solo letras, números, _ o - (1-32 caracteres).")
+                    return
+                old_cmd = get_currency_command_name(interaction.guild.id)
+                set_currency_command_name(interaction.guild.id, cmd)
+                try:
+                    await _apply_guild_currency_command(interaction.guild.id, cmd, old_cmd if old_cmd != cmd else None)
+                    cmd_info = f"  |  Comando renombrado a `/{cmd}`"
+                except Exception as ce:
+                    cmd_info = f"  |  ⚠️ Error al registrar el comando: {ce}"
+
+            await safe_reply(interaction, f"Moneda actualizada: {new_emoji} {new_name} (solo UI){cmd_info}")
         except Exception as e:
             await safe_reply(interaction, f"No se pudo actualizar la moneda: {e}")
 
@@ -2334,7 +2488,7 @@ class SettingsMenuView(discord.ui.View):
         max_values=1,
         options=[
             discord.SelectOption(
-                label="Moneda (turkeys)",
+                label="Moneda (Snuggles)",
                 value="currency",
                 description="Cambiar nombre y emoji (solo UI)",
                 emoji=TURKEY_EMOJI,
@@ -2423,10 +2577,19 @@ async def slash_m_unlock(interaction: discord.Interaction):
         await safe_reply(interaction, f"Failed to unlock channel: {e}")
 
 
-@settings_group.command(name="currency", description="Configure the display name and emoji for the currency system (UI only)")
+@settings_group.command(name="currency", description="Configure the display name, emoji and balance command name for the currency (UI only)")
 @app_commands.checks.has_permissions(manage_guild=True)
-@app_commands.describe(name="Currency display name (e.g., Snuggles)", emoji="Emoji for currency (e.g., 🦃)")
-async def settings_currency(interaction: discord.Interaction, name: str | None = None, emoji: str | None = None):
+@app_commands.describe(
+    name="Currency display name (e.g., Snuggles). Use '-' to reset.",
+    emoji="Emoji to display (unicode or server custom emoji <:name:id>). Use '-' to reset.",
+    command_name="Slash command name for checking balance (e.g., snuggles). Letters, numbers, _ or - only.",
+)
+async def settings_currency(
+    interaction: discord.Interaction,
+    name: str | None = None,
+    emoji: str | None = None,
+    command_name: str | None = None,
+):
     if not interaction.guild:
         await safe_reply(interaction, "This command must be used in a server.")
         return
@@ -2436,20 +2599,25 @@ async def settings_currency(interaction: discord.Interaction, name: str | None =
             name = name.strip() or None
         if emoji is not None:
             emoji = emoji.strip() or None
+        if command_name is not None:
+            command_name = command_name.strip().lower() or None
     except Exception:
         pass
 
-    # If neither provided, show current settings
-    if name is None and emoji is None:
+    # If nothing provided, show current settings
+    if name is None and emoji is None and command_name is None:
         e, n = get_currency_display(interaction.guild.id)
-        await safe_reply(interaction, f"Current currency display: {e} {n} (UI only)")
+        cur_cmd = get_currency_command_name(interaction.guild.id)
+        await safe_reply(interaction, f"Current currency display: {e} {n}  |  Balance command: `/{cur_cmd}` (UI only)")
         return
 
-    # Allow clearing back to defaults by passing '-' for either field
+    # Allow clearing back to defaults by passing '-' for any field
     if name == '-':
         name = None
     if emoji == '-':
         emoji = None
+    if command_name == '-':
+        command_name = None
 
     try:
         # Merge with existing values to avoid wiping the other field
@@ -2457,7 +2625,25 @@ async def settings_currency(interaction: discord.Interaction, name: str | None =
         new_name = cur_name if name is None else name
         new_emoji = cur_emoji if emoji is None else emoji
         set_currency_display(interaction.guild.id, new_name, new_emoji)
-        await safe_reply(interaction, f"Updated currency display: {new_emoji} {new_name} (UI only)")
+
+        # Handle command rename if requested
+        cmd_info = ""
+        if command_name:
+            import re as _re
+            if not _re.match(r'^[\w-]{1,32}$', command_name):
+                await safe_reply(interaction, f"Invalid command name `{command_name}`: use only letters, numbers, _ or - (1–32 chars).")
+                return
+            old_cmd = get_currency_command_name(interaction.guild.id)
+            set_currency_command_name(interaction.guild.id, command_name)
+            try:
+                await _apply_guild_currency_command(
+                    interaction.guild.id, command_name, old_cmd if old_cmd != command_name else None
+                )
+                cmd_info = f"  |  Balance command renamed to `/{command_name}`"
+            except Exception as ce:
+                cmd_info = f"  |  ⚠️ Error registering command: {ce}"
+
+        await safe_reply(interaction, f"Updated currency display: {new_emoji} {new_name} (UI only){cmd_info}")
     except Exception as e:
         await safe_reply(interaction, f"Failed to update currency settings: {e}")
 
@@ -2737,7 +2923,7 @@ async def wheels_start(interaction: discord.Interaction):
     participants_count = len(participants)
     turkeys_awarded = max(1, 2 * participants_count)
     try:
-        await interaction.response.send_message(f"Spinning the wheel... 🎡 Winner will receive {TURKEY_EMOJI} {turkeys_awarded}.", ephemeral=False)
+        await interaction.response.send_message(f"Spinning the wheel... 🎡 Winner will receive {fmt_currency(getattr(interaction.guild, 'id', None), turkeys_awarded)}.", ephemeral=False)
     except Exception:
         try:
             await interaction.response.send_message("Spinning the wheel... 🎡", ephemeral=False)
@@ -2985,13 +3171,14 @@ async def wheels_start(interaction: discord.Interaction):
         try:
             if await is_staff_in_guild(interaction.guild, winner_id):
                 try:
-                    await channel.send(f"{TURKEY_EMOJI} {winner_mention} is staff and has unlimited turkeys — congratulations!")
+                    _emoji, _cname = get_currency_display(getattr(interaction.guild, 'id', None))
+                    await channel.send(f"{_emoji} {winner_mention} is staff and has unlimited {_cname} — congratulations!")
                 except Exception:
                     pass
             else:
                 add_turkeys(winner_id, turkeys_awarded)
                 try:
-                    await channel.send(f"{TURKEY_EMOJI} {turkeys_awarded} turkeys have been awarded to {winner_mention}!")
+                    await channel.send(f"{fmt_currency(getattr(interaction.guild, 'id', None), turkeys_awarded)} have been awarded to {winner_mention}!")
                 except Exception:
                     pass
         except Exception:
