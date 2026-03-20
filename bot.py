@@ -684,6 +684,17 @@ def init_db():
         )
         """
     )
+    # Custom commands per guild: name -> info text
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS custom_commands (
+            guild_id INTEGER,
+            name TEXT NOT NULL,
+            info TEXT NOT NULL,
+            PRIMARY KEY (guild_id, name)
+        )
+        """
+    )
     conn.commit()
     conn.close()
 
@@ -1241,6 +1252,22 @@ async def on_message(message: discord.Message):
         return
 
     content = (message.content or "").strip()
+
+    # Handle custom commands (invoked with the ! prefix)
+    if content.startswith('!') and message.guild:
+        raw = content[1:].split()[0].lower() if content[1:].strip() else ''
+        if raw:
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT info FROM custom_commands WHERE guild_id = ? AND name = ?",
+                (message.guild.id, raw)
+            )
+            row = cur.fetchone()
+            conn.close()
+            if row:
+                await message.channel.send(row[0])
+                return
 
     cmd = ''
     parts = content.split()
@@ -4023,6 +4050,58 @@ async def delete_schedule(interaction: discord.Interaction, slot: int):
         await interaction.response.send_message(f"Removed your signup from slot {slot} ({time_idx:02d}:00 UTC). Use `/schedule show` to view.", ephemeral=True)
     else:
         await interaction.response.send_message(f"No signup found for you in slot {slot}. Use `/schedule show` to check current signups.", ephemeral=True)
+
+
+@bot.tree.command(name="custom", description="Crea un comando personalizado para este servidor")
+@app_commands.describe(
+    name="Nombre del comando (se invoca con !nombre)",
+    info="Texto que se mostrará al usar el comando"
+)
+@app_commands.checks.has_permissions(manage_guild=True)
+async def custom_command_create(interaction: discord.Interaction, name: str, info: str):
+    if not interaction.guild:
+        await interaction.response.send_message("Este comando solo se puede usar en un servidor.", ephemeral=True)
+        return
+    cmd_name = name.lower().strip()
+    if not cmd_name or any(c in cmd_name for c in (' ', '\t', '\n')):
+        await interaction.response.send_message("El nombre del comando debe ser una sola palabra sin espacios.", ephemeral=True)
+        return
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "INSERT OR REPLACE INTO custom_commands (guild_id, name, info) VALUES (?, ?, ?)",
+            (interaction.guild.id, cmd_name, info)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    await interaction.response.send_message(f"Comando personalizado `!{cmd_name}` creado correctamente.", ephemeral=True)
+
+
+@bot.tree.command(name="deletecustom", description="Elimina un comando personalizado de este servidor")
+@app_commands.describe(name="Nombre del comando personalizado a eliminar")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def custom_command_delete(interaction: discord.Interaction, name: str):
+    if not interaction.guild:
+        await interaction.response.send_message("Este comando solo se puede usar en un servidor.", ephemeral=True)
+        return
+    cmd_name = name.lower().strip()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "DELETE FROM custom_commands WHERE guild_id = ? AND name = ?",
+            (interaction.guild.id, cmd_name)
+        )
+        deleted = cur.rowcount
+        conn.commit()
+    finally:
+        conn.close()
+    if deleted:
+        await interaction.response.send_message(f"Comando personalizado `!{cmd_name}` eliminado.", ephemeral=True)
+    else:
+        await interaction.response.send_message(f"No se encontró ningún comando personalizado llamado `!{cmd_name}`.", ephemeral=True)
 
 
 @bot.tree.command(name="resync_commands", description="Force re-sync of commands in this guild (admins only)")
