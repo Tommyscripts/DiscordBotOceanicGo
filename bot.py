@@ -670,6 +670,22 @@ def init_db():
         cur.execute("ALTER TABLE settings ADD COLUMN currency_emoji TEXT")
     except Exception:
         pass
+    # Optional column to store configured channel for official links
+    try:
+        cur.execute("ALTER TABLE settings ADD COLUMN official_links_channel_id INTEGER")
+    except Exception:
+        pass
+    # Table to store official links (per guild)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS official_links (
+            guild_id INTEGER,
+            name TEXT NOT NULL,
+            url TEXT NOT NULL,
+            PRIMARY KEY (guild_id, name)
+        )
+        """
+    )
     # moderation log
     cur.execute(
         """
@@ -692,6 +708,24 @@ def init_db():
             name TEXT NOT NULL,
             info TEXT NOT NULL,
             PRIMARY KEY (guild_id, name)
+        )
+        """
+    )
+    # Monopoly Go free-links channel config: one channel per guild
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS monopoly_go_config (
+            guild_id INTEGER PRIMARY KEY,
+            channel_id INTEGER NOT NULL
+        )
+        """
+    )
+    # Already-posted Monopoly Go links (global, deduplicated across guilds)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS monopoly_go_posted (
+            url TEXT PRIMARY KEY,
+            posted_at TEXT NOT NULL
         )
         """
     )
@@ -1035,6 +1069,11 @@ async def on_connect():
     # start background unmute scheduler
     try:
         bot.loop.create_task(schedule_unmute_check())
+    except Exception:
+        pass
+    # start Monopoly GO auto-poster
+    try:
+        bot.loop.create_task(_monopoly_poster_loop())
     except Exception:
         pass
 
@@ -4052,6 +4091,199 @@ async def delete_schedule(interaction: discord.Interaction, slot: int):
         await interaction.response.send_message(f"No signup found for you in slot {slot}. Use `/schedule show` to check current signups.", ephemeral=True)
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# MONOPOLY GO – auto-poster of official free reward links
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Patterns that identify a Monopoly Go reward deep-link / short-link.
+# Sourced from known Scopely / AppsFlyer / Jambl URL formats.
+import re as _re
+_MONOPOLY_LINK_PATTERNS = [
+    _re.compile(r'https?://monopolygo\.com/', _re.I),
+    _re.compile(r'https?://mply\.go/', _re.I),
+    _re.compile(r'https?://monopolygo\.onelink\.me/', _re.I),
+    _re.compile(r'https?://board-kings\.onelink\.me/[^"\'>\s]*monopolygo', _re.I),
+    _re.compile(r'https?://[^\s"\'<>]*scopely\.com/[^\s"\'<>]*monopoly', _re.I),
+    _re.compile(r'https?://[^\s"\'<>]*monopoly[_-]?go[^\s"\'<>]*\?.*reward', _re.I),
+]
+# Human-readable aggregator pages that are kept up-to-date with official links.
+_MONOPOLY_SOURCES = [
+    "https://www.pocketgamer.com/monopoly-go/codes/",
+    "https://www.pockettactics.com/monopoly-go/free-dice",
+    "https://appgamer.com/monopoly-go/strategy-guide/free-dice-links",
+    "https://www.gamesatlas.com/monopoly-go/free-dice/",
+]
+_MONOPOLY_POLL_INTERVAL = 180  # seconds between polls (3 min)
+
+
+def _is_monopoly_reward_link(url: str) -> bool:
+    return any(p.search(url) for p in _MONOPOLY_LINK_PATTERNS)
+
+
+async def _fetch_monopoly_links_from_source(session, url: str) -> list[str]:
+    """Fetch a single aggregator page and return all Monopoly Go reward URLs found."""
+    try:
+        async with session.get(url, timeout=15, allow_redirects=True) as resp:
+            if resp.status != 200:
+                return []
+            html = await resp.text(errors="replace")
+    except Exception as e:
+        logging.warning(f"[MonopolyGo] Failed to fetch {url}: {e}")
+        return []
+    try:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, "html.parser")
+        found = []
+        for tag in soup.find_all("a", href=True):
+            href = tag["href"].strip()
+            if _is_monopoly_reward_link(href):
+                found.append(href)
+        # Also scan raw text for pasted links (some sites use <p> or <li> text)
+        for text_node in soup.find_all(string=_re.compile(r'https?://', _re.I)):
+            for token in text_node.split():
+                t = token.strip('.,;)([]"\' ')
+                if _is_monopoly_reward_link(t):
+                    found.append(t)
+        return list(dict.fromkeys(found))  # deduplicate order-preserving
+    except Exception as e:
+        logging.warning(f"[MonopolyGo] Parse error for {url}: {e}")
+        return []
+
+
+def _monopoly_already_posted(url: str) -> bool:
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM monopoly_go_posted WHERE url = ?", (url,))
+    exists = cur.fetchone() is not None
+    conn.close()
+    return exists
+
+
+def _monopoly_mark_posted(url: str):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT OR IGNORE INTO monopoly_go_posted (url, posted_at) VALUES (?, ?)",
+        (url, datetime.utcnow().isoformat())
+    )
+    conn.commit()
+    conn.close()
+
+
+def _monopoly_get_channels() -> list[tuple[int, int]]:
+    """Return list of (guild_id, channel_id) for all configured guilds."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT guild_id, channel_id FROM monopoly_go_config")
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
+async def _monopoly_poster_loop():
+    """Background task: polls aggregator sources and posts new reward links."""
+    await bot.wait_until_ready()
+    # lazy import – only needed at runtime
+    try:
+        import aiohttp
+    except ImportError:
+        logging.error("[MonopolyGo] aiohttp not installed – auto-poster disabled. Run: pip install aiohttp beautifulsoup4")
+        return
+    try:
+        from bs4 import BeautifulSoup  # noqa: F401
+    except ImportError:
+        logging.error("[MonopolyGo] beautifulsoup4 not installed – auto-poster disabled. Run: pip install aiohttp beautifulsoup4")
+        return
+
+    logging.info("[MonopolyGo] Auto-poster started.")
+    async with aiohttp.ClientSession(headers={"User-Agent": "Mozilla/5.0 (compatible; MonopolyGoBot/1.0)"}) as session:
+        while not bot.is_closed():
+            try:
+                guild_channels = _monopoly_get_channels()
+                if guild_channels:
+                    new_links: list[str] = []
+                    for source_url in _MONOPOLY_SOURCES:
+                        links = await _fetch_monopoly_links_from_source(session, source_url)
+                        for link in links:
+                            if not _monopoly_already_posted(link):
+                                new_links.append(link)
+
+                    # Deduplicate across sources
+                    seen: set[str] = set()
+                    unique_new: list[str] = []
+                    for lnk in new_links:
+                        if lnk not in seen:
+                            seen.add(lnk)
+                            unique_new.append(lnk)
+
+                    if unique_new:
+                        for link in unique_new:
+                            _monopoly_mark_posted(link)
+                            embed = discord.Embed(
+                                title="🎲 Monopoly GO — Free Reward Link!",
+                                description=link,
+                                color=0xE91E63,
+                                url=link,
+                            )
+                            embed.set_footer(text="Tap the link to claim your free reward • Monopoly GO")
+                            for _guild_id, _channel_id in guild_channels:
+                                try:
+                                    ch = bot.get_channel(_channel_id)
+                                    if ch is None:
+                                        ch = await bot.fetch_channel(_channel_id)
+                                    await ch.send(embed=embed)
+                                    logging.info(f"[MonopolyGo] Posted {link} to channel {_channel_id}")
+                                except Exception as e:
+                                    logging.warning(f"[MonopolyGo] Failed to post to channel {_channel_id}: {e}")
+            except Exception as e:
+                logging.exception(f"[MonopolyGo] Unexpected error in poster loop: {e}")
+            await asyncio.sleep(_MONOPOLY_POLL_INTERVAL)
+
+
+@bot.tree.command(name="setmonopolychannel", description="Set the channel where Monopoly GO free reward links will be posted")
+@app_commands.describe(channel="The text channel to post Monopoly GO reward links in")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def set_monopoly_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    if not interaction.guild:
+        await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
+        return
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "INSERT OR REPLACE INTO monopoly_go_config (guild_id, channel_id) VALUES (?, ?)",
+            (interaction.guild.id, channel.id)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    await interaction.response.send_message(
+        f"✅ Monopoly GO reward links will be auto-posted in {channel.mention}.\n"
+        "The bot checks official sources every 3 minutes and posts each link only once.",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="unsetmonopolychannel", description="Disable automatic Monopoly GO reward link posting in this server")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def unset_monopoly_channel(interaction: discord.Interaction):
+    if not interaction.guild:
+        await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
+        return
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute("DELETE FROM monopoly_go_config WHERE guild_id = ?", (interaction.guild.id,))
+        deleted = cur.rowcount
+        conn.commit()
+    finally:
+        conn.close()
+    if deleted:
+        await interaction.response.send_message("✅ Monopoly GO auto-posting disabled for this server.", ephemeral=True)
+    else:
+        await interaction.response.send_message("No Monopoly GO channel was configured for this server.", ephemeral=True)
+
+
 @bot.tree.command(name="custom", description="Crea un comando personalizado para este servidor")
 @app_commands.describe(
     name="Nombre del comando (se invoca con !nombre)",
@@ -4103,6 +4335,128 @@ async def custom_command_delete(interaction: discord.Interaction, name: str):
     else:
         await interaction.response.send_message(f"No se encontró ningún comando personalizado llamado `!{cmd_name}`.", ephemeral=True)
 
+
+@bot.tree.command(name="set_official_links_channel", description="Configura el canal donde se publicarán los enlaces oficiales")
+@app_commands.describe(channel="Canal de texto donde publicar enlaces oficiales")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def set_official_links_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    if not interaction.guild:
+        await interaction.response.send_message("Este comando solo se puede usar en un servidor.", ephemeral=True)
+        return
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute("INSERT OR REPLACE INTO settings (guild_id, official_links_channel_id) VALUES (?, ?)",
+                    (interaction.guild.id, channel.id))
+        # If row exists with other columns, keep them; use UPDATE to preserve others if needed
+        conn.commit()
+    finally:
+        conn.close()
+    await interaction.response.send_message(f"Canal de enlaces oficiales establecido a {channel.mention}", ephemeral=True)
+
+
+@bot.tree.command(name="add_official_link", description="Añade un enlace oficial (ej: dado gratis/escudo)")
+@app_commands.describe(name="Etiqueta corta para el enlace", url="URL pública del enlace")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def add_official_link(interaction: discord.Interaction, name: str, url: str):
+    if not interaction.guild:
+        await interaction.response.send_message("Este comando solo se puede usar en un servidor.", ephemeral=True)
+        return
+    key = name.lower().strip()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute("INSERT OR REPLACE INTO official_links (guild_id, name, url) VALUES (?, ?, ?)",
+                    (interaction.guild.id, key, url))
+        conn.commit()
+    finally:
+        conn.close()
+    await interaction.response.send_message(f"Enlace oficial '{key}' guardado.", ephemeral=True)
+
+
+@bot.tree.command(name="remove_official_link", description="Elimina un enlace oficial por su nombre")
+@app_commands.describe(name="Nombre del enlace a eliminar")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def remove_official_link(interaction: discord.Interaction, name: str):
+    if not interaction.guild:
+        await interaction.response.send_message("Este comando solo se puede usar en un servidor.", ephemeral=True)
+        return
+    key = name.lower().strip()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute("DELETE FROM official_links WHERE guild_id = ? AND name = ?", (interaction.guild.id, key))
+        deleted = cur.rowcount
+        conn.commit()
+    finally:
+        conn.close()
+    if deleted:
+        await interaction.response.send_message(f"Enlace oficial '{key}' eliminado.", ephemeral=True)
+    else:
+        await interaction.response.send_message(f"No se encontró ningún enlace llamado '{key}'.", ephemeral=True)
+
+
+@bot.tree.command(name="list_official_links", description="Lista los enlaces oficiales guardados para este servidor")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def list_official_links(interaction: discord.Interaction):
+    if not interaction.guild:
+        await interaction.response.send_message("Este comando solo se puede usar en un servidor.", ephemeral=True)
+        return
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT name, url FROM official_links WHERE guild_id = ? ORDER BY name", (interaction.guild.id,))
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+    if not rows:
+        await interaction.response.send_message("No hay enlaces oficiales guardados para este servidor.", ephemeral=True)
+        return
+    lines = [f"**{r[0]}** — {r[1]}" for r in rows]
+    await interaction.response.send_message("\n".join(lines), ephemeral=True)
+
+
+@bot.tree.command(name="post_official_links", description="Publica los enlaces oficiales en el canal configurado (o en este canal si no hay configurado)")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def post_official_links(interaction: discord.Interaction):
+    if not interaction.guild:
+        await interaction.response.send_message("Este comando solo se puede usar en un servidor.", ephemeral=True)
+        return
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT official_links_channel_id FROM settings WHERE guild_id = ?", (interaction.guild.id,))
+        row = cur.fetchone()
+        channel_id = row[0] if row and row[0] is not None else None
+        cur.execute("SELECT name, url FROM official_links WHERE guild_id = ? ORDER BY name", (interaction.guild.id,))
+        links = cur.fetchall()
+    finally:
+        conn.close()
+
+    if not links:
+        await interaction.response.send_message("No hay enlaces oficiales guardados para publicar.", ephemeral=True)
+        return
+
+    # Build embed
+    embed = discord.Embed(title="Enlaces oficiales - Monopoly GO", color=0x00BFFF)
+    desc_lines = [f"**{name}** — {url}" for name, url in links]
+    embed.description = "\n".join(desc_lines)
+
+    # Determine destination channel
+    dest = None
+    try:
+        if channel_id:
+            dest = interaction.guild.get_channel(channel_id)
+    except Exception:
+        dest = None
+    if not dest:
+        dest = interaction.channel
+
+    try:
+        await dest.send(embed=embed)
+        await interaction.response.send_message(f"Enlaces publicados en {dest.mention}", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"Error al publicar enlaces: {e}", ephemeral=True)
 
 @bot.tree.command(name="resync_commands", description="Force re-sync of commands in this guild (admins only)")
 @app_commands.checks.has_permissions(manage_guild=True)
