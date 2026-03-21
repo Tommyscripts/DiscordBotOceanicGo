@@ -5026,9 +5026,7 @@ async def duelo(ctx: commands.Context):
     # Truncate if too long to avoid hitting message size limits
     if len(result) > 1900:
         result = result[:1900] + "\n...(truncado)"
-    await ctx.send(content=f"Duelo:\n```
-{result}
-```", files=files)
+    await ctx.send(content=f"Duelo:\n```\n{result}\n```", files=files)
 
 
 @bot.command(name="howtoplay")
