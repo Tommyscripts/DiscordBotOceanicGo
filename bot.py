@@ -18,6 +18,10 @@ import logging
 import shutil
 from pathlib import Path
 from datetime import date, datetime, timedelta
+from io import BytesIO
+
+# Duck game module
+from duck_game import generate_duck, duck_to_bytes, random_duck, fight_ducks, Duck
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -4985,7 +4989,64 @@ async def resync_commands(interaction: discord.Interaction):
     except Exception as e:
         await interaction.response.send_message(f"Resync failed: {e}", ephemeral=True)
 
-# ...existing code...
+# Duck commands: !pato (genera pato) y !duelo (simula duelo)
+
+
+@bot.command(name="pato")
+async def pato(ctx: commands.Context):
+    """Genera un pato con equipo aleatorio y envía su imagen."""
+    async with ctx.typing():
+        duck = random_duck()
+        image = generate_duck(duck.equipment)
+        buf = duck_to_bytes(image)
+        filename = f"{duck.name.replace(' ', '_')}.png"
+        equip_text = ", ".join(duck.equipment) if duck.equipment else "sin equipo"
+        file = discord.File(buf, filename=filename)
+    await ctx.send(content=f"**{duck.name}** — Vida: {duck.health} Ataque: {duck.attack} Defensa: {duck.defense} (Equipo: {equip_text})", file=file)
+
+
+@bot.command(name="duelo")
+async def duelo(ctx: commands.Context):
+    """Simula un duelo entre dos patos aleatorios y muestra el resultado."""
+    async with ctx.typing():
+        d1 = random_duck("Pato 1")
+        d2 = random_duck("Pato 2")
+
+        # Preserve copies for images before the fight alters health
+        img1 = generate_duck(d1.equipment)
+        img2 = generate_duck(d2.equipment)
+        buf1 = duck_to_bytes(img1)
+        buf2 = duck_to_bytes(img2)
+
+        result = fight_ducks(d1, d2, rounds=6)
+
+        files = [discord.File(buf1, filename="pato1.png"), discord.File(buf2, filename="pato2.png")]
+
+    # Send the fight log (in a code block) and images
+    # Truncate if too long to avoid hitting message size limits
+    if len(result) > 1900:
+        result = result[:1900] + "\n...(truncado)"
+    await ctx.send(content=f"Duelo:\n```
+{result}
+```", files=files)
+
+
+@bot.command(name="howtoplay")
+async def howtoplay(ctx: commands.Context):
+    """Explains in English how the duck duel game works."""
+    text = (
+        "Duck Duel — How to play:\n"
+        "- `!pato`: generates a random duck with equipment and posts its image and stats.\n"
+        "- `!duelo`: simulates a short duel between two random ducks, posts both images and a fight log.\n\n"
+        "Combat rules:\n"
+        "- Each turn both ducks pick one action: `attack`, `defend`, or `dodge`.\n"
+        "- Action relationships: `attack` beats `dodge`, `dodge` beats `defend`, `defend` beats `attack`.\n"
+        "- Damage is calculated as `max(1, attacker.attack - defender.defense)`.\n\n"
+        "Images are composed locally using Pillow by overlaying equipment PNGs on a base duck image.\n"
+        "To customize, add assets in the `assets/` folder and update `duck_game.py`."
+    )
+    await ctx.send(text)
+
 
 if __name__ == "__main__":
     # Try to run the bot, but if the token is invalid prompt up to 3 times to re-enter

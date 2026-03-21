@@ -6,3 +6,4 @@ tests/test_lock_unlock.py
 furby_stats.db
 .env.example
 IDEAS.md
+README_PATO.md
