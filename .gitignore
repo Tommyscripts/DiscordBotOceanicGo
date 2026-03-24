@@ -1,4 +1,5 @@
 .env
+README_LOCAL.md
 .venv/
 __pycache__/
 tests/test_lock_unlock.py
