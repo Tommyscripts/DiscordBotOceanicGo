@@ -5036,21 +5036,46 @@ async def cmd_setmytime(interaction: discord.Interaction, timezone: str):
 )
 @app_commands.autocomplete(timezone=timezone_autocomplete)
 async def cmd_time(interaction: discord.Interaction, timezone: str | None = None, usuario: discord.Member | None = None):
+    guild_id = interaction.guild.id if interaction.guild else None
+    lang = get_guild_language(guild_id) if guild_id else "en"
+    is_es = lang == "es"
+
     # --- Modo: comparar con otro usuario ---
     if usuario is not None:
         my_tz = get_user_timezone(interaction.user.id)
         other_tz = get_user_timezone(usuario.id)
 
         if other_tz is None:
-            # El usuario objetivo no tiene zona horaria guardada
-            set_instructions = "usa el comando `/setmytime` eligiendo tu zona horaria con el autocompletado (ej: `Europe/Madrid`, `America/New_York`)"
-            await interaction.response.send_message(
-                f"⏰ {usuario.mention}, ¡{interaction.user.display_name} quiere comparar su hora con la tuya!\n"
-                f"Pero aún no tienes guardada ninguna zona horaria. Para añadirla, {set_instructions}.",
-            )
+            if is_es:
+                set_instructions = "usa el comando `/setmytime` eligiendo tu zona horaria con el autocompletado (ej: `Europe/Madrid`, `America/New_York`)"
+                msg = (
+                    f"⏰ {usuario.mention}, ¡{interaction.user.display_name} quiere comparar su hora con la tuya!\n"
+                    f"Pero aún no tienes guardada ninguna zona horaria. Para añadirla, {set_instructions}."
+                )
+            else:
+                set_instructions = "use the `/setmytime` command and pick your timezone from the autocomplete (e.g. `Europe/Madrid`, `America/New_York`)"
+                msg = (
+                    f"⏰ {usuario.mention}, {interaction.user.display_name} wants to compare their time with yours!\n"
+                    f"But you haven't saved a timezone yet. To add one, {set_instructions}."
+                )
+            await interaction.response.send_message(msg)
             return
 
-        embed = discord.Embed(title="🕐  Comparación de horas", color=discord.Color.blurple())
+        embed = discord.Embed(
+            title="🕐  Comparación de horas" if is_es else "🕐  Time Comparison",
+            color=discord.Color.blurple(),
+        )
+
+        no_tz_note = (
+            "*(Sin zona horaria guardada — usa `/setmytime` para añadirla)*"
+            if is_es else
+            "*(No timezone saved — use `/setmytime` to add one)*"
+        )
+        error_note = (
+            "*(Error al obtener la hora)*"
+            if is_es else
+            "*(Error fetching time)*"
+        )
 
         if my_tz:
             try:
@@ -5065,7 +5090,7 @@ async def cmd_time(interaction: discord.Interaction, timezone: str | None = None
         else:
             embed.add_field(
                 name=f"🏠  {interaction.user.display_name}",
-                value="*(Sin zona horaria guardada — usa `/setmytime` para añadirla)*",
+                value=no_tz_note,
                 inline=False,
             )
 
@@ -5079,50 +5104,68 @@ async def cmd_time(interaction: discord.Interaction, timezone: str | None = None
         except Exception:
             embed.add_field(
                 name=f"👤  {usuario.display_name}",
-                value="*(Error al obtener la hora)*",
+                value=error_note,
                 inline=False,
             )
 
-        embed.set_footer(text="Usa /setmytime para guardar tu zona horaria • Los nombres siguen el estándar IANA")
+        footer = (
+            "Usa /setmytime para guardar tu zona horaria • Los nombres siguen el estándar IANA"
+            if is_es else
+            "Use /setmytime to save your timezone • Names follow the IANA standard"
+        )
+        embed.set_footer(text=footer)
         await interaction.response.send_message(embed=embed)
         return
 
     # --- Modo: consultar zona horaria específica ---
     if timezone is None:
-        await interaction.response.send_message(
-            "❌ Debes indicar una zona horaria o un usuario para comparar.\n"
-            "Uso: `/time timezone:Europe/Madrid` o `/time usuario:@alguien`",
-            ephemeral=True,
-        )
+        if is_es:
+            msg = (
+                "❌ Debes indicar una zona horaria o un usuario para comparar.\n"
+                "Uso: `/time timezone:Europe/Madrid` o `/time usuario:@alguien`"
+            )
+        else:
+            msg = (
+                "❌ You must provide a timezone or a user to compare with.\n"
+                "Usage: `/time timezone:Europe/Madrid` or `/time usuario:@someone`"
+            )
+        await interaction.response.send_message(msg, ephemeral=True)
         return
 
     try:
         ZoneInfo(timezone)
     except (ZoneInfoNotFoundError, KeyError):
-        await interaction.response.send_message(
-            f"❌ Zona horaria no reconocida: `{timezone}`.\nUsa el autocompletado para elegir una válida.",
-            ephemeral=True,
+        err = (
+            f"❌ Zona horaria no reconocida: `{timezone}`.\nUsa el autocompletado para elegir una válida."
+            if is_es else
+            f"❌ Unrecognized timezone: `{timezone}`.\nUse the autocomplete to pick a valid one."
         )
+        await interaction.response.send_message(err, ephemeral=True)
         return
 
     target_time = _format_time_in_zone(timezone)
 
-    embed = discord.Embed(title="🌍  Hora mundial", color=discord.Color.blurple())
+    embed = discord.Embed(
+        title="🌍  Hora mundial" if is_es else "🌍  World Time",
+        color=discord.Color.blurple(),
+    )
     embed.add_field(name=f"📍  {timezone}", value=f"`{target_time}`", inline=False)
 
     my_tz = get_user_timezone(interaction.user.id)
     if my_tz and my_tz != timezone:
         try:
             my_time = _format_time_in_zone(my_tz)
-            embed.add_field(
-                name=f"🏠  Tu hora  ({my_tz})",
-                value=f"`{my_time}`",
-                inline=False,
-            )
+            my_label = f"🏠  Tu hora  ({my_tz})" if is_es else f"🏠  Your time  ({my_tz})"
+            embed.add_field(name=my_label, value=f"`{my_time}`", inline=False)
         except Exception:
             pass
 
-    embed.set_footer(text="Usa /setmytime para guardar tu zona horaria • Los nombres siguen el estándar IANA")
+    footer = (
+        "Usa /setmytime para guardar tu zona horaria • Los nombres siguen el estándar IANA"
+        if is_es else
+        "Use /setmytime to save your timezone • Names follow the IANA standard"
+    )
+    embed.set_footer(text=footer)
     await interaction.response.send_message(embed=embed)
 
 
