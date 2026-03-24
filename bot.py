@@ -1372,6 +1372,19 @@ async def _apply_guild_language(guild_id: int, lang: str):
         logging.warning(f"_apply_guild_language sync failed for {guild_id}: {_e}")
 
 
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    logging.exception(f"Unhandled app command error in '{getattr(interaction.command, 'name', '?')}'", exc_info=error)
+    msg = "❌ Se produjo un error inesperado. Inténtalo de nuevo más tarde."
+    try:
+        if not interaction.response.is_done():
+            await interaction.response.send_message(msg, ephemeral=True)
+        else:
+            await interaction.followup.send(msg, ephemeral=True)
+    except Exception:
+        pass
+
+
 @bot.event
 async def on_ready():
     """Sync application (slash) commands so `/m lock`, `/m unlock` and `/settings ...` appear.
@@ -4965,8 +4978,18 @@ async def cmd_time(interaction: discord.Interaction, timezone: str | None = None
 
     # --- Modo: comparar con otro usuario ---
     if usuario is not None:
-        my_tz = get_user_timezone(interaction.user.id)
-        other_tz = get_user_timezone(usuario.id)
+        try:
+            my_tz = get_user_timezone(interaction.user.id)
+            other_tz = get_user_timezone(usuario.id)
+        except Exception:
+            logging.exception("/time usuario: error al consultar la DB")
+            err = (
+                "❌ Error al acceder a la base de datos. Inténtalo de nuevo más tarde."
+                if is_es else
+                "❌ Database error. Please try again later."
+            )
+            await interaction.response.send_message(err, ephemeral=True)
+            return
 
         if other_tz is None:
             if is_es:
