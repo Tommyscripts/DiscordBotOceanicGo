@@ -17,7 +17,8 @@ import math
 import logging
 import shutil
 from pathlib import Path
-from datetime import date, datetime, timedelta
+import calendar
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones as _all_tz_fn
 from io import BytesIO
 
@@ -98,27 +99,6 @@ async def run_coro_safe(coro, name: str | None = None):
     except Exception:
         logging.exception(f"Uncaught exception in background task {name}")
 
-
-def safe_reply(interaction: discord.Interaction, text: str, ephemeral: bool = True):
-    """Helper to reply to an interaction safely from other contexts.
-
-    Use sparingly; returns a coroutine that will attempt to send via response or channel.
-    """
-    async def _inner():
-        try:
-            if not interaction.response.is_done():
-                await interaction.response.send_message(text, ephemeral=ephemeral)
-                return
-        except Exception:
-            pass
-        # fallback to channel send
-        try:
-            if interaction.channel:
-                await interaction.channel.send(text)
-                return
-        except Exception:
-            pass
-    return _inner()
 
 
 async def end_game(game: "HouseGame", announce: bool = True, delete_channel: bool = False):
@@ -1201,7 +1181,7 @@ def log_moderation(guild_id: int | None, action: str, target_id: int, moderator_
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
         cur.execute("INSERT INTO mod_log(guild_id, action, target_id, moderator_id, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                    (guild_id, action, target_id, moderator_id, reason, datetime.utcnow().isoformat()))
+                    (guild_id, action, target_id, moderator_id, reason, datetime.now(timezone.utc).isoformat()))
         conn.commit()
         conn.close()
     except Exception:
@@ -1296,12 +1276,12 @@ async def schedule_unmute_check():
 async def on_connect():
     # start background unmute scheduler
     try:
-        bot.loop.create_task(schedule_unmute_check())
+        asyncio.create_task(schedule_unmute_check())
     except Exception:
         pass
     # start Monopoly GO auto-poster
     try:
-        bot.loop.create_task(_monopoly_poster_loop())
+        asyncio.create_task(_monopoly_poster_loop())
     except Exception:
         pass
 
@@ -1508,6 +1488,14 @@ async def on_ready():
             logging.info(f"Restored guild balance command '/{_cmd_name}' for guild {_gid}")
         except Exception as _e:
             logging.warning(f"Could not restore guild balance command for {_gid}: {_e}")
+
+    # Restore guild-specific language overrides
+    for _gid, _lang in get_all_guild_languages():
+        try:
+            await _apply_guild_language(_gid, _lang)
+            logging.info(f"Restored language '{_lang}' for guild {_gid}")
+        except Exception as _e:
+            logging.warning(f"Could not restore language for guild {_gid}: {_e}")
 
 
 async def _gather_original_overwrites(ch: discord.TextChannel) -> dict:
@@ -3082,7 +3070,7 @@ async def update_tournament_message(message: discord.Message):
     participants = tournaments.get(msg_id, set())
     embed = message.embeds[0]
     # Rebuild the description with updated participant count and list
-    base_description = embed.description.split("\n\n", 1)[0]
+    base_description = (embed.description or "").split("\n\n", 1)[0]
     # create a small participants list
     if participants:
         # show up to 50 in the embed, but cap visual list to 50
@@ -3694,7 +3682,7 @@ def execute_house_action(game: HouseGame, uid: int, action: str, target: str | N
                 else:
                     extra = " The exit door is unlocked! You can leave any time (narratively)."
             return f"You explore the room ({x+1},{y+1}): {room.get('desc', 'An empty room.')}{extra}. Items: {items_text}. You can move: {', '.join(moves) if moves else 'nowhere'}.", False
-        return "You feel disoriented. There's nothing here."
+        return "You feel disoriented. There's nothing here.", False
 
     if action == "move":
         if not target:
@@ -4146,33 +4134,32 @@ async def house_start(interaction: discord.Interaction):
     # ensure all accepted players have channel perms
     ch = game.guild.get_channel(game.channel_id) if game.channel_id else None
     if ch:
+        # Apply member-specific overwrites in a single edit to avoid many PUTs
+        try:
+            original_overwrites = dict(ch.overwrites)
+        except Exception:
+            original_overwrites = {}
+        new_overwrites = dict(original_overwrites)
         for uid in accepted:
-            # Apply member-specific overwrites in a single edit to avoid many PUTs
             try:
-                original_overwrites = dict(ch.overwrites)
+                member = await game.guild.fetch_member(uid)
             except Exception:
-                original_overwrites = {}
-            new_overwrites = dict(original_overwrites)
-            for uid in accepted:
-                try:
-                    member = await game.guild.fetch_member(uid)
-                except Exception:
-                    member = None
-                if member:
-                    new_overwrites[member] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
-            async with permission_op_lock:
-                try:
-                    await ch.edit(overwrites=new_overwrites)
-                except Exception:
-                    # fallback to per-member set_permissions
-                    for uid in accepted:
-                        try:
-                            member = await game.guild.fetch_member(uid)
-                            await ch.set_permissions(member, view_channel=True, send_messages=True)
-                        except Exception:
-                            pass
-        # post intro with brief instructions and initial positions
-        players_list = ', '.join([f'<@{u}>' for u in accepted])
+                member = None
+            if member:
+                new_overwrites[member] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+        async with permission_op_lock:
+            try:
+                await ch.edit(overwrites=new_overwrites)
+            except Exception:
+                # fallback to per-member set_permissions
+                for uid in accepted:
+                    try:
+                        member = await game.guild.fetch_member(uid)
+                        await ch.set_permissions(member, view_channel=True, send_messages=True)
+                    except Exception:
+                        pass
+    # post intro with brief instructions and initial positions
+    players_list = ', '.join([f'<@{u}>' for u in accepted])
     intro_lines = [f"Welcome to the Haunted House — session", f"Mode: {game.mode}", f"Players: {players_list}"]
     # show starting room description for each player
     for uid in accepted:
@@ -4415,50 +4402,6 @@ except Exception:
     pass
 
 
-@bot.event
-async def on_ready():
-    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
-    print("------")
-    # If we know the application id and desired permissions, print an invite URL for convenience
-    try:
-        app_id = getattr(bot, "application_id", None) or APPLICATION_ID
-        if app_id:
-            # ensure it's a string
-            app_str = str(app_id)
-            perms = BOT_PERMISSIONS
-            invite_url = f"https://discord.com/oauth2/authorize?client_id={app_str}&scope=bot%20applications.commands&permissions={perms}"
-            print(f"Invite URL: {invite_url}")
-    except Exception:
-        pass
-    try:
-        if GUILD_ID:
-            synced = await bot.tree.sync(guild=discord.Object(id=int(GUILD_ID)))
-        else:
-            synced = await bot.tree.sync()
-        try:
-            names = [c.name for c in synced]
-        except Exception:
-            names = [getattr(c, 'name', str(c)) for c in synced]
-        print(f"Synced {len(synced)} commands: {names}")
-    except Exception as e:
-        print("Failed to sync commands:", e)
-
-    # Restore guild-specific language overrides
-    for _gid, _lang in get_all_guild_languages():
-        try:
-            await _apply_guild_language(_gid, _lang)
-            print(f"Restored language '{_lang}' for guild {_gid}")
-        except Exception as _e:
-            print(f"Could not restore language for guild {_gid}: {_e}")
-
-    # Restore guild-specific balance command names (for guilds with custom name but default language)
-    for _gid, _cmd_name in get_all_custom_command_names():
-        if get_guild_language(_gid) == "en":  # if non-en, _apply_guild_language already handled it
-            try:
-                await _apply_guild_currency_command(_gid, _cmd_name)
-            except Exception as _e:
-                print(f"Could not restore balance command for guild {_gid}: {_e}")
-
 @bot.tree.command(name="furby_tournament", description="Create a Furby tournament embed")
 @app_commands.describe(title="Title for the tournament")
 async def furbytournament(interaction: discord.Interaction, title: str = "Furby Tournament"):
@@ -4537,7 +4480,7 @@ async def show_schedule(interaction: discord.Interaction):
     for hour in range(24):
         # compute unix ts for today at hour:00 UTC (for user's local display)
         struct = time.strptime(f"{today} {hour:02d}:00:00", "%Y-%m-%d %H:%M:%S")
-        ts = int(time.mktime(struct))
+        ts = int(calendar.timegm(struct))  # timegm interprets struct_time as UTC
         time_token = f"<t:{ts}:t>"
         entries = slots.get(hour) or []
         if entries:
@@ -4559,7 +4502,7 @@ async def add_schedule(interaction: discord.Interaction, slot: int, game: str):
     if slot < 1 or slot > 24:
         await interaction.response.send_message("Please provide a slot number between 1 and 24.", ephemeral=True)
         return
-    time = slot - 1
+    time_idx = slot - 1
 
     # Use UTC date to store daily entries that reset every 24h at midnight UTC
     today = _current_date_str()
@@ -4568,7 +4511,7 @@ async def add_schedule(interaction: discord.Interaction, slot: int, game: str):
     cur = conn.cursor()
     # Upsert: allow multiple users per slot; prevent duplicate same user in same slot
     try:
-        cur.execute("INSERT OR IGNORE INTO schedule_entries(date, slot, user_id, game) VALUES (?, ?, ?, ?)", (today, time, interaction.user.id, game))
+        cur.execute("INSERT OR IGNORE INTO schedule_entries(date, slot, user_id, game) VALUES (?, ?, ?, ?)", (today, time_idx, interaction.user.id, game))
         conn.commit()
     except Exception as e:
         print("DB error adding schedule:", e)
@@ -4576,8 +4519,8 @@ async def add_schedule(interaction: discord.Interaction, slot: int, game: str):
         conn.close()
 
     # show user the friendly slot number and the UTC hour
-    display_slot = time + 1
-    await interaction.response.send_message(f"Added you to slot {display_slot} ({time:02d}:00 UTC) for '{game}'. Use `/schedule show` to view.", ephemeral=True)
+    display_slot = time_idx + 1
+    await interaction.response.send_message(f"Added you to slot {display_slot} ({time_idx:02d}:00 UTC) for '{game}'. Use `/schedule show` to view.", ephemeral=True)
 
 
 # register the group with the bot's command tree
@@ -4691,7 +4634,7 @@ def _monopoly_mark_posted(url: str):
     cur = conn.cursor()
     cur.execute(
         "INSERT OR IGNORE INTO monopoly_go_posted (url, posted_at) VALUES (?, ?)",
-        (url, datetime.utcnow().isoformat())
+        (url, datetime.now(timezone.utc).isoformat())
     )
     conn.commit()
     conn.close()
@@ -4873,9 +4816,11 @@ async def set_official_links_channel(interaction: discord.Interaction, channel: 
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     try:
-        cur.execute("INSERT OR REPLACE INTO settings (guild_id, official_links_channel_id) VALUES (?, ?)",
-                    (interaction.guild.id, channel.id))
-        # If row exists with other columns, keep them; use UPDATE to preserve others if needed
+        cur.execute(
+            "INSERT INTO settings (guild_id, official_links_channel_id) VALUES (?, ?) "
+            "ON CONFLICT(guild_id) DO UPDATE SET official_links_channel_id = ?",
+            (interaction.guild.id, channel.id, channel.id)
+        )
         conn.commit()
     finally:
         conn.close()
