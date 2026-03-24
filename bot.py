@@ -4947,17 +4947,18 @@ def _format_time_in_zone(tz_name: str) -> str:
 @app_commands.describe(timezone="Tu zona horaria (ej: Europe/Madrid, America/New_York)")
 @app_commands.autocomplete(timezone=timezone_autocomplete)
 async def cmd_setmytime(interaction: discord.Interaction, timezone: str):
+    await interaction.response.defer(ephemeral=True)
     try:
         ZoneInfo(timezone)
     except (ZoneInfoNotFoundError, KeyError):
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"❌ Zona horaria no reconocida: `{timezone}`.\nUsa el autocompletado para elegir una válida.",
             ephemeral=True,
         )
         return
     set_user_timezone(interaction.user.id, timezone)
     formatted = _format_time_in_zone(timezone)
-    await interaction.response.send_message(
+    await interaction.followup.send(
         f"✅ Tu zona horaria ha sido guardada como **{timezone}**.\n"
         f"Tu hora actual: `{formatted}`\n\n"
         f"Ahora `/time` mostrará también tu hora local automáticamente.",
@@ -4972,6 +4973,9 @@ async def cmd_setmytime(interaction: discord.Interaction, timezone: str):
 )
 @app_commands.autocomplete(timezone=timezone_autocomplete)
 async def cmd_time(interaction: discord.Interaction, timezone: str | None = None, usuario: discord.Member | None = None):
+    # Defer immediately so Discord doesn't time out while we query the DB
+    await interaction.response.defer()
+
     guild_id = interaction.guild.id if interaction.guild else None
     lang = get_guild_language(guild_id) if guild_id else "en"
     is_es = lang == "es"
@@ -4988,7 +4992,7 @@ async def cmd_time(interaction: discord.Interaction, timezone: str | None = None
                 if is_es else
                 "❌ Database error. Please try again later."
             )
-            await interaction.response.send_message(err, ephemeral=True)
+            await interaction.followup.send(err, ephemeral=True)
             return
 
         if other_tz is None:
@@ -5004,7 +5008,7 @@ async def cmd_time(interaction: discord.Interaction, timezone: str | None = None
                     f"⏰ {usuario.mention}, {interaction.user.display_name} wants to compare their time with yours!\n"
                     f"But you haven't saved a timezone yet. To add one, {set_instructions}."
                 )
-            await interaction.response.send_message(msg)
+            await interaction.followup.send(msg)
             return
 
         embed = discord.Embed(
@@ -5060,7 +5064,7 @@ async def cmd_time(interaction: discord.Interaction, timezone: str | None = None
             "Use /setmytime to save your timezone • Names follow the IANA standard"
         )
         embed.set_footer(text=footer)
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
         return
 
     # --- Modo: consultar zona horaria específica ---
@@ -5075,7 +5079,7 @@ async def cmd_time(interaction: discord.Interaction, timezone: str | None = None
                 "❌ You must provide a timezone or a user to compare with.\n"
                 "Usage: `/time timezone:Europe/Madrid` or `/time usuario:@someone`"
             )
-        await interaction.response.send_message(msg, ephemeral=True)
+        await interaction.followup.send(msg, ephemeral=True)
         return
 
     try:
@@ -5086,7 +5090,7 @@ async def cmd_time(interaction: discord.Interaction, timezone: str | None = None
             if is_es else
             f"❌ Unrecognized timezone: `{timezone}`.\nUse the autocomplete to pick a valid one."
         )
-        await interaction.response.send_message(err, ephemeral=True)
+        await interaction.followup.send(err, ephemeral=True)
         return
 
     target_time = _format_time_in_zone(timezone)
@@ -5112,7 +5116,7 @@ async def cmd_time(interaction: discord.Interaction, timezone: str | None = None
         "Use /setmytime to save your timezone • Names follow the IANA standard"
     )
     embed.set_footer(text=footer)
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 @bot.tree.command(name="resync_commands", description="Force re-sync of commands in this guild (admins only)")
