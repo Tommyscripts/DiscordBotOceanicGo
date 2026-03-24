@@ -18,6 +18,7 @@ import logging
 import shutil
 from pathlib import Path
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones as _all_tz_fn
 from io import BytesIO
 
 # Duck game module
@@ -740,6 +741,15 @@ def init_db():
         CREATE TABLE IF NOT EXISTS monopoly_go_posted (
             url TEXT PRIMARY KEY,
             posted_at TEXT NOT NULL
+        )
+        """
+    )
+    # User timezone preferences for /time command
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_timezones (
+            user_id INTEGER PRIMARY KEY,
+            timezone TEXT NOT NULL
         )
         """
     )
@@ -4974,6 +4984,134 @@ async def post_official_links(interaction: discord.Interaction):
         await interaction.response.send_message(f"Enlaces publicados en {dest.mention}", ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"Error al publicar enlaces: {e}", ephemeral=True)
+
+# ---------------- TIMEZONE COMMANDS (/time + /setmytime) ----------------
+
+_COMMON_TIMEZONES = [
+    "Etc/UTC",
+    "Europe/Madrid", "Europe/London", "Europe/Paris", "Europe/Berlin",
+    "Europe/Rome", "Europe/Amsterdam", "Europe/Lisbon", "Europe/Moscow",
+    "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
+    "America/Sao_Paulo", "America/Argentina/Buenos_Aires", "America/Mexico_City",
+    "America/Bogota", "America/Lima", "America/Santiago",
+    "Asia/Tokyo", "Asia/Shanghai", "Asia/Seoul", "Asia/Singapore",
+    "Asia/Dubai", "Asia/Kolkata", "Asia/Jakarta", "Asia/Karachi",
+    "Australia/Sydney", "Australia/Melbourne",
+    "Pacific/Auckland", "Pacific/Honolulu",
+    "Africa/Lagos", "Africa/Cairo", "Africa/Johannesburg",
+]
+
+_ALL_TIMEZONES_SORTED: list[str] | None = None
+
+
+def _get_all_timezones_sorted() -> list[str]:
+    global _ALL_TIMEZONES_SORTED
+    if _ALL_TIMEZONES_SORTED is None:
+        _ALL_TIMEZONES_SORTED = sorted(_all_tz_fn())
+    return _ALL_TIMEZONES_SORTED
+
+
+def get_user_timezone(user_id: int) -> str | None:
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT timezone FROM user_timezones WHERE user_id = ?", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def set_user_timezone(user_id: int, timezone: str) -> None:
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT OR REPLACE INTO user_timezones (user_id, timezone) VALUES (?, ?)",
+        (user_id, timezone),
+    )
+    conn.commit()
+    conn.close()
+
+
+async def timezone_autocomplete(
+    interaction: discord.Interaction, current: str
+) -> list[app_commands.Choice[str]]:
+    current_lower = current.lower().strip()
+    if not current_lower:
+        candidates = _COMMON_TIMEZONES[:25]
+    else:
+        all_tz = _get_all_timezones_sorted()
+        starts = [tz for tz in all_tz if tz.lower().startswith(current_lower)]
+        contains = [tz for tz in all_tz if current_lower in tz.lower() and not tz.lower().startswith(current_lower)]
+        candidates = (starts + contains)[:25]
+    return [app_commands.Choice(name=tz, value=tz) for tz in candidates]
+
+
+def _format_time_in_zone(tz_name: str) -> str:
+    """Devuelve la hora actual en la zona horaria indicada, formateada con offset UTC."""
+    tz = ZoneInfo(tz_name)
+    now = datetime.now(tz)
+    offset = now.utcoffset()
+    total_minutes = int(offset.total_seconds() // 60)
+    sign = "+" if total_minutes >= 0 else "-"
+    abs_min = abs(total_minutes)
+    offset_str = f"UTC{sign}{abs_min // 60:02d}:{abs_min % 60:02d}"
+    return now.strftime(f"%A, %d %B %Y  —  %H:%M:%S") + f"  ({offset_str})"
+
+
+@bot.tree.command(name="setmytime", description="Guarda tu zona horaria para que /time muestre también tu hora local")
+@app_commands.describe(timezone="Tu zona horaria (ej: Europe/Madrid, America/New_York)")
+@app_commands.autocomplete(timezone=timezone_autocomplete)
+async def cmd_setmytime(interaction: discord.Interaction, timezone: str):
+    try:
+        ZoneInfo(timezone)
+    except (ZoneInfoNotFoundError, KeyError):
+        await interaction.response.send_message(
+            f"❌ Zona horaria no reconocida: `{timezone}`.\nUsa el autocompletado para elegir una válida.",
+            ephemeral=True,
+        )
+        return
+    set_user_timezone(interaction.user.id, timezone)
+    formatted = _format_time_in_zone(timezone)
+    await interaction.response.send_message(
+        f"✅ Tu zona horaria ha sido guardada como **{timezone}**.\n"
+        f"Tu hora actual: `{formatted}`\n\n"
+        f"Ahora `/time` mostrará también tu hora local automáticamente.",
+        ephemeral=True,
+    )
+
+
+@bot.tree.command(name="time", description="Muestra la hora actual en cualquier zona horaria del mundo")
+@app_commands.describe(timezone="Zona horaria a consultar (ej: Asia/Tokyo, America/New_York)")
+@app_commands.autocomplete(timezone=timezone_autocomplete)
+async def cmd_time(interaction: discord.Interaction, timezone: str):
+    try:
+        ZoneInfo(timezone)
+    except (ZoneInfoNotFoundError, KeyError):
+        await interaction.response.send_message(
+            f"❌ Zona horaria no reconocida: `{timezone}`.\nUsa el autocompletado para elegir una válida.",
+            ephemeral=True,
+        )
+        return
+
+    target_time = _format_time_in_zone(timezone)
+
+    embed = discord.Embed(title="🌍  Hora mundial", color=discord.Color.blurple())
+    embed.add_field(name=f"📍  {timezone}", value=f"`{target_time}`", inline=False)
+
+    my_tz = get_user_timezone(interaction.user.id)
+    if my_tz and my_tz != timezone:
+        try:
+            my_time = _format_time_in_zone(my_tz)
+            embed.add_field(
+                name=f"🏠  Tu hora  ({my_tz})",
+                value=f"`{my_time}`",
+                inline=False,
+            )
+        except Exception:
+            pass
+
+    embed.set_footer(text="Usa /setmytime para guardar tu zona horaria • Los nombres siguen el estándar IANA")
+    await interaction.response.send_message(embed=embed)
+
 
 @bot.tree.command(name="resync_commands", description="Force re-sync of commands in this guild (admins only)")
 @app_commands.checks.has_permissions(manage_guild=True)
