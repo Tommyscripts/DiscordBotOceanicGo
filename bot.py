@@ -837,6 +837,8 @@ COMMAND_DESCRIPTIONS: dict[str, dict[str, str]] = {
         "list_official_links": "List the saved official links for this server",
         "post_official_links": "Post official links in the configured channel (or this channel if none set)",
         "resync_commands": "Force re-sync of commands in this guild (admins only)",
+        "setmytime": "Save your timezone so /time also shows your local time",
+        "time": "Show the current time in any timezone, or compare with another user",
         # Groups
         "__shop__": "Shop commands",
         "__settings__": "Server settings commands",
@@ -897,6 +899,8 @@ COMMAND_DESCRIPTIONS: dict[str, dict[str, str]] = {
         "list_official_links": "Lista los enlaces oficiales guardados para este servidor",
         "post_official_links": "Publica los enlaces oficiales en el canal configurado (o en este canal si no hay configurado)",
         "resync_commands": "Fuerza la re-sincronización de comandos en este servidor (solo administradores)",
+        "setmytime": "Guarda tu zona horaria para que /time muestre también tu hora local",
+        "time": "Muestra la hora actual en cualquier zona horaria o compárala con la de otro usuario",
         # Grupos
         "__shop__": "Comandos de la tienda",
         "__settings__": "Ajustes del servidor",
@@ -1342,6 +1346,7 @@ _TRANSLATABLE_TOP_LEVEL = [
     "custom", "deletecustom",
     "set_official_links_channel", "add_official_link", "remove_official_link",
     "list_official_links", "post_official_links", "resync_commands",
+    "setmytime", "time",
 ]
 
 # Subcommand names per group managed by _apply_guild_language
@@ -5025,9 +5030,72 @@ async def cmd_setmytime(interaction: discord.Interaction, timezone: str):
 
 
 @bot.tree.command(name="time", description="Muestra la hora actual en cualquier zona horaria del mundo")
-@app_commands.describe(timezone="Zona horaria a consultar (ej: Asia/Tokyo, America/New_York)")
+@app_commands.describe(
+    timezone="Zona horaria a consultar (ej: Asia/Tokyo, America/New_York)",
+    usuario="Compara tu hora con la de este usuario",
+)
 @app_commands.autocomplete(timezone=timezone_autocomplete)
-async def cmd_time(interaction: discord.Interaction, timezone: str):
+async def cmd_time(interaction: discord.Interaction, timezone: str | None = None, usuario: discord.Member | None = None):
+    # --- Modo: comparar con otro usuario ---
+    if usuario is not None:
+        my_tz = get_user_timezone(interaction.user.id)
+        other_tz = get_user_timezone(usuario.id)
+
+        if other_tz is None:
+            # El usuario objetivo no tiene zona horaria guardada
+            set_instructions = "usa el comando `/setmytime` eligiendo tu zona horaria con el autocompletado (ej: `Europe/Madrid`, `America/New_York`)"
+            await interaction.response.send_message(
+                f"⏰ {usuario.mention}, ¡{interaction.user.display_name} quiere comparar su hora con la tuya!\n"
+                f"Pero aún no tienes guardada ninguna zona horaria. Para añadirla, {set_instructions}.",
+            )
+            return
+
+        embed = discord.Embed(title="🕐  Comparación de horas", color=discord.Color.blurple())
+
+        if my_tz:
+            try:
+                my_time = _format_time_in_zone(my_tz)
+                embed.add_field(
+                    name=f"🏠  {interaction.user.display_name}  ({my_tz})",
+                    value=f"`{my_time}`",
+                    inline=False,
+                )
+            except Exception:
+                pass
+        else:
+            embed.add_field(
+                name=f"🏠  {interaction.user.display_name}",
+                value="*(Sin zona horaria guardada — usa `/setmytime` para añadirla)*",
+                inline=False,
+            )
+
+        try:
+            other_time = _format_time_in_zone(other_tz)
+            embed.add_field(
+                name=f"👤  {usuario.display_name}  ({other_tz})",
+                value=f"`{other_time}`",
+                inline=False,
+            )
+        except Exception:
+            embed.add_field(
+                name=f"👤  {usuario.display_name}",
+                value="*(Error al obtener la hora)*",
+                inline=False,
+            )
+
+        embed.set_footer(text="Usa /setmytime para guardar tu zona horaria • Los nombres siguen el estándar IANA")
+        await interaction.response.send_message(embed=embed)
+        return
+
+    # --- Modo: consultar zona horaria específica ---
+    if timezone is None:
+        await interaction.response.send_message(
+            "❌ Debes indicar una zona horaria o un usuario para comparar.\n"
+            "Uso: `/time timezone:Europe/Madrid` o `/time usuario:@alguien`",
+            ephemeral=True,
+        )
+        return
+
     try:
         ZoneInfo(timezone)
     except (ZoneInfoNotFoundError, KeyError):
