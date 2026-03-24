@@ -10,7 +10,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
-import sqlite3
+import psycopg2
 import time
 import random
 import math
@@ -423,7 +423,7 @@ async def run_wordchain_game(game: WordChainGame):
                 except Exception:
                     pass
             else:
-                add_turkeys(winner, turkeys_awarded)
+                add_turkeys(getattr(channel.guild, 'id', 0) or 0, winner, turkeys_awarded)
                 try:
                     await channel.send(f"Game over! Winner is <@{winner}> 🎉 — Congrats! You've won {fmt_currency(getattr(channel.guild, 'id', None), turkeys_awarded)}.")
                 except Exception:
@@ -505,46 +505,25 @@ tournaments_meta: dict[int, dict] = {}
 wheels: dict[int, Set[int]] = {}
 wheels_meta: dict[int, dict] = {}
 
-# SQLite for simple stats: wins per user (global) and per guild
-# Path to SQLite DB. Allow overriding via environment variable FURBY_DB_PATH.
-# Default to a user data directory (~/.local/share/furby/furby_stats.db) so the
-# DB persists across bot restarts and when the repository working directory is
-# ephemeral. If an existing repo-local `furby_stats.db` exists, try to migrate it.
-env_db = os.getenv("FURBY_DB_PATH")
-if env_db:
-    DB_PATH = env_db
-else:
-    # follow XDG_DATA_HOME if set, otherwise use ~/.local/share
-    data_home = os.getenv("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
-    default_dir = os.path.join(data_home, "furby")
-    try:
-        os.makedirs(default_dir, exist_ok=True)
-    except Exception:
-        # fallback to repo-local if we can't create the directory
-        default_dir = os.path.dirname(__file__)
-    DB_PATH = os.path.join(default_dir, "furby_stats.db")
+# PostgreSQL connection URL — set DATABASE_URL in your .env file.
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    print("DATABASE_URL not set in environment. Please add it to your .env file.")
+    raise SystemExit(1)
 
-# Try to migrate an existing repo-local DB into the chosen DB_PATH if present
-repo_local_db = os.path.join(os.path.dirname(__file__), "furby_stats.db")
-try:
-    if os.path.exists(repo_local_db) and not os.path.exists(DB_PATH):
-        try:
-            shutil.copy2(repo_local_db, DB_PATH)
-            logging.info(f"Migrated existing DB from {repo_local_db} to {DB_PATH}")
-        except Exception as e:
-            logging.warning(f"Failed to migrate DB from {repo_local_db} to {DB_PATH}: {e}")
-    logging.info(f"Using DB at: {DB_PATH}")
-except Exception:
-    # best-effort only; any failures shouldn't prevent the bot from running
-    pass
+def get_db_conn():
+    """Return a new psycopg2 connection. Caller is responsible for closing it."""
+    return psycopg2.connect(DATABASE_URL)
+
+# (SQLite file migration removed — using PostgreSQL)
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS wins_global (
-            user_id INTEGER PRIMARY KEY,
+            user_id BIGINT PRIMARY KEY,
             wins INTEGER NOT NULL DEFAULT 0
         )
         """
@@ -552,170 +531,104 @@ def init_db():
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS wins_guild (
-            guild_id INTEGER,
-            user_id INTEGER,
+            guild_id BIGINT,
+            user_id BIGINT,
             wins INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (guild_id, user_id)
         )
         """
     )
-    # schedule entries for daily signups (date in ISO YYYY-MM-DD, slot 0-23)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS schedule_entries (
             date TEXT,
             slot INTEGER,
-            user_id INTEGER,
+            user_id BIGINT,
             game TEXT,
             PRIMARY KEY (date, slot, user_id)
         )
         """
     )
-    # Turkey currency balances. We'll create `turkeys_balances` and attempt to
-    # migrate any existing `ghosts_balances` table so existing balances are
-    # preserved.
+    # Economy: per-guild balances (same user has separate balances per server)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS turkeys_balances (
-            user_id INTEGER PRIMARY KEY,
-            turkeys INTEGER NOT NULL DEFAULT 0
+            guild_id BIGINT NOT NULL,
+            user_id BIGINT NOT NULL,
+            turkeys INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id)
         )
         """
     )
-    # If the legacy table exists, migrate it into the new table in a
-    # non-destructive, safe way: create a backup, copy rows from
-    # `ghosts_balances` into `turkeys_balances` (INSERT OR REPLACE) and leave
-    # the legacy table in place for inspection. This prevents data loss if
-    # the DB file path changes or an ALTER TABLE would fail.
-    try:
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='ghosts_balances'")
-        if cur.fetchone():
-            # Create a timestamped backup before touching the DB (best-effort).
-            try:
-                bak = DB_PATH + '.bak.' + time.strftime('%Y%m%dT%H%M%S')
-                shutil.copy2(DB_PATH, bak)
-                logging.info(f"Created DB backup before migration: {bak}")
-            except Exception as e:
-                logging.warning(f"Failed to create DB backup before migration: {e}")
-
-            try:
-                # Safe copy: overwrite turkeys values with ghosts values so we
-                # fully recover prior balances. If you prefer additive merge,
-                # change to DO UPDATE SET turkeys = turkeys + excluded.turkeys.
-                cur.execute("INSERT OR REPLACE INTO turkeys_balances(user_id, turkeys) SELECT user_id, ghosts FROM ghosts_balances")
-                conn.commit()
-                logging.info("Copied rows from ghosts_balances to turkeys_balances (safe copy).")
-            except Exception as e:
-                logging.warning(f"Failed to copy rows from ghosts_balances: {e}")
-
-            # Optional: try to rename the table/column for cleanliness, but do
-            # not DROP the legacy table automatically. We attempt a rename as
-            # a convenience but it's non-destructive fallback is already done.
-            try:
-                cur.execute("ALTER TABLE ghosts_balances RENAME TO turkeys_balances_old")
-                logging.info("Renamed legacy ghosts_balances -> turkeys_balances_old for inspection.")
-            except Exception:
-                # If rename fails, leave the legacy table as-is.
-                pass
-    except Exception:
-        logging.exception('Error during currency migration (ghosts->turkeys)')
-    # Shop items: guild_id NULL means global
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS shop_items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            guild_id INTEGER,
+            id BIGSERIAL PRIMARY KEY,
+            guild_id BIGINT,
             name TEXT NOT NULL,
             price INTEGER NOT NULL,
-            role_id INTEGER,
+            role_id BIGINT,
             metadata TEXT
         )
         """
     )
-    # Settings table to store per-guild configuration (e.g., staff role)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS settings (
-            guild_id INTEGER PRIMARY KEY,
-            staff_role_id INTEGER,
-            mod_ban_role_id INTEGER,
-            mod_kick_role_id INTEGER,
-            mod_mute_role_id INTEGER,
+            guild_id BIGINT PRIMARY KEY,
+            staff_role_id BIGINT,
+            mod_ban_role_id BIGINT,
+            mod_kick_role_id BIGINT,
+            mod_mute_role_id BIGINT,
             currency_display_name TEXT,
-            currency_emoji TEXT
+            currency_emoji TEXT,
+            official_links_channel_id BIGINT,
+            currency_command_name TEXT,
+            language TEXT
         )
         """
     )
-    # Best-effort: add new columns for older DBs where `settings` already exists.
-    try:
-        cur.execute("ALTER TABLE settings ADD COLUMN currency_display_name TEXT")
-    except Exception:
-        pass
-    try:
-        cur.execute("ALTER TABLE settings ADD COLUMN currency_emoji TEXT")
-    except Exception:
-        pass
-    # Optional column to store configured channel for official links
-    try:
-        cur.execute("ALTER TABLE settings ADD COLUMN official_links_channel_id INTEGER")
-    except Exception:
-        pass
-    # Slash command name used to check balance (UI only, does not rename DB columns)
-    try:
-        cur.execute("ALTER TABLE settings ADD COLUMN currency_command_name TEXT")
-    except Exception:
-        pass
-    # Language preference for command descriptions (UI only): 'en' or 'es'
-    try:
-        cur.execute("ALTER TABLE settings ADD COLUMN language TEXT")
-    except Exception:
-        pass
-    # Table to store official links (per guild)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS official_links (
-            guild_id INTEGER,
+            guild_id BIGINT,
             name TEXT NOT NULL,
             url TEXT NOT NULL,
             PRIMARY KEY (guild_id, name)
         )
         """
     )
-    # moderation log
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS mod_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            guild_id INTEGER,
+            id BIGSERIAL PRIMARY KEY,
+            guild_id BIGINT,
             action TEXT,
-            target_id INTEGER,
-            moderator_id INTEGER,
+            target_id BIGINT,
+            moderator_id BIGINT,
             reason TEXT,
             created_at TEXT
         )
         """
     )
-    # Custom commands per guild: name -> info text
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS custom_commands (
-            guild_id INTEGER,
+            guild_id BIGINT,
             name TEXT NOT NULL,
             info TEXT NOT NULL,
             PRIMARY KEY (guild_id, name)
         )
         """
     )
-    # Monopoly Go free-links channel config: one channel per guild
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS monopoly_go_config (
-            guild_id INTEGER PRIMARY KEY,
-            channel_id INTEGER NOT NULL
+            guild_id BIGINT PRIMARY KEY,
+            channel_id BIGINT NOT NULL
         )
         """
     )
-    # Already-posted Monopoly Go links (global, deduplicated across guilds)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS monopoly_go_posted (
@@ -724,11 +637,10 @@ def init_db():
         )
         """
     )
-    # User timezone preferences for /time command
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS user_timezones (
-            user_id INTEGER PRIMARY KEY,
+            user_id BIGINT PRIMARY KEY,
             timezone TEXT NOT NULL
         )
         """
@@ -950,9 +862,9 @@ def get_currency_display(guild_id: int | None) -> tuple[str, str]:
     if not guild_id:
         return DEFAULT_CURRENCY_EMOJI, DEFAULT_CURRENCY_NAME
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db_conn()
         cur = conn.cursor()
-        cur.execute("SELECT currency_display_name, currency_emoji FROM settings WHERE guild_id = ?", (guild_id,))
+        cur.execute("SELECT currency_display_name, currency_emoji FROM settings WHERE guild_id = %s", (guild_id,))
         row = cur.fetchone()
         conn.close()
         name = (row[0] if row and row[0] else DEFAULT_CURRENCY_NAME)
@@ -964,11 +876,11 @@ def get_currency_display(guild_id: int | None) -> tuple[str, str]:
 
 def set_currency_display(guild_id: int, name: str | None, emoji: str | None):
     """Set UI-only currency display values for a guild."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO settings(guild_id, currency_display_name, currency_emoji) VALUES (?, ?, ?) "
-        "ON CONFLICT(guild_id) DO UPDATE SET currency_display_name = ?, currency_emoji = ?",
+        "INSERT INTO settings(guild_id, currency_display_name, currency_emoji) VALUES (%s, %s, %s) "
+        "ON CONFLICT(guild_id) DO UPDATE SET currency_display_name = %s, currency_emoji = %s",
         (guild_id, name, emoji, name, emoji),
     )
     conn.commit()
@@ -989,9 +901,9 @@ def fmt_currency(guild_id: int | None, amount: int | str) -> str:
 def get_currency_command_name(guild_id: int) -> str:
     """Return the stored slash command name for the balance command (defaults to 'snuggles')."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db_conn()
         cur = conn.cursor()
-        cur.execute("SELECT currency_command_name FROM settings WHERE guild_id = ?", (guild_id,))
+        cur.execute("SELECT currency_command_name FROM settings WHERE guild_id = %s", (guild_id,))
         row = cur.fetchone()
         conn.close()
         return (row[0] if row and row[0] else "snuggles")
@@ -1001,11 +913,11 @@ def get_currency_command_name(guild_id: int) -> str:
 
 def set_currency_command_name(guild_id: int, cmd_name: str):
     """Persist the slash command name for the balance command for a guild."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO settings(guild_id, currency_command_name) VALUES (?, ?) "
-        "ON CONFLICT(guild_id) DO UPDATE SET currency_command_name = ?",
+        "INSERT INTO settings(guild_id, currency_command_name) VALUES (%s, %s) "
+        "ON CONFLICT(guild_id) DO UPDATE SET currency_command_name = %s",
         (guild_id, cmd_name, cmd_name),
     )
     conn.commit()
@@ -1015,7 +927,7 @@ def set_currency_command_name(guild_id: int, cmd_name: str):
 def get_all_custom_command_names() -> list[tuple[int, str]]:
     """Return [(guild_id, cmd_name), ...] for all guilds with a custom balance command name."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db_conn()
         cur = conn.cursor()
         cur.execute("SELECT guild_id, currency_command_name FROM settings WHERE currency_command_name IS NOT NULL")
         rows = cur.fetchall()
@@ -1028,9 +940,9 @@ def get_all_custom_command_names() -> list[tuple[int, str]]:
 def get_guild_language(guild_id: int) -> str:
     """Return the language code for command descriptions for this guild ('en' or 'es'). Defaults to 'en'."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db_conn()
         cur = conn.cursor()
-        cur.execute("SELECT language FROM settings WHERE guild_id = ?", (guild_id,))
+        cur.execute("SELECT language FROM settings WHERE guild_id = %s", (guild_id,))
         row = cur.fetchone()
         conn.close()
         return (row[0] if row and row[0] in ("en", "es") else "en")
@@ -1040,11 +952,11 @@ def get_guild_language(guild_id: int) -> str:
 
 def set_guild_language(guild_id: int, lang: str):
     """Persist the language preference for command descriptions for a guild."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO settings(guild_id, language) VALUES (?, ?) "
-        "ON CONFLICT(guild_id) DO UPDATE SET language = ?",
+        "INSERT INTO settings(guild_id, language) VALUES (%s, %s) "
+        "ON CONFLICT(guild_id) DO UPDATE SET language = %s",
         (guild_id, lang, lang),
     )
     conn.commit()
@@ -1054,7 +966,7 @@ def set_guild_language(guild_id: int, lang: str):
 def get_all_guild_languages() -> list[tuple[int, str]]:
     """Return [(guild_id, lang), ...] for guilds with a non-default language set."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db_conn()
         cur = conn.cursor()
         cur.execute("SELECT guild_id, language FROM settings WHERE language IS NOT NULL AND language != 'en'")
         rows = cur.fetchall()
@@ -1064,25 +976,33 @@ def get_all_guild_languages() -> list[tuple[int, str]]:
         return []
 
 
-def add_turkeys(user_id: int, amount: int):
-    conn = sqlite3.connect(DB_PATH)
+def add_turkeys(guild_id: int, user_id: int, amount: int):
+    conn = get_db_conn()
     cur = conn.cursor()
-    cur.execute("INSERT INTO turkeys_balances(user_id, turkeys) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET turkeys = turkeys + ?", (user_id, amount, amount))
+    cur.execute(
+        "INSERT INTO turkeys_balances(guild_id, user_id, turkeys) VALUES (%s, %s, %s) "
+        "ON CONFLICT(guild_id, user_id) DO UPDATE SET turkeys = turkeys_balances.turkeys + %s",
+        (guild_id, user_id, amount, amount),
+    )
     conn.commit()
     conn.close()
 
-def get_turkeys(user_id: int) -> int:
-    conn = sqlite3.connect(DB_PATH)
+def get_turkeys(guild_id: int, user_id: int) -> int:
+    conn = get_db_conn()
     cur = conn.cursor()
-    cur.execute("SELECT turkeys FROM turkeys_balances WHERE user_id = ?", (user_id,))
+    cur.execute("SELECT turkeys FROM turkeys_balances WHERE guild_id = %s AND user_id = %s", (guild_id, user_id))
     row = cur.fetchone()
     conn.close()
     return row[0] if row else 0
 
-def set_turkeys(user_id: int, amount: int):
-    conn = sqlite3.connect(DB_PATH)
+def set_turkeys(guild_id: int, user_id: int, amount: int):
+    conn = get_db_conn()
     cur = conn.cursor()
-    cur.execute("INSERT INTO turkeys_balances(user_id, turkeys) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET turkeys = ?", (user_id, amount, amount))
+    cur.execute(
+        "INSERT INTO turkeys_balances(guild_id, user_id, turkeys) VALUES (%s, %s, %s) "
+        "ON CONFLICT(guild_id, user_id) DO UPDATE SET turkeys = %s",
+        (guild_id, user_id, amount, amount),
+    )
     conn.commit()
     conn.close()
 
@@ -1090,14 +1010,14 @@ def set_turkeys(user_id: int, amount: int):
 # Backwards-compatibility wrappers for the old "ghosts" naming. These call the
 # new turkey-based functions so external scripts or leftover references keep
 # working during the migration.
-def add_ghosts(user_id: int, amount: int):
-    return add_turkeys(user_id, amount)
+def add_ghosts(guild_id: int, user_id: int, amount: int):
+    return add_turkeys(guild_id, user_id, amount)
 
-def get_ghosts(user_id: int) -> int:
-    return get_turkeys(user_id)
+def get_ghosts(guild_id: int, user_id: int) -> int:
+    return get_turkeys(guild_id, user_id)
 
-def set_ghosts(user_id: int, amount: int):
-    return set_turkeys(user_id, amount)
+def set_ghosts(guild_id: int, user_id: int, amount: int):
+    return set_turkeys(guild_id, user_id, amount)
 
 
 async def is_staff_in_guild(guild: discord.Guild | None, user_id: int) -> bool:
@@ -1140,20 +1060,20 @@ async def is_staff_in_guild(guild: discord.Guild | None, user_id: int) -> bool:
 
 
 def set_staff_role(guild_id: int, role_id: int | None):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
     if role_id is None:
-        cur.execute("INSERT INTO settings(guild_id, staff_role_id) VALUES (?, ?) ON CONFLICT(guild_id) DO UPDATE SET staff_role_id = NULL", (guild_id, None))
+        cur.execute("INSERT INTO settings(guild_id, staff_role_id) VALUES (%s, NULL) ON CONFLICT(guild_id) DO UPDATE SET staff_role_id = NULL", (guild_id,))
     else:
-        cur.execute("INSERT INTO settings(guild_id, staff_role_id) VALUES (?, ?) ON CONFLICT(guild_id) DO UPDATE SET staff_role_id = ?", (guild_id, role_id, role_id))
+        cur.execute("INSERT INTO settings(guild_id, staff_role_id) VALUES (%s, %s) ON CONFLICT(guild_id) DO UPDATE SET staff_role_id = %s", (guild_id, role_id, role_id))
     conn.commit()
     conn.close()
 
 
 def get_staff_role(guild_id: int) -> int | None:
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
-    cur.execute("SELECT staff_role_id FROM settings WHERE guild_id = ?", (guild_id,))
+    cur.execute("SELECT staff_role_id FROM settings WHERE guild_id = %s", (guild_id,))
     row = cur.fetchone()
     conn.close()
     return row[0] if row and row[0] is not None else None
@@ -1170,21 +1090,21 @@ def set_mod_role(guild_id: int, command: str, role_id: int | None):
         field = 'mod_mute_role_id'
     else:
         return
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
     if role_id is None:
-        cur.execute(f"INSERT INTO settings(guild_id, {field}) VALUES (?, ?) ON CONFLICT(guild_id) DO UPDATE SET {field} = NULL", (guild_id, None))
+        cur.execute(f"INSERT INTO settings(guild_id, {field}) VALUES (%s, NULL) ON CONFLICT(guild_id) DO UPDATE SET {field} = NULL", (guild_id,))
     else:
-        cur.execute(f"INSERT INTO settings(guild_id, {field}) VALUES (?, ?) ON CONFLICT(guild_id) DO UPDATE SET {field} = ?", (guild_id, role_id, role_id))
+        cur.execute(f"INSERT INTO settings(guild_id, {field}) VALUES (%s, %s) ON CONFLICT(guild_id) DO UPDATE SET {field} = %s", (guild_id, role_id, role_id))
     conn.commit()
     conn.close()
 
 
 def log_moderation(guild_id: int | None, action: str, target_id: int, moderator_id: int, reason: str | None = None):
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db_conn()
         cur = conn.cursor()
-        cur.execute("INSERT INTO mod_log(guild_id, action, target_id, moderator_id, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        cur.execute("INSERT INTO mod_log(guild_id, action, target_id, moderator_id, reason, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
                     (guild_id, action, target_id, moderator_id, reason, datetime.now(timezone.utc).isoformat()))
         conn.commit()
         conn.close()
@@ -1202,9 +1122,9 @@ def get_mod_role(guild_id: int, command: str) -> int | None:
         field = 'mod_mute_role_id'
     else:
         return None
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
-    cur.execute(f"SELECT {field} FROM settings WHERE guild_id = ?", (guild_id,))
+    cur.execute(f"SELECT {field} FROM settings WHERE guild_id = %s", (guild_id,))
     row = cur.fetchone()
     conn.close()
     return row[0] if row and row[0] is not None else None
@@ -1321,7 +1241,8 @@ async def _apply_guild_currency_command(guild_id: int, new_cmd_name: str, old_cm
     # Build the callback — mirrors the global /snuggles command
     async def _balance_callback(interaction: discord.Interaction, user: discord.User | None = None):
         target = user or interaction.user
-        bal = get_turkeys(target.id)
+        gid = getattr(interaction.guild, 'id', 0) or 0
+        bal = get_turkeys(gid, target.id)
         await interaction.response.send_message(
             f"{fmt_currency(getattr(interaction.guild, 'id', None), bal)} — {target.mention}",
             ephemeral=True,
@@ -1685,10 +1606,10 @@ async def on_message(message: discord.Message):
     if content.startswith('!') and message.guild:
         raw = content[1:].split()[0].lower() if content[1:].strip() else ''
         if raw:
-            conn = sqlite3.connect(DB_PATH)
+            conn = get_db_conn()
             cur = conn.cursor()
             cur.execute(
-                "SELECT info FROM custom_commands WHERE guild_id = ? AND name = ?",
+                "SELECT info FROM custom_commands WHERE guild_id = %s AND name = %s",
                 (message.guild.id, raw)
             )
             row = cur.fetchone()
@@ -2115,10 +2036,10 @@ async def safe_reply(interaction: discord.Interaction, content: str, ephemeral: 
         pass
 
 def list_shop_items(guild_id: int | None = None):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
     if guild_id:
-        cur.execute("SELECT id, name, price, role_id FROM shop_items WHERE guild_id = ?", (guild_id,))
+        cur.execute("SELECT id, name, price, role_id FROM shop_items WHERE guild_id = %s", (guild_id,))
     else:
         cur.execute("SELECT id, name, price, role_id FROM shop_items WHERE guild_id IS NULL")
     rows = cur.fetchall()
@@ -2126,23 +2047,23 @@ def list_shop_items(guild_id: int | None = None):
     return rows
 
 def add_shop_item(name: str, price: int, guild_id: int | None = None, role_id: int | None = None, metadata: str | None = None):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
-    cur.execute("INSERT INTO shop_items(guild_id, name, price, role_id, metadata) VALUES (?, ?, ?, ?, ?)", (guild_id, name, price, role_id, metadata))
+    cur.execute("INSERT INTO shop_items(guild_id, name, price, role_id, metadata) VALUES (%s, %s, %s, %s, %s)", (guild_id, name, price, role_id, metadata))
     conn.commit()
     conn.close()
 
 def remove_shop_item(item_id: int):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
-    cur.execute("DELETE FROM shop_items WHERE id = ?", (item_id,))
+    cur.execute("DELETE FROM shop_items WHERE id = %s", (item_id,))
     conn.commit()
     conn.close()
 
 def get_shop_item(item_id: int):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
-    cur.execute("SELECT id, guild_id, name, price, role_id, metadata FROM shop_items WHERE id = ?", (item_id,))
+    cur.execute("SELECT id, guild_id, name, price, role_id, metadata FROM shop_items WHERE id = %s", (item_id,))
     row = cur.fetchone()
     conn.close()
     return row
@@ -2400,21 +2321,21 @@ class TournamentView(discord.ui.View):
         winner_id = alive[0]
         guild = interaction.guild
 
-        # Save stats to SQLite
-        conn = sqlite3.connect(DB_PATH)
+        # Save stats to PostgreSQL
+        conn = get_db_conn()
         cur = conn.cursor()
         # global
-        cur.execute("INSERT INTO wins_global(user_id, wins) VALUES (?, 1) ON CONFLICT(user_id) DO UPDATE SET wins = wins + 1", (winner_id,))
+        cur.execute("INSERT INTO wins_global(user_id, wins) VALUES (%s, 1) ON CONFLICT(user_id) DO UPDATE SET wins = wins_global.wins + 1", (winner_id,))
         # guild
         if guild:
-            cur.execute("INSERT INTO wins_guild(guild_id, user_id, wins) VALUES (?, ?, 1) ON CONFLICT(guild_id, user_id) DO UPDATE SET wins = wins + 1", (guild.id, winner_id))
+            cur.execute("INSERT INTO wins_guild(guild_id, user_id, wins) VALUES (%s, %s, 1) ON CONFLICT(guild_id, user_id) DO UPDATE SET wins = wins_guild.wins + 1", (guild.id, winner_id))
         conn.commit()
         # fetch stats to show
-        cur.execute("SELECT wins FROM wins_global WHERE user_id = ?", (winner_id,))
+        cur.execute("SELECT wins FROM wins_global WHERE user_id = %s", (winner_id,))
         global_wins = cur.fetchone()[0]
         guild_wins = 0
         if guild:
-            cur.execute("SELECT wins FROM wins_guild WHERE guild_id = ? AND user_id = ?", (guild.id, winner_id))
+            cur.execute("SELECT wins FROM wins_guild WHERE guild_id = %s AND user_id = %s", (guild.id, winner_id))
             row = cur.fetchone()
             guild_wins = row[0] if row else 0
         conn.close()
@@ -2452,7 +2373,7 @@ class TournamentView(discord.ui.View):
                     except Exception:
                         pass
                 else:
-                    add_turkeys(winner_id, turkeys_awarded)
+                    add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)
                     try:
                         await channel.send(f"{fmt_currency(getattr(interaction.guild, 'id', None), turkeys_awarded)} have been awarded to {winner_mention}!")
                     except Exception:
@@ -2460,7 +2381,7 @@ class TournamentView(discord.ui.View):
             except Exception:
                 # fallback: attempt to award normally
                 try:
-                    add_turkeys(winner_id, turkeys_awarded)
+                    add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)
                 except Exception:
                     pass
         except Exception:
@@ -2529,7 +2450,8 @@ class TournamentView(discord.ui.View):
 @app_commands.describe(user="User to check (optional)")
 async def turkeys_balance(interaction: discord.Interaction, user: discord.User | None = None):
     target = user or interaction.user
-    bal = get_turkeys(target.id)
+    gid = getattr(interaction.guild, 'id', 0) or 0
+    bal = get_turkeys(gid, target.id)
     await interaction.response.send_message(f"{fmt_currency(getattr(interaction.guild, 'id', None), bal)} — {target.mention}", ephemeral=True)
 
 
@@ -2549,8 +2471,8 @@ async def give_turkeys(interaction: discord.Interaction, target: discord.User, a
             return
 
         # proceed to give turkeys
-        add_turkeys(target.id, amount)
-        bal = get_turkeys(target.id)
+        add_turkeys(guild.id, target.id, amount)
+        bal = get_turkeys(guild.id, target.id)
         await safe_reply(interaction, f"{fmt_currency(guild.id, amount)} given to {target.mention}. New balance: {fmt_currency(guild.id, bal)}")
     except Exception as e:
         await safe_reply(interaction, f"Error giving Snuggles: {e}")
@@ -2620,7 +2542,8 @@ async def shop_buy(interaction: discord.Interaction, item_id: int):
         await interaction.response.send_message("This item is not available on this server.", ephemeral=True)
         return
     user_id = interaction.user.id
-    bal = get_turkeys(user_id)
+    gid = getattr(interaction.guild, 'id', 0) or 0
+    bal = get_turkeys(gid, user_id)
     if bal < price:
         emoji, cname = get_currency_display(getattr(interaction.guild, 'id', None))
         await interaction.response.send_message(
@@ -2629,7 +2552,7 @@ async def shop_buy(interaction: discord.Interaction, item_id: int):
         )
         return
     # deduct
-    add_turkeys(user_id, -price)
+    add_turkeys(gid, user_id, -price)
     # assign role if applicable
     if role_id and interaction.guild:
         try:
@@ -3475,9 +3398,9 @@ async def wheels_start(interaction: discord.Interaction):
 
     # Optionally record a win in DB (global)
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db_conn()
         cur = conn.cursor()
-        cur.execute("INSERT INTO wins_global(user_id, wins) VALUES (?, 1) ON CONFLICT(user_id) DO UPDATE SET wins = wins + 1", (winner_id,))
+        cur.execute("INSERT INTO wins_global(user_id, wins) VALUES (%s, 1) ON CONFLICT(user_id) DO UPDATE SET wins = wins_global.wins + 1", (winner_id,))
         conn.commit()
         conn.close()
     except Exception:
@@ -3493,7 +3416,7 @@ async def wheels_start(interaction: discord.Interaction):
                 except Exception:
                     pass
             else:
-                add_turkeys(winner_id, turkeys_awarded)
+                add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)
                 try:
                     await channel.send(f"{fmt_currency(getattr(interaction.guild, 'id', None), turkeys_awarded)} have been awarded to {winner_mention}!")
                 except Exception:
@@ -3501,7 +3424,7 @@ async def wheels_start(interaction: discord.Interaction):
         except Exception:
             # fallback: award normally
             try:
-                add_turkeys(winner_id, turkeys_awarded)
+                add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)
             except Exception:
                 pass
     except Exception:
@@ -4455,9 +4378,9 @@ def _current_date_str():
 def _cleanup_old_schedule():
     """Remove schedule entries older than today (UTC-based daily reset)."""
     today = _current_date_str()
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
-    cur.execute("DELETE FROM schedule_entries WHERE date < ?", (today,))
+    cur.execute("DELETE FROM schedule_entries WHERE date < %s", (today,))
     conn.commit()
     conn.close()
 
@@ -4469,9 +4392,9 @@ schedule_group = app_commands.Group(name="schedule", description="Show or add sc
 async def show_schedule(interaction: discord.Interaction):
     _cleanup_old_schedule()
     today = _current_date_str()
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
-    cur.execute("SELECT slot, user_id, game FROM schedule_entries WHERE date = ? ORDER BY slot", (today,))
+    cur.execute("SELECT slot, user_id, game FROM schedule_entries WHERE date = %s ORDER BY slot", (today,))
     rows = cur.fetchall()
     conn.close()
 
@@ -4512,11 +4435,11 @@ async def add_schedule(interaction: discord.Interaction, slot: int, game: str):
     # Use UTC date to store daily entries that reset every 24h at midnight UTC
     today = _current_date_str()
     _cleanup_old_schedule()
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
     # Upsert: allow multiple users per slot; prevent duplicate same user in same slot
     try:
-        cur.execute("INSERT OR IGNORE INTO schedule_entries(date, slot, user_id, game) VALUES (?, ?, ?, ?)", (today, time_idx, interaction.user.id, game))
+        cur.execute("INSERT INTO schedule_entries(date, slot, user_id, game) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING", (today, time_idx, interaction.user.id, game))
         conn.commit()
     except Exception as e:
         print("DB error adding schedule:", e)
@@ -4548,10 +4471,10 @@ async def delete_schedule(interaction: discord.Interaction, slot: int):
 
     today = _current_date_str()
     _cleanup_old_schedule()
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
     try:
-        cur.execute("DELETE FROM schedule_entries WHERE date = ? AND slot = ? AND user_id = ?", (today, time_idx, interaction.user.id))
+        cur.execute("DELETE FROM schedule_entries WHERE date = %s AND slot = %s AND user_id = %s", (today, time_idx, interaction.user.id))
         deleted = cur.rowcount
         conn.commit()
     except Exception as e:
@@ -4626,19 +4549,19 @@ async def _fetch_monopoly_links_from_source(session, url: str) -> list[str]:
 
 
 def _monopoly_already_posted(url: str) -> bool:
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
-    cur.execute("SELECT 1 FROM monopoly_go_posted WHERE url = ?", (url,))
+    cur.execute("SELECT 1 FROM monopoly_go_posted WHERE url = %s", (url,))
     exists = cur.fetchone() is not None
     conn.close()
     return exists
 
 
 def _monopoly_mark_posted(url: str):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
     cur.execute(
-        "INSERT OR IGNORE INTO monopoly_go_posted (url, posted_at) VALUES (?, ?)",
+        "INSERT INTO monopoly_go_posted (url, posted_at) VALUES (%s, %s) ON CONFLICT DO NOTHING",
         (url, datetime.now(timezone.utc).isoformat())
     )
     conn.commit()
@@ -4647,7 +4570,7 @@ def _monopoly_mark_posted(url: str):
 
 def _monopoly_get_channels() -> list[tuple[int, int]]:
     """Return list of (guild_id, channel_id) for all configured guilds."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
     cur.execute("SELECT guild_id, channel_id FROM monopoly_go_config")
     rows = cur.fetchall()
@@ -4722,12 +4645,12 @@ async def set_monopoly_channel(interaction: discord.Interaction, channel: discor
     if not interaction.guild:
         await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
         return
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
     try:
         cur.execute(
-            "INSERT OR REPLACE INTO monopoly_go_config (guild_id, channel_id) VALUES (?, ?)",
-            (interaction.guild.id, channel.id)
+            "INSERT INTO monopoly_go_config (guild_id, channel_id) VALUES (%s, %s) ON CONFLICT(guild_id) DO UPDATE SET channel_id = %s",
+            (interaction.guild.id, channel.id, channel.id)
         )
         conn.commit()
     finally:
@@ -4745,10 +4668,10 @@ async def unset_monopoly_channel(interaction: discord.Interaction):
     if not interaction.guild:
         await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
         return
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
     try:
-        cur.execute("DELETE FROM monopoly_go_config WHERE guild_id = ?", (interaction.guild.id,))
+        cur.execute("DELETE FROM monopoly_go_config WHERE guild_id = %s", (interaction.guild.id,))
         deleted = cur.rowcount
         conn.commit()
     finally:
@@ -4773,12 +4696,12 @@ async def custom_command_create(interaction: discord.Interaction, name: str, inf
     if not cmd_name or any(c in cmd_name for c in (' ', '\t', '\n')):
         await interaction.response.send_message("El nombre del comando debe ser una sola palabra sin espacios.", ephemeral=True)
         return
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
     try:
         cur.execute(
-            "INSERT OR REPLACE INTO custom_commands (guild_id, name, info) VALUES (?, ?, ?)",
-            (interaction.guild.id, cmd_name, info)
+            "INSERT INTO custom_commands (guild_id, name, info) VALUES (%s, %s, %s) ON CONFLICT(guild_id, name) DO UPDATE SET info = %s",
+            (interaction.guild.id, cmd_name, info, info)
         )
         conn.commit()
     finally:
@@ -4794,11 +4717,11 @@ async def custom_command_delete(interaction: discord.Interaction, name: str):
         await interaction.response.send_message("Este comando solo se puede usar en un servidor.", ephemeral=True)
         return
     cmd_name = name.lower().strip()
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
     try:
         cur.execute(
-            "DELETE FROM custom_commands WHERE guild_id = ? AND name = ?",
+            "DELETE FROM custom_commands WHERE guild_id = %s AND name = %s",
             (interaction.guild.id, cmd_name)
         )
         deleted = cur.rowcount
@@ -4818,12 +4741,12 @@ async def set_official_links_channel(interaction: discord.Interaction, channel: 
     if not interaction.guild:
         await interaction.response.send_message("Este comando solo se puede usar en un servidor.", ephemeral=True)
         return
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
     try:
         cur.execute(
-            "INSERT INTO settings (guild_id, official_links_channel_id) VALUES (?, ?) "
-            "ON CONFLICT(guild_id) DO UPDATE SET official_links_channel_id = ?",
+            "INSERT INTO settings (guild_id, official_links_channel_id) VALUES (%s, %s) "
+            "ON CONFLICT(guild_id) DO UPDATE SET official_links_channel_id = %s",
             (interaction.guild.id, channel.id, channel.id)
         )
         conn.commit()
@@ -4840,11 +4763,11 @@ async def add_official_link(interaction: discord.Interaction, name: str, url: st
         await interaction.response.send_message("Este comando solo se puede usar en un servidor.", ephemeral=True)
         return
     key = name.lower().strip()
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
     try:
-        cur.execute("INSERT OR REPLACE INTO official_links (guild_id, name, url) VALUES (?, ?, ?)",
-                    (interaction.guild.id, key, url))
+        cur.execute("INSERT INTO official_links (guild_id, name, url) VALUES (%s, %s, %s) ON CONFLICT(guild_id, name) DO UPDATE SET url = %s",
+                    (interaction.guild.id, key, url, url))
         conn.commit()
     finally:
         conn.close()
@@ -4859,10 +4782,10 @@ async def remove_official_link(interaction: discord.Interaction, name: str):
         await interaction.response.send_message("Este comando solo se puede usar en un servidor.", ephemeral=True)
         return
     key = name.lower().strip()
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
     try:
-        cur.execute("DELETE FROM official_links WHERE guild_id = ? AND name = ?", (interaction.guild.id, key))
+        cur.execute("DELETE FROM official_links WHERE guild_id = %s AND name = %s", (interaction.guild.id, key))
         deleted = cur.rowcount
         conn.commit()
     finally:
@@ -4879,10 +4802,10 @@ async def list_official_links(interaction: discord.Interaction):
     if not interaction.guild:
         await interaction.response.send_message("Este comando solo se puede usar en un servidor.", ephemeral=True)
         return
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
     try:
-        cur.execute("SELECT name, url FROM official_links WHERE guild_id = ? ORDER BY name", (interaction.guild.id,))
+        cur.execute("SELECT name, url FROM official_links WHERE guild_id = %s ORDER BY name", (interaction.guild.id,))
         rows = cur.fetchall()
     finally:
         conn.close()
@@ -4899,13 +4822,13 @@ async def post_official_links(interaction: discord.Interaction):
     if not interaction.guild:
         await interaction.response.send_message("Este comando solo se puede usar en un servidor.", ephemeral=True)
         return
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
     try:
-        cur.execute("SELECT official_links_channel_id FROM settings WHERE guild_id = ?", (interaction.guild.id,))
+        cur.execute("SELECT official_links_channel_id FROM settings WHERE guild_id = %s", (interaction.guild.id,))
         row = cur.fetchone()
         channel_id = row[0] if row and row[0] is not None else None
-        cur.execute("SELECT name, url FROM official_links WHERE guild_id = ? ORDER BY name", (interaction.guild.id,))
+        cur.execute("SELECT name, url FROM official_links WHERE guild_id = %s ORDER BY name", (interaction.guild.id,))
         links = cur.fetchall()
     finally:
         conn.close()
@@ -4962,20 +4885,20 @@ def _get_all_timezones_sorted() -> list[str]:
 
 
 def get_user_timezone(user_id: int) -> str | None:
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
-    cur.execute("SELECT timezone FROM user_timezones WHERE user_id = ?", (user_id,))
+    cur.execute("SELECT timezone FROM user_timezones WHERE user_id = %s", (user_id,))
     row = cur.fetchone()
     conn.close()
     return row[0] if row else None
 
 
 def set_user_timezone(user_id: int, timezone: str) -> None:
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     cur = conn.cursor()
     cur.execute(
-        "INSERT OR REPLACE INTO user_timezones (user_id, timezone) VALUES (?, ?)",
-        (user_id, timezone),
+        "INSERT INTO user_timezones (user_id, timezone) VALUES (%s, %s) ON CONFLICT(user_id) DO UPDATE SET timezone = %s",
+        (user_id, timezone, timezone),
     )
     conn.commit()
     conn.close()
