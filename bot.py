@@ -5373,6 +5373,8 @@ async def _run_translation(source_text: str, target_lang: str) -> str:
 # --- Slash command: /translate text:... language:... ---
 
 @bot.tree.command(name="translate", description="Translate text to a chosen language using Google Translate")
+@app_commands.allowed_installs(guilds=True, users=True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 @app_commands.describe(
     text="Text to translate",
     language="Language to translate to",
@@ -5445,6 +5447,8 @@ class TranslateLanguageView(discord.ui.View):
 
 
 @bot.tree.context_menu(name="Translate")
+@app_commands.allowed_installs(guilds=True, users=True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 async def context_translate(interaction: discord.Interaction, message: discord.Message):
     source = message.content
     if not source or not source.strip():
