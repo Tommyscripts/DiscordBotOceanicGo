@@ -5322,98 +5322,125 @@ async def howtoplay(ctx: commands.Context):
 
 # ──────────────────────────── /translate ────────────────────────────
 
-@bot.tree.command(name="translate", description="Translate a message (reply to one or type text) to a chosen language using Google Translate")
+_TRANSLATE_LANGS = [
+    ("Spanish",              "es"),
+    ("English",              "en"),
+    ("French",               "fr"),
+    ("German",               "de"),
+    ("Italian",              "it"),
+    ("Portuguese",           "pt"),
+    ("Dutch",                "nl"),
+    ("Russian",              "ru"),
+    ("Japanese",             "ja"),
+    ("Korean",               "ko"),
+    ("Chinese (Simplified)", "zh-CN"),
+    ("Arabic",               "ar"),
+    ("Hindi",                "hi"),
+    ("Turkish",              "tr"),
+    ("Polish",               "pl"),
+    ("Swedish",              "sv"),
+    ("Norwegian",            "no"),
+    ("Danish",               "da"),
+    ("Finnish",              "fi"),
+    ("Greek",                "el"),
+    ("Czech",                "cs"),
+    ("Romanian",             "ro"),
+    ("Ukrainian",            "uk"),
+    ("Catalan",              "ca"),
+]
+
+
+async def _run_translation(source_text: str, target_lang: str) -> str:
+    from deep_translator import GoogleTranslator
+
+    def _do() -> str:
+        return GoogleTranslator(source="auto", target=target_lang).translate(source_text)
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _do)
+
+
+# --- Slash command: /translate text:... language:... ---
+
+@bot.tree.command(name="translate", description="Translate text to a chosen language using Google Translate")
 @app_commands.describe(
+    text="Text to translate",
     language="Language to translate to",
-    text="Text to translate (optional if you reply to a message)",
 )
 @app_commands.choices(language=[
-    app_commands.Choice(name="Spanish",            value="es"),
-    app_commands.Choice(name="English",            value="en"),
-    app_commands.Choice(name="French",             value="fr"),
-    app_commands.Choice(name="German",             value="de"),
-    app_commands.Choice(name="Italian",            value="it"),
-    app_commands.Choice(name="Portuguese",         value="pt"),
-    app_commands.Choice(name="Dutch",              value="nl"),
-    app_commands.Choice(name="Russian",            value="ru"),
-    app_commands.Choice(name="Japanese",           value="ja"),
-    app_commands.Choice(name="Korean",             value="ko"),
-    app_commands.Choice(name="Chinese (Simplified)", value="zh-CN"),
-    app_commands.Choice(name="Arabic",             value="ar"),
-    app_commands.Choice(name="Hindi",              value="hi"),
-    app_commands.Choice(name="Turkish",            value="tr"),
-    app_commands.Choice(name="Polish",             value="pl"),
-    app_commands.Choice(name="Swedish",            value="sv"),
-    app_commands.Choice(name="Norwegian",          value="no"),
-    app_commands.Choice(name="Danish",             value="da"),
-    app_commands.Choice(name="Finnish",            value="fi"),
-    app_commands.Choice(name="Greek",              value="el"),
-    app_commands.Choice(name="Czech",              value="cs"),
-    app_commands.Choice(name="Romanian",           value="ro"),
-    app_commands.Choice(name="Ukrainian",          value="uk"),
-    app_commands.Choice(name="Catalan",            value="ca"),
+    app_commands.Choice(name=name, value=code) for name, code in _TRANSLATE_LANGS
 ])
 async def slash_translate(
     interaction: discord.Interaction,
+    text: str,
     language: app_commands.Choice[str],
-    text: str | None = None,
 ):
-    # Determine what text to translate
-    source_text = text
-
-    if not source_text:
-        # Try to get the replied-to message
-        if interaction.channel is None:
-            await safe_reply(interaction, "Cannot determine the channel. Please provide text directly.", ephemeral=True)
-            return
-        # Discord stores the reply reference in the interaction data
-        ref_msg_id: int | None = None
-        try:
-            data = interaction.data  # type: ignore[attr-defined]
-            ref_msg_id = int(data.get("resolved", {}).get("messages", {}).keys().__iter__().__next__()) if data else None
-        except Exception:
-            ref_msg_id = None
-
-        if ref_msg_id is None:
-            await safe_reply(interaction, "Please reply to a message or provide the `text` parameter with the content you want to translate.", ephemeral=True)
-            return
-
-        try:
-            ref_message = await interaction.channel.fetch_message(ref_msg_id)
-            source_text = ref_message.content
-        except Exception:
-            await safe_reply(interaction, "Could not fetch the replied message. Please provide the `text` parameter directly.", ephemeral=True)
-            return
-
-    if not source_text or not source_text.strip():
-        await safe_reply(interaction, "The message is empty – nothing to translate.", ephemeral=True)
+    if not text.strip():
+        await safe_reply(interaction, "The text is empty – nothing to translate.", ephemeral=True)
         return
-
-    # Perform translation in a thread pool so we don't block the event loop
-    target_lang = language.value
-    lang_name = language.name
 
     await interaction.response.defer(ephemeral=False)
 
     try:
-        from deep_translator import GoogleTranslator
-
-        def _do_translate(src: str, target: str) -> str:
-            return GoogleTranslator(source="auto", target=target).translate(src)
-
-        loop = asyncio.get_event_loop()
-        translated = await loop.run_in_executor(None, _do_translate, source_text.strip(), target_lang)
+        translated = await _run_translation(text.strip(), language.value)
     except Exception as e:
         await interaction.followup.send(f"Translation failed: {e}", ephemeral=True)
         return
 
-    embed = discord.Embed(
-        description=translated,
-        color=discord.Color.blurple(),
-    )
-    embed.set_footer(text=f"Translated to {lang_name} • Google Translate")
-
+    embed = discord.Embed(description=translated, color=discord.Color.blurple())
+    embed.set_footer(text=f"Translated to {language.name} • Google Translate")
     await interaction.followup.send(embed=embed)
+
+
+# --- Context menu: right-click a message → Apps → Translate ---
+
+class TranslateLanguageView(discord.ui.View):
+    """Shown after right-clicking a message. Lets the user pick a target language."""
+
+    def __init__(self, source_text: str):
+        super().__init__(timeout=60)
+        self.source_text = source_text
+        select = discord.ui.Select(
+            placeholder="Pick a language…",
+            options=[
+                discord.SelectOption(label=name, value=code)
+                for name, code in _TRANSLATE_LANGS
+            ],
+        )
+        select.callback = self._on_select
+        self.add_item(select)
+
+    async def _on_select(self, interaction: discord.Interaction):
+        target_code = interaction.data["values"][0]  # type: ignore[index]
+        lang_name = next((n for n, c in _TRANSLATE_LANGS if c == target_code), target_code)
+
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            translated = await _run_translation(self.source_text, target_code)
+        except Exception as e:
+            await interaction.followup.send(f"Translation failed: {e}", ephemeral=True)
+            return
+
+        embed = discord.Embed(description=translated, color=discord.Color.blurple())
+        embed.set_footer(text=f"Translated to {lang_name} • Google Translate")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        self.stop()
+
+
+@bot.tree.context_menu(name="Translate")
+async def context_translate(interaction: discord.Interaction, message: discord.Message):
+    source = message.content
+    if not source or not source.strip():
+        await interaction.response.send_message(
+            "That message has no text to translate.", ephemeral=True
+        )
+        return
+
+    view = TranslateLanguageView(source_text=source.strip())
+    await interaction.response.send_message(
+        "Pick the language to translate to:", view=view, ephemeral=True
+    )
 
 
 if __name__ == "__main__":
