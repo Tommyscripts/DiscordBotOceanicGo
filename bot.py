@@ -4954,22 +4954,33 @@ def _format_time_in_zone(tz_name: str) -> str:
 @app_commands.autocomplete(timezone=timezone_autocomplete)
 async def cmd_setmytime(interaction: discord.Interaction, timezone: str):
     await interaction.response.defer(ephemeral=True)
+    guild_id = interaction.guild.id if interaction.guild else None
+    is_es = get_guild_language(guild_id) == "es" if guild_id else False
     try:
         ZoneInfo(timezone)
     except (ZoneInfoNotFoundError, KeyError):
-        await interaction.followup.send(
-            f"❌ Zona horaria no reconocida: `{timezone}`.\nUsa el autocompletado para elegir una válida.",
-            ephemeral=True,
+        err = (
+            f"❌ Zona horaria no reconocida: `{timezone}`.\nUsa el autocompletado para elegir una válida."
+            if is_es else
+            f"❌ Unrecognized timezone: `{timezone}`.\nUse the autocomplete to pick a valid one."
         )
+        await interaction.followup.send(err, ephemeral=True)
         return
     set_user_timezone(interaction.user.id, timezone)
     formatted = _format_time_in_zone(timezone)
-    await interaction.followup.send(
-        f"✅ Tu zona horaria ha sido guardada como **{timezone}**.\n"
-        f"Tu hora actual: `{formatted}`\n\n"
-        f"Ahora `/time` mostrará también tu hora local automáticamente.",
-        ephemeral=True,
-    )
+    if is_es:
+        msg = (
+            f"✅ Tu zona horaria ha sido guardada como **{timezone}**.\n"
+            f"Tu hora actual: `{formatted}`\n\n"
+            f"Ahora `/time` mostrará también tu hora local automáticamente."
+        )
+    else:
+        msg = (
+            f"✅ Your timezone has been saved as **{timezone}**.\n"
+            f"Your current time: `{formatted}`\n\n"
+            f"From now on, `/time` will also show your local time automatically."
+        )
+    await interaction.followup.send(msg, ephemeral=True)
 
 
 @bot.tree.command(name="time", description="Muestra la hora actual en cualquier zona horaria del mundo")
