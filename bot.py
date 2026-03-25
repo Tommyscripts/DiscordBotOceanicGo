@@ -3948,6 +3948,13 @@ async def slash_mm(interaction: discord.Interaction):
             pass
 
 
+@bot.tree.command(name="nyxie", description="💕")
+@app_commands.allowed_installs(guilds=False, users=True)
+@app_commands.allowed_contexts(guilds=False, dms=True, private_channels=True)
+async def slash_nyxie(interaction: discord.Interaction):
+    await interaction.response.send_message("Hello Ella you look so beautiful today 💕")
+
+
 @house_group.command(name="invite", description="Invite a user to your House game (host only). Uses your active lobby.)")
 @app_commands.describe(user="User ID or mention to invite")
 async def house_invite(interaction: discord.Interaction, user: str):
@@ -4991,7 +4998,7 @@ async def cmd_setmytime(interaction: discord.Interaction, timezone: str):
     usuario="Compara tu hora con la de este usuario",
 )
 @app_commands.autocomplete(timezone=timezone_autocomplete)
-async def cmd_time(interaction: discord.Interaction, timezone: str | None = None, usuario: discord.Member | None = None):
+async def cmd_time(interaction: discord.Interaction, timezone: str | None = None, usuario: discord.User | None = None):
     # Defer immediately so Discord doesn't time out while we query the DB
     await interaction.response.defer()
 
