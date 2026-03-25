@@ -3901,8 +3901,8 @@ async def house_create(interaction: discord.Interaction, mode: str = "solo", max
 
 # Subcommand to explain how to play 'house' (module-level so it registers)
 @house_group.command(name="howto", description="Quick explanation of how to play Haunted House")
-@app_commands.allowed_installs(guild=True, user=True)
-@app_commands.allowed_contexts(guild=True, dm_channel=True, private_channel=True)
+@app_commands.allowed_installs(guilds=True, users=True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 async def house_howto(interaction: discord.Interaction):
     text = (
         "**How to play House**\n"
@@ -3925,8 +3925,8 @@ async def house_howto(interaction: discord.Interaction):
 
 # Top-level /mm command (module-level so it registers)
 @bot.tree.command(name="mm", description="Quick explanation of how to play 'mm'")
-@app_commands.allowed_installs(guild=True, user=True)
-@app_commands.allowed_contexts(guild=True, dm_channel=True, private_channel=True)
+@app_commands.allowed_installs(guilds=True, users=True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 async def slash_mm(interaction: discord.Interaction):
     """Respond with a short English explanation of how to play 'mm'."""
     text = (
@@ -4948,8 +4948,8 @@ def _format_time_in_zone(tz_name: str) -> str:
 
 
 @bot.tree.command(name="setmytime", description="Guarda tu zona horaria para que /time muestre también tu hora local")
-@app_commands.allowed_installs(guild=True, user=True)
-@app_commands.allowed_contexts(guild=True, dm_channel=True, private_channel=True)
+@app_commands.allowed_installs(guilds=True, users=True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 @app_commands.describe(timezone="Tu zona horaria (ej: Europe/Madrid, America/New_York)")
 @app_commands.autocomplete(timezone=timezone_autocomplete)
 async def cmd_setmytime(interaction: discord.Interaction, timezone: str):
@@ -4984,8 +4984,8 @@ async def cmd_setmytime(interaction: discord.Interaction, timezone: str):
 
 
 @bot.tree.command(name="time", description="Muestra la hora actual en cualquier zona horaria del mundo")
-@app_commands.allowed_installs(guild=True, user=True)
-@app_commands.allowed_contexts(guild=True, dm_channel=True, private_channel=True)
+@app_commands.allowed_installs(guilds=True, users=True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 @app_commands.describe(
     timezone="Zona horaria a consultar (ej: Asia/Tokyo, America/New_York)",
     usuario="Compara tu hora con la de este usuario",
