@@ -1395,6 +1395,13 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
 
 
 @bot.event
+async def on_command_error(ctx: commands.Context, error: commands.CommandError):
+    if isinstance(error, commands.CommandNotFound):
+        return  # silently ignore unknown prefix commands
+    raise error
+
+
+@bot.event
 async def on_ready():
     """Sync application (slash) commands so `/m lock`, `/m unlock` and `/settings ...` appear.
 
