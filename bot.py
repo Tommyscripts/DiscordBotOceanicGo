@@ -5496,3 +5496,15 @@ if __name__ == "__main__":
                 print("Maximum login attempts reached. Exiting.")
                 raise SystemExit(1)
             # loop will prompt again
+        except _discord.errors.HTTPException as e:
+            if e.status == 429:
+                retry_after = 30
+                try:
+                    retry_after = int(e.response.headers.get("Retry-After", 30))
+                except Exception:
+                    pass
+                print(f"Rate limited by Discord (429). Waiting {retry_after}s before retrying...")
+                import time as _time
+                _time.sleep(retry_after)
+            else:
+                raise
