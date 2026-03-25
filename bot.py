@@ -1423,6 +1423,9 @@ async def on_ready():
             gid = int(str(GUILD_ID).strip())
             synced = await bot.tree.sync(guild=discord.Object(id=gid))
             logging.info(f"Synced {len(synced)} commands to guild {gid}")
+            # Also sync globally so commands appear in DMs
+            global_synced = await bot.tree.sync()
+            logging.info(f"Synced {len(global_synced)} global commands (for DMs)")
         else:
             synced = await bot.tree.sync()
             logging.info(f"Synced {len(synced)} global commands")
