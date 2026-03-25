@@ -5509,12 +5509,15 @@ if __name__ == "__main__":
             if e.status == 429:
                 retry_after = 60
                 try:
-                    retry_after = max(60, int(e.response.headers.get("Retry-After", 60)))
+                    retry_after = int(e.response.headers.get("Retry-After", 60))
                 except Exception:
                     pass
-                print(f"Rate limited by Discord (429). Waiting {retry_after}s then restarting process...")
+                # Cap at 5 minutes — if Discord asks for longer, exit immediately and
+                # let the host (Railway) restart the process after its own backoff.
+                capped = min(retry_after, 300)
+                print(f"Rate limited by Discord (429). Retry-After={retry_after}s, waiting {capped}s then exiting for fresh restart...")
                 import time as _time
-                _time.sleep(retry_after)
-                raise SystemExit(0)  # exit cleanly; Railway/host will restart with a fresh process
+                _time.sleep(capped)
+                raise SystemExit(0)  # exit cleanly; Railway will restart with a fresh process
             else:
                 raise
