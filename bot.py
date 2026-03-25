@@ -4414,6 +4414,7 @@ schedule_group = app_commands.Group(name="schedule", description="Show or add sc
 
 @schedule_group.command(name="show", description="Show today's schedule (24 slots)")
 async def show_schedule(interaction: discord.Interaction):
+    await interaction.response.defer()
     _cleanup_old_schedule()
     today = _current_date_str()
     conn = get_db_conn()
@@ -4444,7 +4445,7 @@ async def show_schedule(interaction: discord.Interaction):
         desc_lines.append(f"**{slot_label}** — {time_token} : {entry_text}")
 
     embed = discord.Embed(title="Schedule (24h)", description="\n".join(desc_lines), color=0x00BFFF)
-    await interaction.response.send_message(embed=embed, ephemeral=False)
+    await interaction.followup.send(embed=embed)
 
 
 @schedule_group.command(name="add", description="Add yourself to a numbered slot (1-24)")
@@ -4454,6 +4455,7 @@ async def add_schedule(interaction: discord.Interaction, slot: int, game: str):
     if slot < 1 or slot > 24:
         await interaction.response.send_message("Please provide a slot number between 1 and 24.", ephemeral=True)
         return
+    await interaction.response.defer(ephemeral=True)
     time_idx = slot - 1
 
     # Use UTC date to store daily entries that reset every 24h at midnight UTC
@@ -4472,7 +4474,7 @@ async def add_schedule(interaction: discord.Interaction, slot: int, game: str):
 
     # show user the friendly slot number and the UTC hour
     display_slot = time_idx + 1
-    await interaction.response.send_message(f"Added you to slot {display_slot} ({time_idx:02d}:00 UTC) for '{game}'. Use `/schedule show` to view.", ephemeral=True)
+    await interaction.followup.send(f"Added you to slot {display_slot} ({time_idx:02d}:00 UTC) for '{game}'. Use `/schedule show` to view.")
 
 
 # register the group with the bot's command tree
@@ -4491,6 +4493,7 @@ async def delete_schedule(interaction: discord.Interaction, slot: int):
     if slot < 1 or slot > 24:
         await interaction.response.send_message("Please provide a slot number between 1 and 24.", ephemeral=True)
         return
+    await interaction.response.defer(ephemeral=True)
     time_idx = slot - 1
 
     today = _current_date_str()
@@ -4508,9 +4511,9 @@ async def delete_schedule(interaction: discord.Interaction, slot: int):
         conn.close()
 
     if deleted:
-        await interaction.response.send_message(f"Removed your signup from slot {slot} ({time_idx:02d}:00 UTC). Use `/schedule show` to view.", ephemeral=True)
+        await interaction.followup.send(f"Removed your signup from slot {slot} ({time_idx:02d}:00 UTC). Use `/schedule show` to view.")
     else:
-        await interaction.response.send_message(f"No signup found for you in slot {slot}. Use `/schedule show` to check current signups.", ephemeral=True)
+        await interaction.followup.send(f"No signup found for you in slot {slot}. Use `/schedule show` to check current signups.")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
