@@ -4481,9 +4481,11 @@ async def add_schedule(interaction: discord.Interaction, slot: int, game: str):
     finally:
         conn.close()
 
-    # show user the friendly slot number and the UTC hour
+    # Build a Discord timestamp so each user sees the time in their own locale/timezone
     display_slot = time_idx + 1
-    await interaction.followup.send(f"Added you to slot {display_slot} ({time_idx:02d}:00 UTC) for '{game}'. Use `/schedule show` to view.")
+    struct = time.strptime(f"{today} {time_idx:02d}:00:00", "%Y-%m-%d %H:%M:%S")
+    slot_ts = int(calendar.timegm(struct))
+    await interaction.followup.send(f"Added you to slot **{display_slot}** (<t:{slot_ts}:t>) for '{game}'. Use `/schedule show` to view.")
 
 
 # register the group with the bot's command tree
@@ -4520,7 +4522,9 @@ async def delete_schedule(interaction: discord.Interaction, slot: int):
         conn.close()
 
     if deleted:
-        await interaction.followup.send(f"Removed your signup from slot {slot} ({time_idx:02d}:00 UTC). Use `/schedule show` to view.")
+        struct = time.strptime(f"{today} {time_idx:02d}:00:00", "%Y-%m-%d %H:%M:%S")
+        slot_ts = int(calendar.timegm(struct))
+        await interaction.followup.send(f"Removed your signup from slot **{slot}** (<t:{slot_ts}:t>). Use `/schedule show` to view.")
     else:
         await interaction.followup.send(f"No signup found for you in slot {slot}. Use `/schedule show` to check current signups.")
 
