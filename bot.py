@@ -5320,6 +5320,102 @@ async def howtoplay(ctx: commands.Context):
     await ctx.send(text)
 
 
+# ──────────────────────────── /translate ────────────────────────────
+
+@bot.tree.command(name="translate", description="Translate a message (reply to one or type text) to a chosen language using Google Translate")
+@app_commands.describe(
+    language="Language to translate to",
+    text="Text to translate (optional if you reply to a message)",
+)
+@app_commands.choices(language=[
+    app_commands.Choice(name="Spanish",            value="es"),
+    app_commands.Choice(name="English",            value="en"),
+    app_commands.Choice(name="French",             value="fr"),
+    app_commands.Choice(name="German",             value="de"),
+    app_commands.Choice(name="Italian",            value="it"),
+    app_commands.Choice(name="Portuguese",         value="pt"),
+    app_commands.Choice(name="Dutch",              value="nl"),
+    app_commands.Choice(name="Russian",            value="ru"),
+    app_commands.Choice(name="Japanese",           value="ja"),
+    app_commands.Choice(name="Korean",             value="ko"),
+    app_commands.Choice(name="Chinese (Simplified)", value="zh-CN"),
+    app_commands.Choice(name="Arabic",             value="ar"),
+    app_commands.Choice(name="Hindi",              value="hi"),
+    app_commands.Choice(name="Turkish",            value="tr"),
+    app_commands.Choice(name="Polish",             value="pl"),
+    app_commands.Choice(name="Swedish",            value="sv"),
+    app_commands.Choice(name="Norwegian",          value="no"),
+    app_commands.Choice(name="Danish",             value="da"),
+    app_commands.Choice(name="Finnish",            value="fi"),
+    app_commands.Choice(name="Greek",              value="el"),
+    app_commands.Choice(name="Czech",              value="cs"),
+    app_commands.Choice(name="Romanian",           value="ro"),
+    app_commands.Choice(name="Ukrainian",          value="uk"),
+    app_commands.Choice(name="Catalan",            value="ca"),
+])
+async def slash_translate(
+    interaction: discord.Interaction,
+    language: app_commands.Choice[str],
+    text: str | None = None,
+):
+    # Determine what text to translate
+    source_text = text
+
+    if not source_text:
+        # Try to get the replied-to message
+        if interaction.channel is None:
+            await safe_reply(interaction, "Cannot determine the channel. Please provide text directly.", ephemeral=True)
+            return
+        # Discord stores the reply reference in the interaction data
+        ref_msg_id: int | None = None
+        try:
+            data = interaction.data  # type: ignore[attr-defined]
+            ref_msg_id = int(data.get("resolved", {}).get("messages", {}).keys().__iter__().__next__()) if data else None
+        except Exception:
+            ref_msg_id = None
+
+        if ref_msg_id is None:
+            await safe_reply(interaction, "Please reply to a message or provide the `text` parameter with the content you want to translate.", ephemeral=True)
+            return
+
+        try:
+            ref_message = await interaction.channel.fetch_message(ref_msg_id)
+            source_text = ref_message.content
+        except Exception:
+            await safe_reply(interaction, "Could not fetch the replied message. Please provide the `text` parameter directly.", ephemeral=True)
+            return
+
+    if not source_text or not source_text.strip():
+        await safe_reply(interaction, "The message is empty – nothing to translate.", ephemeral=True)
+        return
+
+    # Perform translation in a thread pool so we don't block the event loop
+    target_lang = language.value
+    lang_name = language.name
+
+    await interaction.response.defer(ephemeral=False)
+
+    try:
+        from deep_translator import GoogleTranslator
+
+        def _do_translate(src: str, target: str) -> str:
+            return GoogleTranslator(source="auto", target=target).translate(src)
+
+        loop = asyncio.get_event_loop()
+        translated = await loop.run_in_executor(None, _do_translate, source_text.strip(), target_lang)
+    except Exception as e:
+        await interaction.followup.send(f"Translation failed: {e}", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        description=translated,
+        color=discord.Color.blurple(),
+    )
+    embed.set_footer(text=f"Translated to {lang_name} • Google Translate")
+
+    await interaction.followup.send(embed=embed)
+
+
 if __name__ == "__main__":
     # Try to run the bot, but if the token is invalid prompt up to 3 times to re-enter
     import discord as _discord
