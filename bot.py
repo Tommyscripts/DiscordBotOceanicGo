@@ -5375,15 +5375,21 @@ async def slash_translate(
     text: str,
     language: app_commands.Choice[str],
 ):
+    logging.info(f"/translate called by {interaction.user} → lang={language.value} text={text[:50]!r}")
     if not text.strip():
         await safe_reply(interaction, "The text is empty – nothing to translate.", ephemeral=True)
         return
 
-    await interaction.response.defer(ephemeral=False)
+    try:
+        await interaction.response.defer(ephemeral=False)
+    except Exception as e:
+        logging.warning(f"/translate defer failed: {e}")
+        return
 
     try:
         translated = await _run_translation(text.strip(), language.value)
     except Exception as e:
+        logging.error(f"/translate translation error: {e}")
         await interaction.followup.send(f"Translation failed: {e}", ephemeral=True)
         return
 
