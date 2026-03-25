@@ -4432,18 +4432,24 @@ async def show_schedule(interaction: discord.Interaction):
     rows = cur.fetchall()
     conn.close()
 
+    # Get the requesting user's timezone and time format preferences
+    user_tz_name = get_user_timezone(interaction.user.id) or "Etc/UTC"
+    user_fmt = get_user_time_format(interaction.user.id)
+    user_tz = ZoneInfo(user_tz_name)
+    time_str_fmt = "%I:%M %p" if user_fmt == "12h" else "%H:%M"
+
     # build a map slot -> list of entries
     slots = {i: [] for i in range(24)}
     for slot, user_id, game in rows:
         slots.setdefault(slot, []).append((user_id, game))
 
-    # Build description with Discord timestamps: we will create a UTC timestamp for each slot (today at slot:00 UTC)
+    # Build description converting each UTC slot to the user's local time and format
     desc_lines = []
     for hour in range(24):
-        # compute unix ts for today at hour:00 UTC (for user's local display)
-        struct = time.strptime(f"{today} {hour:02d}:00:00", "%Y-%m-%d %H:%M:%S")
-        ts = int(calendar.timegm(struct))  # timegm interprets struct_time as UTC
-        time_token = f"<t:{ts}:t>"
+        # compute the UTC datetime for this slot, then convert to user's timezone
+        slot_utc = datetime.strptime(f"{today} {hour:02d}:00:00", "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        slot_local = slot_utc.astimezone(user_tz)
+        time_token = slot_local.strftime(time_str_fmt)
         entries = slots.get(hour) or []
         if entries:
             entry_text = ", ".join([f"<@{uid}> ({game})" for uid, game in entries])
@@ -4453,7 +4459,12 @@ async def show_schedule(interaction: discord.Interaction):
         slot_label = hour + 1
         desc_lines.append(f"**{slot_label}** — {time_token} : {entry_text}")
 
-    embed = discord.Embed(title="Schedule (24h)", description="\n".join(desc_lines), color=0x00BFFF)
+    fmt_label = "12h (AM/PM)" if user_fmt == "12h" else "24h"
+    embed = discord.Embed(
+        title=f"Schedule ({fmt_label}, {user_tz_name})",
+        description="\n".join(desc_lines),
+        color=0x00BFFF,
+    )
     await interaction.followup.send(embed=embed)
 
 
