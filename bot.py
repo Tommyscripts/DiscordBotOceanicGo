@@ -645,6 +645,13 @@ def init_db():
         )
         """
     )
+    # Add time_format column if it doesn't exist yet (migration for existing tables)
+    cur.execute(
+        """
+        ALTER TABLE user_timezones
+            ADD COLUMN IF NOT EXISTS time_format TEXT NOT NULL DEFAULT '24h'
+        """
+    )
     conn.commit()
     conn.close()
 
@@ -750,6 +757,7 @@ COMMAND_DESCRIPTIONS: dict[str, dict[str, str]] = {
         "post_official_links": "Post official links in the configured channel (or this channel if none set)",
         "resync_commands": "Force re-sync of commands in this guild (admins only)",
         "setmytime": "Save your timezone so /time also shows your local time",
+        "settimeformat": "Choose how to display the time: 24h (military) or 12h (AM/PM)",
         "time": "Show the current time in any timezone, or compare with another user",
         # Groups
         "__shop__": "Shop commands",
@@ -812,6 +820,7 @@ COMMAND_DESCRIPTIONS: dict[str, dict[str, str]] = {
         "post_official_links": "Publica los enlaces oficiales en el canal configurado (o en este canal si no hay configurado)",
         "resync_commands": "Fuerza la re-sincronización de comandos en este servidor (solo administradores)",
         "setmytime": "Guarda tu zona horaria para que /time muestre también tu hora local",
+        "settimeformat": "Elige cómo ver la hora: 24h (militar) o 12h (AM/PM)",
         "time": "Muestra la hora actual en cualquier zona horaria o compárala con la de otro usuario",
         # Grupos
         "__shop__": "Comandos de la tienda",
@@ -4931,6 +4940,32 @@ def set_user_timezone(user_id: int, timezone: str) -> None:
     conn.close()
 
 
+def get_user_time_format(user_id: int) -> str:
+    """Returns '12h' or '24h' (default '24h') for the given user."""
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT time_format FROM user_timezones WHERE user_id = %s", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else "24h"
+
+
+def set_user_time_format(user_id: int, fmt: str) -> None:
+    """Saves the user's time format preference ('12h' or '24h')."""
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO user_timezones (user_id, timezone, time_format)
+        VALUES (%s, 'Etc/UTC', %s)
+        ON CONFLICT(user_id) DO UPDATE SET time_format = %s
+        """,
+        (user_id, fmt, fmt),
+    )
+    conn.commit()
+    conn.close()
+
+
 async def timezone_autocomplete(
     interaction: discord.Interaction, current: str
 ) -> list[app_commands.Choice[str]]:
@@ -4945,8 +4980,13 @@ async def timezone_autocomplete(
     return [app_commands.Choice(name=tz, value=tz) for tz in candidates]
 
 
-def _format_time_in_zone(tz_name: str) -> str:
-    """Devuelve la hora actual en la zona horaria indicada, formateada con offset UTC."""
+def _format_time_in_zone(tz_name: str, time_format: str = "24h") -> str:
+    """Devuelve la hora actual en la zona horaria indicada, formateada con offset UTC.
+
+    Args:
+        tz_name: nombre de zona horaria IANA (ej: 'Europe/Madrid').
+        time_format: '24h' para hora militar, '12h' para AM/PM.
+    """
     tz = ZoneInfo(tz_name)
     now = datetime.now(tz)
     offset = now.utcoffset()
@@ -4954,7 +4994,48 @@ def _format_time_in_zone(tz_name: str) -> str:
     sign = "+" if total_minutes >= 0 else "-"
     abs_min = abs(total_minutes)
     offset_str = f"UTC{sign}{abs_min // 60:02d}:{abs_min % 60:02d}"
-    return now.strftime(f"%A, %d %B %Y  —  %H:%M:%S") + f"  ({offset_str})"
+    if time_format == "12h":
+        time_str = now.strftime("%A, %d %B %Y  —  %I:%M:%S %p")
+    else:
+        time_str = now.strftime("%A, %d %B %Y  —  %H:%M:%S")
+    return f"{time_str}  ({offset_str})"
+
+
+@bot.tree.command(name="settimeformat", description="Elige cómo ver la hora: formato 24h (militar) o 12h (AM/PM)")
+@app_commands.allowed_installs(guilds=True, users=True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
+@app_commands.describe(formato="24h = hora militar  |  12h = AM/PM")
+@app_commands.choices(formato=[
+    app_commands.Choice(name="24h — Hora militar (ej: 14:30)", value="24h"),
+    app_commands.Choice(name="12h — AM/PM (ej: 2:30 PM)", value="12h"),
+])
+async def cmd_settimeformat(interaction: discord.Interaction, formato: str):
+    await interaction.response.defer(ephemeral=True)
+    guild_id = interaction.guild.id if interaction.guild else None
+    is_es = get_guild_language(guild_id) == "es" if guild_id else False
+
+    set_user_time_format(interaction.user.id, formato)
+
+    if formato == "12h":
+        label = "12h (AM/PM)"
+        example = "2:30:00 PM"
+    else:
+        label = "24h (hora militar)"
+        example = "14:30:00"
+
+    if is_es:
+        msg = (
+            f"✅ Formato de hora guardado: **{label}**\n"
+            f"Ejemplo: `{example}`\n\n"
+            f"Los comandos `/time` y `/setmytime` usarán este formato de ahora en adelante."
+        )
+    else:
+        msg = (
+            f"✅ Time format saved: **{label}**\n"
+            f"Example: `{example}`\n\n"
+            f"`/time` and `/setmytime` will now use this format."
+        )
+    await interaction.followup.send(msg, ephemeral=True)
 
 
 @bot.tree.command(name="setmytime", description="Guarda tu zona horaria para que /time muestre también tu hora local")
@@ -4977,7 +5058,8 @@ async def cmd_setmytime(interaction: discord.Interaction, timezone: str):
         await interaction.followup.send(err, ephemeral=True)
         return
     set_user_timezone(interaction.user.id, timezone)
-    formatted = _format_time_in_zone(timezone)
+    user_fmt = get_user_time_format(interaction.user.id)
+    formatted = _format_time_in_zone(timezone, user_fmt)
     if is_es:
         msg = (
             f"✅ Tu zona horaria ha sido guardada como **{timezone}**.\n"
@@ -5009,11 +5091,15 @@ async def cmd_time(interaction: discord.Interaction, timezone: str | None = None
     lang = get_guild_language(guild_id) if guild_id else "en"
     is_es = lang == "es"
 
+    # Fetch the caller's time format preference once (used throughout this command)
+    my_fmt = get_user_time_format(interaction.user.id)
+
     # --- Modo: comparar con otro usuario ---
     if usuario is not None:
         try:
             my_tz = get_user_timezone(interaction.user.id)
             other_tz = get_user_timezone(usuario.id)
+            other_fmt = get_user_time_format(usuario.id)
         except Exception:
             logging.exception("/time usuario: error al consultar la DB")
             err = (
@@ -5058,7 +5144,7 @@ async def cmd_time(interaction: discord.Interaction, timezone: str | None = None
 
         if my_tz:
             try:
-                my_time = _format_time_in_zone(my_tz)
+                my_time = _format_time_in_zone(my_tz, my_fmt)
                 embed.add_field(
                     name=f"🏠  {interaction.user.display_name}  ({my_tz})",
                     value=f"`{my_time}`",
@@ -5074,7 +5160,7 @@ async def cmd_time(interaction: discord.Interaction, timezone: str | None = None
             )
 
         try:
-            other_time = _format_time_in_zone(other_tz)
+            other_time = _format_time_in_zone(other_tz, other_fmt)
             embed.add_field(
                 name=f"👤  {usuario.display_name}  ({other_tz})",
                 value=f"`{other_time}`",
@@ -5122,7 +5208,7 @@ async def cmd_time(interaction: discord.Interaction, timezone: str | None = None
         await interaction.followup.send(err, ephemeral=True)
         return
 
-    target_time = _format_time_in_zone(timezone)
+    target_time = _format_time_in_zone(timezone, my_fmt)
 
     embed = discord.Embed(
         title="🌍  Hora mundial" if is_es else "🌍  World Time",
@@ -5133,7 +5219,7 @@ async def cmd_time(interaction: discord.Interaction, timezone: str | None = None
     my_tz = get_user_timezone(interaction.user.id)
     if my_tz and my_tz != timezone:
         try:
-            my_time = _format_time_in_zone(my_tz)
+            my_time = _format_time_in_zone(my_tz, my_fmt)
             my_label = f"🏠  Tu hora  ({my_tz})" if is_es else f"🏠  Your time  ({my_tz})"
             embed.add_field(name=my_label, value=f"`{my_time}`", inline=False)
         except Exception:
