@@ -140,6 +140,19 @@ def ensure_teddy_images(participants):
         image_map[uid] = chosen
     return image_map
 
+
+def _pick_non_repeating_image(candidate_paths, last_image: str | None = None):
+    """Pick an image from candidates avoiding last_image when possible."""
+    candidates = [p for p in candidate_paths if p and os.path.isfile(p)]
+    for p in candidates:
+        if p != last_image:
+            return p
+    assets = load_teddy_images()
+    assets = [a for a in assets if a and a != last_image and os.path.isfile(a)]
+    if assets:
+        return random.choice(assets)
+    return candidates[0] if candidates else None
+
 def simulate(num_players: int = 4, pause: float = 0.4):
     sample_names = ["Alice", "Bob", "Charlie", "Dana", "Eve", "Frank", "Gina", "Hank"]
     players = [
@@ -149,6 +162,7 @@ def simulate(num_players: int = 4, pause: float = 0.4):
     alive = [p["id"] for p in players]
     id_to_name = {p["id"]: p["name"] for p in players}
     image_map = ensure_teddy_images(alive)
+    last_posted_image = None
 
     print("Starting Teddy War — participants:")
     for p in players:
@@ -158,10 +172,13 @@ def simulate(num_players: int = 4, pause: float = 0.4):
     while len(alive) > 1:
         a, d = random.sample(alive, 2)
         attacker_img = image_map.get(a)
+        defender_img = image_map.get(d)
         msgs = _get_teddy_messages_for_image(attacker_img) or TEDDY_MESSAGE_GROUPS["sword"]
         attack_msg = random.choice(msgs["attacks"]).format(a=f"@{id_to_name[a]}", d=f"@{id_to_name[d]}")
+        post_img = _pick_non_repeating_image([attacker_img, defender_img], last_posted_image)
         print("ATTACK:", attack_msg)
-        print("IMAGE:", os.path.basename(attacker_img) if attacker_img else "(no image)")
+        print("IMAGE:", os.path.basename(post_img) if post_img else "(no image)")
+        last_posted_image = post_img
         time.sleep(pause)
 
         killer, victim = (a, d) if random.random() < 0.6 else (d, a)
@@ -169,8 +186,10 @@ def simulate(num_players: int = 4, pause: float = 0.4):
             alive.remove(victim)
         kill_msgs = _get_teddy_messages_for_image(image_map.get(killer)) or TEDDY_MESSAGE_GROUPS["sword"]
         kill_text = random.choice(kill_msgs["kills"]).format(a=f"@{id_to_name[killer]}", d=f"@{id_to_name[victim]}")
+        post_img = _pick_non_repeating_image([image_map.get(killer), image_map.get(victim)], last_posted_image)
         print("KILL:", kill_text)
-        print("IMAGE:", os.path.basename(image_map.get(killer)) if image_map.get(killer) else "(no image)")
+        print("IMAGE:", os.path.basename(post_img) if post_img else "(no image)")
+        last_posted_image = post_img
         time.sleep(pause)
 
         # revive chance
@@ -178,8 +197,10 @@ def simulate(num_players: int = 4, pause: float = 0.4):
             alive.append(victim)
             rev_msgs = _get_teddy_messages_for_image(image_map.get(victim)) or TEDDY_MESSAGE_GROUPS["sword"]
             rev_msg = random.choice(rev_msgs["revives"]).format(d=f"@{id_to_name[victim]}")
+            post_img = _pick_non_repeating_image([image_map.get(victim)], last_posted_image)
             print("REVIVE:", rev_msg)
-            print("IMAGE:", os.path.basename(image_map.get(victim)) if image_map.get(victim) else "(no image)")
+            print("IMAGE:", os.path.basename(post_img) if post_img else "(no image)")
+            last_posted_image = post_img
             time.sleep(pause)
 
         print("---")

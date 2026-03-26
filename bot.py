@@ -2547,68 +2547,90 @@ TEDDY_MESSAGE_GROUPS = {
         "attacks": [
             "{a} smacks {d} with a gigantic fluffy pillow — sweet dreams!",
             "{a} launches a surprise pillow bomb at {d}. Feathers everywhere!",
+            "{a} sneaks a tickle attack; {d} collapses laughing.",
+            "{a} performs the Pillow Tsunami — {d} is carried away.",
         ],
         "kills": [
             "{a} pillows {d} into a permanent nap. Zzzz...",
             "{d} was fluffed to oblivion by {a}. No waking up today.",
+            "A mountain of cushions buries {d} — note: no more waking.",
+            "{d} choked on a rogue pom-pom and went into sleep mode.",
+            "Overstuffed! {d}'s seams burst and he drifts off forever.",
         ],
         "revives": [
             "{d} sneezes out a battery and bounces back!",
             "A stray pillow springs {d} back to life — recharge complete!",
+            "Someone finds a spare stitch and sews {d} back together.",
         ],
         "taunts": [
             "{a} strikes a victory pose while feathers rain down on {d}.",
             "{a} ruffles {d}'s stuffing and laughs maniacally.",
+            "{a} whispers 'nap time' as feathers float by.",
         ],
     },
     "sword": {
         "attacks": [
             "{a} brandishes a foam sword and taps {d} — honorably incapacitated.",
             "{a} performs the legendary 'Cuddly Slash' and {d} topples.",
+            "{a} pokes {d} with a plastic sword; dramatic fall follows.",
+            "{a} trips and accidentally flips {d} into next Tuesday.",
         ],
         "kills": [
             "{a} disarms {d} with a dramatic squeak — {d} falls dramatically.",
             "{d} is skewered by a glue-stick lance and exits stage left.",
+            "{d} slips on a toy car and the sword delivers a final poke.",
+            "{d} gets tangled in a scarf and is theatrically removed from the play.",
         ],
         "revives": [
             "{d} patches up their plush seams and returns, fiercer than ever!",
             "{d} discovers a hidden button labeled 'Restart' and pops back in.",
+            "A meddling sibling presses 'Undo' and {d} reappears, intact.",
         ],
         "taunts": [
             "{a} polishes their tiny sword and winks at {d}.",
             "{a} whispers 'I hug, therefore I win' to {d}.",
+            "{a} does a tiny bow while {d} coughs stuffing.",
         ],
     },
     "epic": {
         "attacks": [
             "{a} leaps through a storm of fluff and lands a thunderous hug on {d}.",
             "{a} swings their glitter blade; {d} is stunned by the sparkle.",
+            "{a} summons a confetti comet that bonks {d} on the head.",
+            "{a} fires a glitter blast — {d} is dazzled and collapses.",
         ],
         "kills": [
             "{d} is knocked into the pillow void — no return ticket.",
             "{a} delivers the 'Cuddle Overload' — system shutdown for {d}.",
+            "The spotlight hits {d} as they take their final curtain nap.",
+            "{d} is slowly un-stuffed by the sparkle vortex and drifts away.",
         ],
         "revives": [
             "{d} miraculously regains fluff after applause from an invisible audience.",
             "A tiny fairy teddy tosses a stitch and {d} wakes up again.",
+            "A fan club chants until {d} pops back into existence.",
         ],
         "taunts": [
             "{a} does a slow clap with adorable paw gestures.",
             "{a} juggles feathers while {d} coughs fluff.",
+            "{a} tosses a glitter coin and winks at {d}.",
         ],
     },
     "hero": {
         "attacks": [
             "{a} stares down {d} with heroic eyes and gives a noble poke.",
             "{a} charges bravely, wielding a sword twice their size.",
+            "{a} offers a sacrificial hug that knocks {d} out of the ring.",
         ],
         "kills": [
             "{a} slays the shadow with a single squeak — legend born.",
             "{d} fades into bedtime stories after that heroic slap.",
+            "{d} is retired to the Hall of Tiny Heroes (rest in softness).",
         ],
         "revives": [
             "{d} finds hidden courage stuffed in their belly and stands up again.",
             "{d} drinks a cup of tiny tea and is back for round two.",
+            "A heroic tale rewrites the outcome and {d} returns triumphant.",
         ],
         "taunts": [
             "{a} taps their chest and says 'For the snuggles!'",
@@ -2619,14 +2641,18 @@ TEDDY_MESSAGE_GROUPS = {
         "attacks": [
             "{a} swings desperately at the looming plush shadow and hits its armor.",
             "{a} charges with reckless fluffiness; the ground trembles.",
+            "{a} attempts the risky 'Paw Jab' and the room shudders.",
         ],
         "kills": [
             "{a} barely survives; {d} is swallowed by the boss's scary fluff.",
             "{d} gets squashed under a giant paw and disappears.",
+            "{d} is sent to the Lost Toy Bin — never to be seen again.",
+            "{d} is taken out by a thunderous snore from the boss.",
         ],
         "revives": [
             "{d} coughs up a spare pom-pom and returns to the fray!",
             "The crowd chants and {d} rematerializes, slightly singed but ready.",
+            "A last-minute alliance stitches {d} back together.",
         ],
         "taunts": [
             "{a} growls like a 2-inch warrior and it somehow works.",
@@ -2656,6 +2682,26 @@ def _get_teddy_messages_for_image(image_path: str):
     key = os.path.basename(image_path)
     group = TEDDY_IMAGE_GROUP_MAP.get(key)
     return TEDDY_MESSAGE_GROUPS.get(group)
+
+
+def _pick_non_repeating_image(candidate_paths, last_image: str | None = None):
+    """Pick an image path from candidate_paths avoiding `last_image` when possible.
+    `candidate_paths` is an iterable of paths (may include None). Returns a valid
+    existing path or None if none found.
+    """
+    # Filter to existing files
+    candidates = [p for p in candidate_paths if p and os.path.isfile(p)]
+    # prefer a candidate different from last_image
+    for p in candidates:
+        if p != last_image:
+            return p
+    # fallback: pick a random teddy asset that's different from last_image
+    assets = load_teddy_images()
+    assets = [a for a in assets if a and a != last_image and os.path.isfile(a)]
+    if assets:
+        return random.choice(assets)
+    # give up: return first candidate or None
+    return candidates[0] if candidates else None
 
 class TeddyTournamentView(discord.ui.View):
     def __init__(self, host: discord.Member | None = None, timeout: int | None = None):
@@ -2760,21 +2806,24 @@ class TeddyTournamentView(discord.ui.View):
         meta = tournaments_meta.get(msg_id, {})
         max_revives = max(1, len(alive) // 10)
         revives_used = 0
-        # Ensure teddy images
+        # Ensure teddy images (consistent per participant)
         image_map = ensure_teddy_images(msg_id, alive)
+        last_posted_image = None
         while len(alive) > 1:
             a, d = random.sample(alive, 2)
-            # choose messages based on attacker's image
             attacker_img = image_map.get(a)
             defender_img = image_map.get(d)
             msgs = _get_teddy_messages_for_image(attacker_img) or TEDDY_MESSAGE_GROUPS["sword"]
             attack_msg = random.choice(msgs["attacks"]).format(a=f"<@{a}>", d=f"<@{d}>")
+
+            # Choose an image to post for this attack, avoiding the last posted image
+            post_img = _pick_non_repeating_image([attacker_img, defender_img], last_posted_image)
             try:
-                if attacker_img:
+                if post_img:
                     embed_msg = discord.Embed(description=attack_msg)
                     try:
-                        file = discord.File(attacker_img)
-                        embed_msg.set_image(url=f"attachment://{os.path.basename(attacker_img)}")
+                        file = discord.File(post_img)
+                        embed_msg.set_image(url=f"attachment://{os.path.basename(post_img)}")
                         await channel.send(embed=embed_msg, file=file)
                     except Exception:
                         await channel.send(attack_msg)
@@ -2784,21 +2833,26 @@ class TeddyTournamentView(discord.ui.View):
                 print(f"Warning: cannot send battle message in channel {getattr(channel, 'id', None)} - missing permissions.")
             except discord.HTTPException as e:
                 print(f"Warning: failed to send battle message: {e}")
+
+            last_posted_image = post_img
             await asyncio.sleep(random.uniform(3, 7))
+
             killer, victim = (a, d) if random.random() < 0.6 else (d, a)
             if victim in alive:
                 alive.remove(victim)
                 eliminated.append(victim)
-            # kill message
+
+            # Kill message
             msgs_k = _get_teddy_messages_for_image(image_map.get(killer)) or TEDDY_MESSAGE_GROUPS["sword"]
             kill_text = random.choice(msgs_k["kills"]).format(a=f"<@{killer}>", d=f"<@{victim}>")
+            # Prefer killer image, but avoid repeating last image
+            post_img = _pick_non_repeating_image([image_map.get(killer), image_map.get(victim)], last_posted_image)
             try:
-                killer_img = image_map.get(killer)
-                if killer_img:
+                if post_img:
                     embed_kill = discord.Embed(description=kill_text)
                     try:
-                        file = discord.File(killer_img)
-                        embed_kill.set_image(url=f"attachment://{os.path.basename(killer_img)}")
+                        file = discord.File(post_img)
+                        embed_kill.set_image(url=f"attachment://{os.path.basename(post_img)}")
                         await channel.send(embed=embed_kill, file=file)
                     except Exception:
                         await channel.send(kill_text)
@@ -2808,6 +2862,9 @@ class TeddyTournamentView(discord.ui.View):
                 print(f"Warning: cannot send kill message in channel {getattr(channel, 'id', None)} - missing permissions.")
             except discord.HTTPException as e:
                 print(f"Warning: failed to send kill message: {e}")
+
+            last_posted_image = post_img
+
             # revive chance
             if revives_used < max_revives and victim not in revived_once and random.random() < 0.5:
                 revived_once.add(victim)
@@ -2815,13 +2872,14 @@ class TeddyTournamentView(discord.ui.View):
                 alive.append(victim)
                 rev_msgs = _get_teddy_messages_for_image(image_map.get(victim)) or TEDDY_MESSAGE_GROUPS["sword"]
                 rev_msg = random.choice(rev_msgs["revives"]).format(d=f"<@{victim}>")
+
+                post_img = _pick_non_repeating_image([image_map.get(victim)], last_posted_image)
                 try:
-                    victim_img = image_map.get(victim)
-                    if victim_img:
+                    if post_img:
                         embed_rev = discord.Embed(description=rev_msg)
                         try:
-                            file = discord.File(victim_img)
-                            embed_rev.set_image(url=f"attachment://{os.path.basename(victim_img)}")
+                            file = discord.File(post_img)
+                            embed_rev.set_image(url=f"attachment://{os.path.basename(post_img)}")
                             await channel.send(embed=embed_rev, file=file)
                         except Exception:
                             await channel.send(rev_msg)
@@ -2831,11 +2889,26 @@ class TeddyTournamentView(discord.ui.View):
                     print(f"Warning: cannot send revive message in channel {getattr(channel, 'id', None)} - missing permissions.")
                 except discord.HTTPException as e:
                     print(f"Warning: failed to send revive message: {e}")
+
+                last_posted_image = post_img
             else:
                 if random.random() < 0.3:
                     try:
                         taunts = _get_teddy_messages_for_image(image_map.get(killer)) or TEDDY_MESSAGE_GROUPS["sword"]
-                        await channel.send(random.choice(taunts["taunts"]).format(a=f"<@{killer}>", d=f"<@{victim}>"))
+                        taunt_text = random.choice(taunts["taunts"]).format(a=f"<@{killer}>", d=f"<@{victim}>")
+                        # try to attach a non-repeating image for the taunt too
+                        taunt_img = _pick_non_repeating_image([image_map.get(killer)], last_posted_image)
+                        if taunt_img:
+                            embed_t = discord.Embed(description=taunt_text)
+                            try:
+                                file = discord.File(taunt_img)
+                                embed_t.set_image(url=f"attachment://{os.path.basename(taunt_img)}")
+                                await channel.send(embed=embed_t, file=file)
+                            except Exception:
+                                await channel.send(taunt_text)
+                            last_posted_image = taunt_img
+                        else:
+                            await channel.send(taunt_text)
                     except Exception:
                         pass
             await asyncio.sleep(random.uniform(3, 7))
