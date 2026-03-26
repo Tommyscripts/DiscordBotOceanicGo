@@ -667,6 +667,71 @@ def load_furby_images():
 
 furby_image_files = load_furby_images()
 
+# Teddy assets (separate set)
+TEDDY_ASSETS_DIR = os.path.join(os.path.dirname(__file__), "teddy wars")
+def load_teddy_images():
+    if not os.path.isdir(TEDDY_ASSETS_DIR):
+        return []
+    files = [os.path.join(TEDDY_ASSETS_DIR, f) for f in os.listdir(TEDDY_ASSETS_DIR) if f.lower().endswith((".png", ".jpg", ".jpeg", ".gif"))]
+    return files
+
+teddy_image_files = load_teddy_images()
+
+def ensure_teddy_images(msg_id: int, participants: list[int]):
+    """Ensure each participant has an assigned teddy image file. Returns a dict user_id -> image_path."""
+    meta = tournaments_meta.setdefault(msg_id, {})
+    image_map = meta.get("teddy_image_map") or {}
+    # refresh available assets
+    assets = load_teddy_images()
+    # assign for each participant if not already assigned
+    for uid in participants:
+        if uid in image_map and os.path.isfile(image_map[uid]):
+            continue
+        chosen = None
+        if assets:
+            chosen = random.choice(assets)
+        # else generate a placeholder image for this user
+        if not chosen:
+            try:
+                from PIL import Image, ImageDraw, ImageFont
+            except Exception:
+                chosen = None
+            else:
+                img = Image.new("RGBA", (400, 400), tuple([random.randint(100, 255) for _ in range(3)]))
+                draw = ImageDraw.Draw(img)
+                # draw simple eyes
+                draw.ellipse((100-30, 120-30, 100+30, 120+30), fill=(255,255,255))
+                draw.ellipse((300-30, 120-30, 300+30, 120+30), fill=(255,255,255))
+                draw.ellipse((115-15, 135-15, 115+15, 135+15), fill=(0,0,0))
+                draw.ellipse((315-15, 135-15, 315+15, 135+15), fill=(0,0,0))
+                try:
+                    font = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
+                except Exception:
+                    font = ImageFont.load_default()
+                label = f"T-{str(uid)[-4:]}"
+                # Compute text size robustly: prefer draw.textbbox, fall back to font.getsize
+                try:
+                    bbox = draw.textbbox((0, 0), label, font=font)
+                    w = bbox[2] - bbox[0]
+                    h = bbox[3] - bbox[1]
+                except Exception:
+                    try:
+                        w, h = font.getsize(label)
+                    except Exception:
+                        w, h = (0, 0)
+                draw.text(((400-w)/2, 320), label, fill=(0,0,0), font=font)
+                out_path = os.path.join(TEDDY_ASSETS_DIR, f"teddy_user_{uid}.png")
+                try:
+                    os.makedirs(TEDDY_ASSETS_DIR, exist_ok=True)
+                    img.save(out_path)
+                    chosen = out_path
+                except Exception:
+                    chosen = None
+        image_map[uid] = chosen
+    meta["teddy_image_map"] = image_map
+    tournaments_meta[msg_id] = meta
+    return image_map
+
 def ensure_participant_images(msg_id: int, participants: list[int]):
     """Ensure each participant has an assigned image file. Returns a dict user_id -> image_path."""
     meta = tournaments_meta.setdefault(msg_id, {})
@@ -2475,6 +2540,413 @@ class TournamentView(discord.ui.View):
             print(f"Warning: cannot edit view for message {interaction.message.id} - missing permissions.")
         except discord.HTTPException as e:
             print(f"Warning: failed to edit view for message {interaction.message.id}: {e}")
+
+# --- Teddy War: messages, view and command ---
+TEDDY_MESSAGE_GROUPS = {
+    "pillow": {
+        "attacks": [
+            "{a} smacks {d} with a gigantic fluffy pillow — sweet dreams!",
+            "{a} launches a surprise pillow bomb at {d}. Feathers everywhere!",
+        ],
+        "kills": [
+            "{a} pillows {d} into a permanent nap. Zzzz...",
+            "{d} was fluffed to oblivion by {a}. No waking up today.",
+        ],
+        "revives": [
+            "{d} sneezes out a battery and bounces back!",
+            "A stray pillow springs {d} back to life — recharge complete!",
+        ],
+        "taunts": [
+            "{a} strikes a victory pose while feathers rain down on {d}.",
+            "{a} ruffles {d}'s stuffing and laughs maniacally.",
+        ],
+    },
+    "sword": {
+        "attacks": [
+            "{a} brandishes a foam sword and taps {d} — honorably incapacitated.",
+            "{a} performs the legendary 'Cuddly Slash' and {d} topples.",
+        ],
+        "kills": [
+            "{a} disarms {d} with a dramatic squeak — {d} falls dramatically.",
+            "{d} is skewered by a glue-stick lance and exits stage left.",
+        ],
+        "revives": [
+            "{d} patches up their plush seams and returns, fiercer than ever!",
+            "{d} discovers a hidden button labeled 'Restart' and pops back in.",
+        ],
+        "taunts": [
+            "{a} polishes their tiny sword and winks at {d}.",
+            "{a} whispers 'I hug, therefore I win' to {d}.",
+        ],
+    },
+    "epic": {
+        "attacks": [
+            "{a} leaps through a storm of fluff and lands a thunderous hug on {d}.",
+            "{a} swings their glitter blade; {d} is stunned by the sparkle.",
+        ],
+        "kills": [
+            "{d} is knocked into the pillow void — no return ticket.",
+            "{a} delivers the 'Cuddle Overload' — system shutdown for {d}.",
+        ],
+        "revives": [
+            "{d} miraculously regains fluff after applause from an invisible audience.",
+            "A tiny fairy teddy tosses a stitch and {d} wakes up again.",
+        ],
+        "taunts": [
+            "{a} does a slow clap with adorable paw gestures.",
+            "{a} juggles feathers while {d} coughs fluff.",
+        ],
+    },
+    "hero": {
+        "attacks": [
+            "{a} stares down {d} with heroic eyes and gives a noble poke.",
+            "{a} charges bravely, wielding a sword twice their size.",
+        ],
+        "kills": [
+            "{a} slays the shadow with a single squeak — legend born.",
+            "{d} fades into bedtime stories after that heroic slap.",
+        ],
+        "revives": [
+            "{d} finds hidden courage stuffed in their belly and stands up again.",
+            "{d} drinks a cup of tiny tea and is back for round two.",
+        ],
+        "taunts": [
+            "{a} taps their chest and says 'For the snuggles!'",
+            "{a} strikes a heroic pose on a pile of pillows.",
+        ],
+    },
+    "boss": {
+        "attacks": [
+            "{a} swings desperately at the looming plush shadow and hits its armor.",
+            "{a} charges with reckless fluffiness; the ground trembles.",
+        ],
+        "kills": [
+            "{a} barely survives; {d} is swallowed by the boss's scary fluff.",
+            "{d} gets squashed under a giant paw and disappears.",
+        ],
+        "revives": [
+            "{d} coughs up a spare pom-pom and returns to the fray!",
+            "The crowd chants and {d} rematerializes, slightly singed but ready.",
+        ],
+        "taunts": [
+            "{a} growls like a 2-inch warrior and it somehow works.",
+            "{a} polishes their sword while the boss frowns.",
+        ],
+    },
+}
+
+# Map specific filenames to groups so texts match image themes
+TEDDY_IMAGE_GROUP_MAP = {}
+for n in range(7768, 7785):
+    name = f"IMG_{n}.jpg"
+    if n in (7768, 7769):
+        TEDDY_IMAGE_GROUP_MAP[name] = "pillow"
+    elif n in (7781,):
+        TEDDY_IMAGE_GROUP_MAP[name] = "hero"
+    elif n in (7782, 7783, 7784):
+        TEDDY_IMAGE_GROUP_MAP[name] = "boss"
+    elif n in (7777, 7778, 7779, 7780):
+        TEDDY_IMAGE_GROUP_MAP[name] = "epic"
+    else:
+        TEDDY_IMAGE_GROUP_MAP[name] = "sword"
+
+def _get_teddy_messages_for_image(image_path: str):
+    if not image_path:
+        return None
+    key = os.path.basename(image_path)
+    group = TEDDY_IMAGE_GROUP_MAP.get(key)
+    return TEDDY_MESSAGE_GROUPS.get(group)
+
+class TeddyTournamentView(discord.ui.View):
+    def __init__(self, host: discord.Member | None = None, timeout: int | None = None):
+        super().__init__(timeout=timeout)
+        self.host = host
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return True
+
+    @discord.ui.button(label="Join Tournament", style=discord.ButtonStyle.success, emoji="🧸")
+    async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        try:
+            await interaction.response.send_message("You have joined the teddy war.", ephemeral=True)
+        except Exception:
+            try:
+                await interaction.followup.send("You have joined the teddy war.", ephemeral=True)
+            except Exception:
+                pass
+        msg_id = interaction.message.id
+        participants = tournaments.setdefault(msg_id, set())
+        meta = tournaments_meta.get(msg_id, {})
+        maxp = meta.get("max_participants", 50)
+        if interaction.user.id in participants:
+            try:
+                await safe_reply(interaction, "You are already in the tournament.")
+            except Exception:
+                pass
+            return
+        if len(participants) >= maxp:
+            try:
+                await safe_reply(interaction, f"Tournament is full ({maxp} participants). You can't join.")
+            except Exception:
+                pass
+            return
+        participants.add(interaction.user.id)
+        preview = "\n".join([f"<@{uid}>" for uid in list(participants)[:20]])
+        try:
+            await safe_reply(interaction, f"{interaction.user.mention} just joined the teddy war.\nParticipants: {len(participants)}/{maxp}\n\n{preview}")
+        except Exception:
+            pass
+        await update_tournament_message(interaction.message)
+
+    @discord.ui.button(label="Leave Tournament", style=discord.ButtonStyle.danger, emoji="🚪")
+    async def leave_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        try:
+            await interaction.response.send_message("You have left the tournament.", ephemeral=True)
+        except Exception:
+            try:
+                await interaction.followup.send("You have left the tournament.", ephemeral=True)
+            except Exception:
+                pass
+        msg_id = interaction.message.id
+        participants = tournaments.setdefault(msg_id, set())
+        if interaction.user.id not in participants:
+            try:
+                await safe_reply(interaction, "You are not in the tournament.")
+            except Exception:
+                pass
+            return
+        participants.remove(interaction.user.id)
+        meta = tournaments_meta.get(msg_id, {})
+        maxp = meta.get("max_participants", 50)
+        preview = "\n".join([f"<@{uid}>" for uid in list(participants)[:20]])
+        try:
+            await safe_reply(interaction, f"{interaction.user.mention} left the tournament.\nParticipants: {len(participants)}/{maxp}\n\n{preview if preview else 'No participants.'}")
+        except Exception:
+            pass
+        await update_tournament_message(interaction.message)
+
+    @discord.ui.button(label="Start Tournament", style=discord.ButtonStyle.primary, emoji="▶️")
+    async def start_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        try:
+            await interaction.response.send_message("Teddy war starting! 🔥", ephemeral=False)
+        except Exception:
+            try:
+                await interaction.followup.send("Teddy war starting! 🔥", ephemeral=False)
+            except Exception:
+                pass
+        if self.host and interaction.user != self.host and not interaction.user.guild_permissions.manage_guild:
+            try:
+                await safe_reply(interaction, "Only the host or a manager can start the tournament.")
+            except Exception:
+                pass
+            return
+        msg_id = interaction.message.id
+        participants = tournaments.get(msg_id, set())
+        if len(participants) < 2:
+            try:
+                await safe_reply(interaction, "Need at least 2 participants to start.")
+            except Exception:
+                pass
+            return
+        import random
+        channel = interaction.channel
+        try:
+            await interaction.response.send_message("The teddy war battle begins! 🔥", ephemeral=False)
+        except Exception:
+            pass
+        alive = list(participants)
+        eliminated = []
+        revived_once = set()
+        meta = tournaments_meta.get(msg_id, {})
+        max_revives = max(1, len(alive) // 10)
+        revives_used = 0
+        # Ensure teddy images
+        image_map = ensure_teddy_images(msg_id, alive)
+        while len(alive) > 1:
+            a, d = random.sample(alive, 2)
+            # choose messages based on attacker's image
+            attacker_img = image_map.get(a)
+            defender_img = image_map.get(d)
+            msgs = _get_teddy_messages_for_image(attacker_img) or TEDDY_MESSAGE_GROUPS["sword"]
+            attack_msg = random.choice(msgs["attacks"]).format(a=f"<@{a}>", d=f"<@{d}>")
+            try:
+                if attacker_img:
+                    embed_msg = discord.Embed(description=attack_msg)
+                    try:
+                        file = discord.File(attacker_img)
+                        embed_msg.set_image(url=f"attachment://{os.path.basename(attacker_img)}")
+                        await channel.send(embed=embed_msg, file=file)
+                    except Exception:
+                        await channel.send(attack_msg)
+                else:
+                    await channel.send(attack_msg)
+            except discord.Forbidden:
+                print(f"Warning: cannot send battle message in channel {getattr(channel, 'id', None)} - missing permissions.")
+            except discord.HTTPException as e:
+                print(f"Warning: failed to send battle message: {e}")
+            await asyncio.sleep(random.uniform(3, 7))
+            killer, victim = (a, d) if random.random() < 0.6 else (d, a)
+            if victim in alive:
+                alive.remove(victim)
+                eliminated.append(victim)
+            # kill message
+            msgs_k = _get_teddy_messages_for_image(image_map.get(killer)) or TEDDY_MESSAGE_GROUPS["sword"]
+            kill_text = random.choice(msgs_k["kills"]).format(a=f"<@{killer}>", d=f"<@{victim}>")
+            try:
+                killer_img = image_map.get(killer)
+                if killer_img:
+                    embed_kill = discord.Embed(description=kill_text)
+                    try:
+                        file = discord.File(killer_img)
+                        embed_kill.set_image(url=f"attachment://{os.path.basename(killer_img)}")
+                        await channel.send(embed=embed_kill, file=file)
+                    except Exception:
+                        await channel.send(kill_text)
+                else:
+                    await channel.send(kill_text)
+            except discord.Forbidden:
+                print(f"Warning: cannot send kill message in channel {getattr(channel, 'id', None)} - missing permissions.")
+            except discord.HTTPException as e:
+                print(f"Warning: failed to send kill message: {e}")
+            # revive chance
+            if revives_used < max_revives and victim not in revived_once and random.random() < 0.5:
+                revived_once.add(victim)
+                revives_used += 1
+                alive.append(victim)
+                rev_msgs = _get_teddy_messages_for_image(image_map.get(victim)) or TEDDY_MESSAGE_GROUPS["sword"]
+                rev_msg = random.choice(rev_msgs["revives"]).format(d=f"<@{victim}>")
+                try:
+                    victim_img = image_map.get(victim)
+                    if victim_img:
+                        embed_rev = discord.Embed(description=rev_msg)
+                        try:
+                            file = discord.File(victim_img)
+                            embed_rev.set_image(url=f"attachment://{os.path.basename(victim_img)}")
+                            await channel.send(embed=embed_rev, file=file)
+                        except Exception:
+                            await channel.send(rev_msg)
+                    else:
+                        await channel.send(rev_msg)
+                except discord.Forbidden:
+                    print(f"Warning: cannot send revive message in channel {getattr(channel, 'id', None)} - missing permissions.")
+                except discord.HTTPException as e:
+                    print(f"Warning: failed to send revive message: {e}")
+            else:
+                if random.random() < 0.3:
+                    try:
+                        taunts = _get_teddy_messages_for_image(image_map.get(killer)) or TEDDY_MESSAGE_GROUPS["sword"]
+                        await channel.send(random.choice(taunts["taunts"]).format(a=f"<@{killer}>", d=f"<@{victim}>"))
+                    except Exception:
+                        pass
+            await asyncio.sleep(random.uniform(3, 7))
+        # Winner
+        winner_id = alive[0]
+        guild = interaction.guild
+        # Save stats (reuse existing wins tables)
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("INSERT INTO wins_global(user_id, wins) VALUES (%s, 1) ON CONFLICT(user_id) DO UPDATE SET wins = wins_global.wins + 1", (winner_id,))
+        if guild:
+            cur.execute("INSERT INTO wins_guild(guild_id, user_id, wins) VALUES (%s, %s, 1) ON CONFLICT(guild_id, user_id) DO UPDATE SET wins = wins_guild.wins + 1", (guild.id, winner_id))
+        conn.commit()
+        cur.execute("SELECT wins FROM wins_global WHERE user_id = %s", (winner_id,))
+        global_wins = cur.fetchone()[0]
+        guild_wins = 0
+        if guild:
+            cur.execute("SELECT wins FROM wins_guild WHERE guild_id = %s AND user_id = %s", (guild.id, winner_id))
+            row = cur.fetchone()
+            guild_wins = row[0] if row else 0
+        conn.close()
+        meta = tournaments_meta.get(msg_id, {})
+        start_ts = meta.get("start")
+        duration_text = "unknown"
+        if start_ts:
+            dur = int(time.time() - start_ts)
+            mins, secs = divmod(dur, 60)
+            duration_text = f"{mins}m {secs}s"
+        winner_mention = f"<@{winner_id}>"
+        host_mention = f"<@{self.host.id}>" if self.host else "(unknown)"
+        try:
+            await channel.send(f"Teddy war finished! Winner: {winner_mention}. Host: {host_mention}")
+        except Exception:
+            pass
+        # Award turkeys/snuggles similar to furby
+        try:
+            participants_total = len(participants)
+            turkeys_awarded = 2 * participants_total
+            try:
+                if await is_staff_in_guild(interaction.guild, winner_id):
+                    try:
+                        _emoji, _cname = get_currency_display(getattr(interaction.guild, 'id', None))
+                        await channel.send(f"{_emoji} {winner_mention} is staff and has unlimited {_cname} — congratulations!")
+                    except Exception:
+                        pass
+                else:
+                    add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)
+                    try:
+                        await channel.send(f"{fmt_currency(getattr(interaction.guild, 'id', None), turkeys_awarded)} have been awarded to {winner_mention}!")
+                    except Exception:
+                        pass
+            except Exception:
+                try:
+                    add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        for child in self.children:
+            child.disabled = True
+        try:
+            await interaction.message.edit(view=self)
+        except Exception:
+            pass
+
+    @discord.ui.button(label="Cancel Tournament", style=discord.ButtonStyle.secondary, emoji="❌")
+    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.host and interaction.user != self.host and not interaction.user.guild_permissions.manage_guild:
+            try:
+                await safe_reply(interaction, "Only the host or a manager can cancel the tournament.")
+            except Exception:
+                pass
+            return
+        msg_id = interaction.message.id
+        tournaments.pop(msg_id, None)
+        try:
+            await safe_reply(interaction, "Tournament cancelled.")
+        except Exception:
+            pass
+        for child in self.children:
+            child.disabled = True
+        try:
+            await interaction.message.edit(view=self)
+        except Exception:
+            pass
+
+# Slash command to create teddy war
+@bot.tree.command(name="teddy_war", description="Create a Teddy War tournament embed")
+@app_commands.describe(title="Title for the tournament")
+async def teddy_war(interaction: discord.Interaction, title: str = "Teddy War"):
+    host = interaction.user
+    embed = discord.Embed(title=title, color=0xFF69B4)
+    description = (
+        "Tournament ID: teddy-" + str(int(time.time())) + "\n\n"
+        "Instructions:\n"
+        "• Click Join Tournament to enter your Teddy\n"
+        "• The host can start the war when ready\n"
+        "• Maximum 50 participants allowed\n\n"
+        "Have fun and be silly! Your Teddy's image will be shown during battles."
+    )
+    embed.description = description
+    embed.set_footer(text=f"Host: {host.display_name}")
+    view = TeddyTournamentView(host=host, timeout=None)
+    msg = await interaction.response.send_message(embed=embed, view=view, ephemeral=False)
+    sent = await interaction.original_response()
+    tournaments[sent.id] = set()
+    tournaments_meta[sent.id] = {
+        "host": host.id,
+        "start": int(time.time()),
+        "max_participants": 50,
+    }
 
 
 # ---------------- Slash commands: Snuggles balance & shop ----------------
