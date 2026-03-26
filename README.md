@@ -1,10 +1,9 @@
-# Furby Tournament Bot
+# Discord Bot
 
-A minimal Discord bot in Python that sends a "Furby Tournament" embed with four buttons similar to the Kirby tournament shown in the screenshots.
+A minimal Discord bot in Python that provides several mini-games, utilities and interactive views.
 
 Features
-- Slash command `/furbytournament` which posts an embed describing the tournament
-- Four interactive buttons: Join Tournament, Leave Tournament, Start Tournament, Cancel Tournament
+- Four interactive buttons for various game lobbies (Join/Leave/Start/Cancel)
 - Simple in-memory participant tracking per message (no database)
 
 Requirements
@@ -70,8 +69,7 @@ python3 bot.py
 New features added
 ------------------
 - Auto-mention: If anyone writes exactly (case-insensitive) the phrase "the best staff in the world" in a channel the bot can read, the bot will mention the user `Tommyhide`.
-- Persistent tournament view: Tournament buttons no longer auto-expire. The lobby will remain active until someone starts or cancels the tournament.
-- Public titles: When creating a tournament using `/furbytournament`, the title and embed are sent as a public message visible to everyone in the channel (not ephemeral).
+
 
 Haunted House (Escape) — now with buttons
 -----------------------------------------
@@ -119,7 +117,6 @@ Notas:
 
 - **Games & Tournaments:**
    - ` /wordchain [timeout]` : Start a Word Chain game lobby (players join with buttons).
-   - ` /furby_tournament [title]` : Create a Furby tournament embed with Join/Leave/Start buttons.
    - ` /mm` : Quick explanation of how to play "mm".
    - ` /wheels create <text>` : Create a reaction-based wheel (users react to join).
    - ` /wheels start` : Start a wheel and pick a random winner from reactors.

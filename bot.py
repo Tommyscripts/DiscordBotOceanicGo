@@ -809,7 +809,6 @@ COMMAND_DESCRIPTIONS: dict[str, dict[str, str]] = {
         "snuggles": "Check your Snuggles balance",
         "give_snuggles": "(Staff) Give Snuggles to a user",
         "rename_currency": "(Staff) Change the display name and/or emoji of the currency",
-        "furby_tournament": "Create a Furby tournament embed",
         "mm": "Quick explanation of how to play 'mm'",
         "setmonopolychannel": "Set the channel where Monopoly GO free reward links will be posted",
         "unsetmonopolychannel": "Disable automatic Monopoly GO reward link posting in this server",
@@ -872,7 +871,6 @@ COMMAND_DESCRIPTIONS: dict[str, dict[str, str]] = {
         "snuggles": "Consulta tu saldo de Snuggles",
         "give_snuggles": "(Staff) Da Snuggles a un usuario",
         "rename_currency": "(Staff) Cambia el nombre y/o emoji de la moneda",
-        "furby_tournament": "Crea un embed de torneo Furby",
         "mm": "Explicación rápida de cómo jugar a 'mm'",
         "setmonopolychannel": "Configura el canal donde se publicarán los enlaces de recompensas de Monopoly GO",
         "unsetmonopolychannel": "Desactiva la publicación automática de enlaces de Monopoly GO en este servidor",
@@ -1336,7 +1334,7 @@ async def _apply_guild_currency_command(guild_id: int, new_cmd_name: str, old_cm
 _TRANSLATABLE_TOP_LEVEL = [
     "wordchain", "ban", "kick", "mute", "settings_mod",
     "snuggles", "give_snuggles", "rename_currency",
-    "furby_tournament", "mm",
+    "mm",
     "setmonopolychannel", "unsetmonopolychannel",
     "custom", "deletecustom",
     "set_official_links_channel", "add_official_link", "remove_official_link",
@@ -2307,45 +2305,7 @@ class TournamentView(discord.ui.View):
             "{a} performs the legendary Furby-Flick: {d} is flung into the void.",
             "{a} whispers 'tickle' and {d} mysteriously collapses laughing.",
         ]
-        revives_msgs = [
-            "But wait! {d} coughs up a spare battery and springs back to life!",
-            "A mysterious fairy grants {d} a second chance — back in the fight!",
-            "{d} finds a hidden extra life under its fluff and returns, enraged!",
-        ]
-        taunts = [
-            "{a} taunts {d} with an evil giggle.",
-            "{a} does a victory dance over {d}.",
-        ]
-        # Ensure each participant has an image assigned (consistent across the tournament)
-        image_map = ensure_participant_images(msg_id, alive)
-
-        # Battle loop: pairwise eliminations until one remains
-        while len(alive) > 1:
-            # pick two distinct combatants
-            a, d = random.sample(alive, 2)
-            # choose an attack message and maybe an image for attacker or defender
-            msg_text = random.choice(attacks).format(a=f"<@{a}>", d=f"<@{d}>")
-            # select images for attacker and defender if available
-            attacker_img = image_map.get(a)
-            defender_img = image_map.get(d)
-            try:
-                if attacker_img:
-                    embed_msg = discord.Embed(description=msg_text)
-                    try:
-                        file = discord.File(attacker_img)
-                        embed_msg.set_image(url=f"attachment://{os.path.basename(attacker_img)}")
-                        await channel.send(embed=embed_msg, file=file)
-                    except Exception:
-                        await channel.send(msg_text)
-                else:
-                    await channel.send(msg_text)
-            except discord.Forbidden:
-                print(f"Warning: cannot send battle message in channel {getattr(channel, 'id', None)} - missing permissions.")
-            except discord.HTTPException as e:
-                print(f"Warning: failed to send battle message: {e}")
-
-            # random cooldown between messages (5 to 10 seconds)
-            await asyncio.sleep(random.uniform(5, 10))
+# TournamentView removed: Furby tournament game deleted.
 
             # determine outcome: d has a chance to be revived after death
             # For flavor, randomly decide who wins this encounter (attacker or defender)
@@ -4917,46 +4877,7 @@ try:
 except Exception:
     pass
 
-
-@bot.tree.command(name="furby_tournament", description="Create a Furby tournament embed")
-@app_commands.describe(title="Title for the tournament")
-async def furbytournament(interaction: discord.Interaction, title: str = "Furby Tournament"):
-    host = interaction.user
-    embed = discord.Embed(title=title, color=0xF5A623)
-    description = (
-        "Tournament ID: furby-1234567890\n\n"
-        "Instructions:\n"
-        "• Click Join Tournament to enter your Furby\n"
-        "• Tournament will be divided by levels\n"
-        "• All Furbys will have max stats during battles\n"
-        "• The host can start the tournament when ready\n"
-        "• At least 2 Furbys of the same level are needed for that bracket\n"
-        "• Maximum 50 participants allowed\n\n"
-        "⚡ Revival System ⚡\n"
-        "• Eliminated Furbys may get a second chance!\n"
-        "• Revival checks occur at specific rounds\n"
-        "• There's a 60% chance of revival occurring\n"
-        "• Only a limited number of Furbys can be revived\n"
-        "• Each Furby can only be revived once per tournament\n\n"
-        "Lobby Timeout\n"
-        "Today at "
-    )
-    embed.description = description + discord.utils.format_dt(discord.utils.utcnow(), style="t")
-    embed.set_footer(text=f"Host: {host.display_name}")
-
-    view = TournamentView(host=host, timeout=None)
-    # Ensure the message is visible to everyone in the channel (not ephemeral)
-    msg = await interaction.response.send_message(embed=embed, view=view, ephemeral=False)
-    # interaction.response.send_message returns None when deferred; fetch the message
-    # so instead we use followup to get the message object
-    sent = await interaction.original_response()
-    tournaments[sent.id] = set()
-    # store metadata: host id, start timestamp, and max participants
-    tournaments_meta[sent.id] = {
-        "host": host.id,
-        "start": int(time.time()),
-        "max_participants": 50,
-    }
+# Furby tournament command removed.
 
 
 def _current_date_str():
