@@ -1,11 +1,9 @@
 from __future__ import annotations
-
 import os
 import asyncio
 import sys
 import getpass
 from typing import List, Set
-
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -543,12 +541,21 @@ def init_db():
         CREATE TABLE IF NOT EXISTS schedule_entries (
             date TEXT,
             slot INTEGER,
+            guild_id BIGINT,
             user_id BIGINT,
             game TEXT,
-            PRIMARY KEY (date, slot, user_id)
+            PRIMARY KEY (date, slot, guild_id, user_id)
         )
         """
     )
+    # Migration: ensure existing installations get a guild_id column and composite PK
+    try:
+        cur.execute("ALTER TABLE schedule_entries ADD COLUMN IF NOT EXISTS guild_id BIGINT NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE schedule_entries DROP CONSTRAINT IF EXISTS schedule_entries_pkey")
+        cur.execute("ALTER TABLE schedule_entries ADD PRIMARY KEY (date, slot, guild_id, user_id)")
+    except Exception:
+        # best-effort migration; ignore errors (e.g., running on SQLite or unsupported PG version)
+        pass
     # Economy: per-guild balances (same user has separate balances per server)
     cur.execute(
         """
@@ -2173,334 +2180,8 @@ def maybe_halloween_announce(channel: discord.abc.GuildChannel):
             except Exception:
                 pass
 
-class TournamentView(discord.ui.View):
-    def __init__(self, host: discord.Member | None = None, timeout: int | None = None):
-        """A persistent view for the tournament. By default timeout is None so it won't auto-expire."""
-        super().__init__(timeout=timeout)
-        self.host = host
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        # allow everyone to press buttons; you can add checks here
-        return True
-
-    @discord.ui.button(label="Join Tournament", style=discord.ButtonStyle.success, emoji="🏆")
-    async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Acknowledge quickly
-        try:
-            await interaction.response.send_message("You have joined the tournament.", ephemeral=True)
-        except Exception:
-            try:
-                await interaction.followup.send("You have joined the tournament.", ephemeral=True)
-            except Exception:
-                pass
-
-        msg_id = interaction.message.id
-        participants = tournaments.setdefault(msg_id, set())
-        meta = tournaments_meta.get(msg_id, {})
-        maxp = meta.get("max_participants", 50)
-
-        if interaction.user.id in participants:
-            # already joined
-            try:
-                await safe_reply(interaction, "You are already in the tournament.")
-            except Exception:
-                pass
-            return
-        if len(participants) >= maxp:
-            try:
-                await safe_reply(interaction, f"Tournament is full ({maxp} participants). You can't join.")
-            except Exception:
-                pass
-            return
-
-        participants.add(interaction.user.id)
-        # build a small participant preview
-        preview = "\n".join([f"<@{uid}>" for uid in list(participants)[:20]])
-        try:
-            await safe_reply(interaction, f"{interaction.user.mention} just joined the tournament.\nParticipants: {len(participants)}/{maxp}\n\n{preview}")
-        except Exception:
-            pass
-        await update_tournament_message(interaction.message)
-
-    @discord.ui.button(label="Leave Tournament", style=discord.ButtonStyle.danger, emoji="🚪")
-    async def leave_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            await interaction.response.send_message("You have left the tournament.", ephemeral=True)
-        except Exception:
-            try:
-                await interaction.followup.send("You have left the tournament.", ephemeral=True)
-            except Exception:
-                pass
-
-        msg_id = interaction.message.id
-        participants = tournaments.setdefault(msg_id, set())
-        if interaction.user.id not in participants:
-            try:
-                await safe_reply(interaction, "You are not in the tournament.")
-            except Exception:
-                pass
-            return
-        participants.remove(interaction.user.id)
-        meta = tournaments_meta.get(msg_id, {})
-        maxp = meta.get("max_participants", 50)
-        preview = "\n".join([f"<@{uid}>" for uid in list(participants)[:20]])
-        try:
-            await safe_reply(interaction, f"{interaction.user.mention} left the tournament.\nParticipants: {len(participants)}/{maxp}\n\n{preview if preview else 'No participants.'}")
-        except Exception:
-            pass
-        await update_tournament_message(interaction.message)
-
-    @discord.ui.button(label="Start Tournament", style=discord.ButtonStyle.primary, emoji="▶️")
-    async def start_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Acknowledge start (non-ephemeral)
-        try:
-            await interaction.response.send_message("Tournament starting! 🔥", ephemeral=False)
-        except Exception:
-            try:
-                await interaction.followup.send("Tournament starting! 🔥", ephemeral=False)
-            except Exception:
-                pass
-
-        # Only host or users with manage_guild can start
-        if self.host and interaction.user != self.host and not interaction.user.guild_permissions.manage_guild:
-            try:
-                await safe_reply(interaction, "Only the host or a manager can start the tournament.")
-            except Exception:
-                pass
-            return
-
-        msg_id = interaction.message.id
-        participants = tournaments.get(msg_id, set())
-        if len(participants) < 2:
-            try:
-                await safe_reply(interaction, "Need at least 2 participants to start.")
-            except Exception:
-                pass
-            return
-
-        # Start a fun battle simulation with messages in the channel.
-        import random
-
-        channel = interaction.channel
-
-        # Acknowledge the interaction quickly
-        try:
-            await interaction.response.send_message("The tournament battle begins! 🔥", ephemeral=False)
-        except Exception:
-            # If we've already responded, ignore
-            pass
-
-        # Prepare battle state
-        alive = list(participants)
-        eliminated = []
-        revived_once = set()
-        meta = tournaments_meta.get(msg_id, {})
-        max_revives = max(1, len(alive) // 10)  # limited number of revives (at least 1)
-        revives_used = 0
-
-        # Predefined goofy messages (English)
-        attacks = [
-            "{a} charges in and absolutely annihilates {d} with a glittery headbutt!",
-            "{a} uses a supersonic squeak — {d} doesn't even see it coming.",
-            "{a} performs the legendary Furby-Flick: {d} is flung into the void.",
-            "{a} whispers 'tickle' and {d} mysteriously collapses laughing.",
-        ]
-# TournamentView removed: Furby tournament game deleted.
-
-            # determine outcome: d has a chance to be revived after death
-            # For flavor, randomly decide who wins this encounter (attacker or defender)
-            killer, victim = (a, d) if random.random() < 0.6 else (d, a)
-            # victim is 'killed'
-            if victim in alive:
-                alive.remove(victim)
-                eliminated.append(victim)
-            # announce kill
-            kill_texts = [
-                f"{f'<@{killer}>'} lands the final blow — {f'<@{victim}>'} is out!",
-                f"With dramatic flair, {f'<@{killer}>'} defeats {f'<@{victim}>'}.",
-                f"{f'<@{victim}>'} was fluffed to bits by {f'<@{killer}>'}.",
-            ]
-            try:
-                # use killer's image if available
-                killer_img = image_map.get(killer)
-                text = random.choice(kill_texts)
-                if killer_img:
-                    embed_kill = discord.Embed(description=text)
-                    try:
-                        file = discord.File(killer_img)
-                        embed_kill.set_image(url=f"attachment://{os.path.basename(killer_img)}")
-                        await channel.send(embed=embed_kill, file=file)
-                    except Exception:
-                        await channel.send(text)
-                else:
-                    await channel.send(text)
-            except discord.Forbidden:
-                print(f"Warning: cannot send kill message in channel {getattr(channel, 'id', None)} - missing permissions.")
-            except discord.HTTPException as e:
-                print(f"Warning: failed to send kill message: {e}")
-
-            # chance to revive (60%) if revives left and the furby hasn't revived before
-            if revives_used < max_revives and victim not in revived_once and random.random() < 0.6:
-                revived_once.add(victim)
-                revives_used += 1
-                alive.append(victim)
-                try:
-                    rev_msg = random.choice(revives_msgs).format(d=f"<@{victim}>")
-                    victim_img = image_map.get(victim)
-                    if victim_img:
-                        embed_rev = discord.Embed(description=rev_msg)
-                        try:
-                            file = discord.File(victim_img)
-                            embed_rev.set_image(url=f"attachment://{os.path.basename(victim_img)}")
-                            await channel.send(embed=embed_rev, file=file)
-                        except Exception:
-                            await channel.send(rev_msg)
-                    else:
-                        await channel.send(rev_msg)
-                except discord.Forbidden:
-                    print(f"Warning: cannot send revive message in channel {getattr(channel, 'id', None)} - missing permissions.")
-                except discord.HTTPException as e:
-                    print(f"Warning: failed to send revive message: {e}")
-            else:
-                # sometimes add a taunt or short comment
-                if random.random() < 0.3:
-                    try:
-                        await channel.send(random.choice(taunts).format(a=f"<@{killer}>", d=f"<@{victim}>"))
-                    except discord.Forbidden:
-                        pass
-                    except discord.HTTPException:
-                        pass
-
-            # short cooldown before next encounter
-            await asyncio.sleep(random.uniform(5, 10))
-
-        # Winner determined
-        winner_id = alive[0]
-        guild = interaction.guild
-
-        # Save stats to PostgreSQL
-        conn = get_db_conn()
-        cur = conn.cursor()
-        # global
-        cur.execute("INSERT INTO wins_global(user_id, wins) VALUES (%s, 1) ON CONFLICT(user_id) DO UPDATE SET wins = wins_global.wins + 1", (winner_id,))
-        # guild
-        if guild:
-            cur.execute("INSERT INTO wins_guild(guild_id, user_id, wins) VALUES (%s, %s, 1) ON CONFLICT(guild_id, user_id) DO UPDATE SET wins = wins_guild.wins + 1", (guild.id, winner_id))
-        conn.commit()
-        # fetch stats to show
-        cur.execute("SELECT wins FROM wins_global WHERE user_id = %s", (winner_id,))
-        global_wins = cur.fetchone()[0]
-        guild_wins = 0
-        if guild:
-            cur.execute("SELECT wins FROM wins_guild WHERE guild_id = %s AND user_id = %s", (guild.id, winner_id))
-            row = cur.fetchone()
-            guild_wins = row[0] if row else 0
-        conn.close()
-
-        # compute duration
-        meta = tournaments_meta.get(msg_id, {})
-        start_ts = meta.get("start")
-        duration_text = "unknown"
-        if start_ts:
-            dur = int(time.time() - start_ts)
-            mins, secs = divmod(dur, 60)
-            duration_text = f"{mins}m {secs}s"
-
-        winner_mention = f"<@{winner_id}>"
-        host_mention = f"<@{self.host.id}>" if self.host else "(unknown)"
-
-        # Announce the winner and update UI
-        try:
-            await channel.send(f"Tournament finished! Winner: {winner_mention}. Host: {host_mention}")
-        except discord.Forbidden:
-            print(f"Warning: cannot send final announcement in channel {getattr(channel, 'id', None)} - missing permissions.")
-        except discord.HTTPException as e:
-            print(f"Warning: failed to send final announcement: {e}")
-
-        # Award turkeys for the tournament: 2 turkeys per participant
-        try:
-            participants_total = len(participants)
-            turkeys_awarded = 2 * participants_total
-            # staff have unlimited turkeys (do not modify DB)
-            try:
-                if await is_staff_in_guild(interaction.guild, winner_id):
-                    try:
-                        _emoji, _cname = get_currency_display(getattr(interaction.guild, 'id', None))
-                        await channel.send(f"{_emoji} {winner_mention} is staff and has unlimited {_cname} — congratulations!")
-                    except Exception:
-                        pass
-                else:
-                    add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)
-                    try:
-                        await channel.send(f"{fmt_currency(getattr(interaction.guild, 'id', None), turkeys_awarded)} have been awarded to {winner_mention}!")
-                    except Exception:
-                        pass
-            except Exception:
-                # fallback: attempt to award normally
-                try:
-                    add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-        # Optionally disable buttons after start
-        for child in self.children:
-            child.disabled = True
-        try:
-            await interaction.message.edit(view=self)
-        except discord.Forbidden:
-            print(f"Warning: cannot edit view for message {interaction.message.id} - missing permissions.")
-        except discord.HTTPException as e:
-            print(f"Warning: failed to edit view for message {interaction.message.id}: {e}")
-
-        # Edit embed to include results
-        try:
-            embed = interaction.message.embeds[0]
-        except IndexError:
-            embed = discord.Embed(title="Furby Tournament Results")
-
-        results_field = (
-            f"Winner: {winner_mention}\n"
-            f"Host: {host_mention}\n"
-            f"Duration: {duration_text}\n"
-            f"Total wins (global): {global_wins}\n"
-            f"Total wins (this server): {guild_wins}\n"
-        )
-        new_embed = embed.copy()
-        new_embed.add_field(name="Results", value=results_field, inline=False)
-        try:
-            await interaction.message.edit(embed=new_embed)
-        except discord.Forbidden:
-            print(f"Warning: cannot edit message {interaction.message.id} to add results - missing permissions.")
-        except discord.HTTPException as e:
-            print(f"Warning: failed to edit message {interaction.message.id} to add results: {e}")
-
-    @discord.ui.button(label="Cancel Tournament", style=discord.ButtonStyle.secondary, emoji="❌")
-    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Only host or users with manage_guild can cancel
-        if self.host and interaction.user != self.host and not interaction.user.guild_permissions.manage_guild:
-            try:
-                await safe_reply(interaction, "Only the host or a manager can cancel the tournament.")
-            except Exception:
-                pass
-            return
-        msg_id = interaction.message.id
-        tournaments.pop(msg_id, None)
-        try:
-            await safe_reply(interaction, "Tournament cancelled.")
-        except Exception:
-            pass
-        # Disable all buttons
-        for child in self.children:
-            child.disabled = True
-        try:
-            await interaction.message.edit(view=self)
-        except discord.Forbidden:
-            print(f"Warning: cannot edit view for message {interaction.message.id} - missing permissions.")
-        except discord.HTTPException as e:
-            print(f"Warning: failed to edit view for message {interaction.message.id}: {e}")
-
+# Furby tournament removed.
+# The TournamentView implementation (Furby) was deleted to remove the /furbytournament game.
 # --- Teddy War: messages, view and command ---
 TEDDY_MESSAGE_GROUPS = {
     "pillow": {
@@ -4899,12 +4580,16 @@ schedule_group = app_commands.Group(name="schedule", description="Show or add sc
 
 @schedule_group.command(name="show", description="Show today's schedule (24 slots)")
 async def show_schedule(interaction: discord.Interaction):
+    if not interaction.guild:
+        await interaction.response.send_message("This command must be used in a server (guild).", ephemeral=True)
+        return
     await interaction.response.defer()
     _cleanup_old_schedule()
     today = _current_date_str()
+    guild_id = getattr(interaction.guild, 'id', 0) or 0
     conn = get_db_conn()
     cur = conn.cursor()
-    cur.execute("SELECT slot, user_id, game FROM schedule_entries WHERE date = %s ORDER BY slot", (today,))
+    cur.execute("SELECT slot, user_id, game FROM schedule_entries WHERE date = %s AND guild_id = %s ORDER BY slot", (today, guild_id))
     rows = cur.fetchall()
     conn.close()
 
@@ -4951,17 +4636,24 @@ async def add_schedule(interaction: discord.Interaction, slot: int, game: str):
     if slot < 1 or slot > 24:
         await interaction.response.send_message("Please provide a slot number between 1 and 24.", ephemeral=True)
         return
+    if not interaction.guild:
+        await interaction.response.send_message("This command must be used in a server (guild).", ephemeral=True)
+        return
     await interaction.response.defer(ephemeral=True)
     time_idx = slot - 1
 
     # Use UTC date to store daily entries that reset every 24h at midnight UTC
     today = _current_date_str()
     _cleanup_old_schedule()
+    guild_id = getattr(interaction.guild, 'id', 0) or 0
     conn = get_db_conn()
     cur = conn.cursor()
-    # Upsert: allow multiple users per slot; prevent duplicate same user in same slot
+    # Upsert: allow multiple users per slot per guild; prevent duplicate same user in same slot
     try:
-        cur.execute("INSERT INTO schedule_entries(date, slot, user_id, game) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING", (today, time_idx, interaction.user.id, game))
+        cur.execute(
+            "INSERT INTO schedule_entries(date, slot, guild_id, user_id, game) VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+            (today, time_idx, guild_id, interaction.user.id, game),
+        )
         conn.commit()
     except Exception as e:
         print("DB error adding schedule:", e)
@@ -4991,6 +4683,9 @@ async def delete_schedule(interaction: discord.Interaction, slot: int):
     if slot < 1 or slot > 24:
         await interaction.response.send_message("Please provide a slot number between 1 and 24.", ephemeral=True)
         return
+    if not interaction.guild:
+        await interaction.response.send_message("This command must be used in a server (guild).", ephemeral=True)
+        return
     await interaction.response.defer(ephemeral=True)
     time_idx = slot - 1
 
@@ -4999,7 +4694,8 @@ async def delete_schedule(interaction: discord.Interaction, slot: int):
     conn = get_db_conn()
     cur = conn.cursor()
     try:
-        cur.execute("DELETE FROM schedule_entries WHERE date = %s AND slot = %s AND user_id = %s", (today, time_idx, interaction.user.id))
+        guild_id = getattr(interaction.guild, 'id', 0) or 0
+        cur.execute("DELETE FROM schedule_entries WHERE date = %s AND slot = %s AND guild_id = %s AND user_id = %s", (today, time_idx, guild_id, interaction.user.id))
         deleted = cur.rowcount
         conn.commit()
     except Exception as e:
