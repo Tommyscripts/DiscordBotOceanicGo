@@ -3,7 +3,7 @@ import os
 import asyncio
 import sys
 import getpass
-from typing import List, Set
+from typing import List, Set, Optional
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -4575,6 +4575,21 @@ def _cleanup_old_schedule():
     conn.close()
 
 
+def local_slot_to_utc(slot: int, tz_name: str, local_date: Optional[date] = None):
+    """Convert a user-selected slot (1-24) in given timezone to UTC date and slot.
+    Returns (utc_date_str, utc_slot_int, utc_dt, local_dt)."""
+    if slot < 1 or slot > 24:
+        raise ValueError("slot must be between 1 and 24")
+    user_tz = ZoneInfo(tz_name)
+    if local_date is None:
+        local_date = datetime.now(user_tz).date()
+    local_dt = datetime(local_date.year, local_date.month, local_date.day, slot - 1, 0, 0, tzinfo=user_tz)
+    utc_dt = local_dt.astimezone(timezone.utc)
+    utc_date = utc_dt.strftime("%Y-%m-%d")
+    utc_slot = utc_dt.hour
+    return utc_date, utc_slot, utc_dt, local_dt
+
+
 schedule_group = app_commands.Group(name="schedule", description="Show or add schedule signups")
 
 
@@ -4640,19 +4655,30 @@ async def add_schedule(interaction: discord.Interaction, slot: int, game: str):
         await interaction.response.send_message("This command must be used in a server (guild).", ephemeral=True)
         return
     await interaction.response.defer(ephemeral=True)
-    time_idx = slot - 1
+    # Normalize selected slot (1-24) from user's timezone to UTC date/slot.
+    user_tz_name = get_user_timezone(interaction.user.id) or "Etc/UTC"
+    try:
+        utc_date, utc_slot, utc_dt, local_dt = local_slot_to_utc(slot, user_tz_name)
+    except Exception:
+        # fallback: interpret as same-hour UTC now
+        now_utc = datetime.now(timezone.utc)
+        utc_date = now_utc.strftime("%Y-%m-%d")
+        utc_slot = now_utc.hour
+        utc_dt = now_utc
+        try:
+            local_dt = now_utc.astimezone(ZoneInfo(user_tz_name))
+        except Exception:
+            local_dt = now_utc
 
-    # Use UTC date to store daily entries that reset every 24h at midnight UTC
-    today = _current_date_str()
     _cleanup_old_schedule()
     guild_id = getattr(interaction.guild, 'id', 0) or 0
     conn = get_db_conn()
     cur = conn.cursor()
-    # Upsert: allow multiple users per slot per guild; prevent duplicate same user in same slot
+    # Upsert using UTC-normalized date and slot
     try:
         cur.execute(
             "INSERT INTO schedule_entries(date, slot, guild_id, user_id, game) VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
-            (today, time_idx, guild_id, interaction.user.id, game),
+            (utc_date, utc_slot, guild_id, interaction.user.id, game),
         )
         conn.commit()
     except Exception as e:
@@ -4660,11 +4686,11 @@ async def add_schedule(interaction: discord.Interaction, slot: int, game: str):
     finally:
         conn.close()
 
-    # Build a Discord timestamp so each user sees the time in their own locale/timezone
-    display_slot = time_idx + 1
-    struct = time.strptime(f"{today} {time_idx:02d}:00:00", "%Y-%m-%d %H:%M:%S")
-    slot_ts = int(calendar.timegm(struct))
-    await interaction.followup.send(f"Added you to slot **{display_slot}** (<t:{slot_ts}:t>) for '{game}'. Use `/schedule show` to view.")
+    # Build a timestamp from the UTC datetime so Discord shows it localized for each viewer
+    slot_ts = int(utc_dt.timestamp())
+    await interaction.followup.send(
+        f"Added you to slot **{slot}** ({user_tz_name} {local_dt.strftime('%Y-%m-%d %H:%M')}) — stored as UTC **{utc_slot+1}** (<t:{slot_ts}:t>) for '{game}'. Use `/schedule show` to view."
+    )
 
 
 # register the group with the bot's command tree
