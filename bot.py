@@ -544,6 +544,8 @@ def init_db():
             guild_id BIGINT,
             user_id BIGINT,
             game TEXT,
+            local_tz TEXT NOT NULL DEFAULT 'Etc/UTC',
+            local_slot INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (date, slot, guild_id, user_id)
         )
         """
@@ -551,6 +553,8 @@ def init_db():
     # Migration: ensure existing installations get a guild_id column and composite PK
     try:
         cur.execute("ALTER TABLE schedule_entries ADD COLUMN IF NOT EXISTS guild_id BIGINT NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE schedule_entries ADD COLUMN IF NOT EXISTS local_tz TEXT NOT NULL DEFAULT 'Etc/UTC'")
+        cur.execute("ALTER TABLE schedule_entries ADD COLUMN IF NOT EXISTS local_slot INTEGER NOT NULL DEFAULT 0")
         cur.execute("ALTER TABLE schedule_entries DROP CONSTRAINT IF EXISTS schedule_entries_pkey")
         cur.execute("ALTER TABLE schedule_entries ADD PRIMARY KEY (date, slot, guild_id, user_id)")
     except Exception:
@@ -4593,7 +4597,7 @@ def local_slot_to_utc(slot: int, tz_name: str, local_date: Optional[date] = None
 schedule_group = app_commands.Group(name="schedule", description="Show or add schedule signups")
 
 
-@schedule_group.command(name="show", description="Show today's schedule (24 slots)")
+@schedule_group.command(name="show", description="Show today's schedule (24 slots) — shows viewer-local and user-selected local times")
 async def show_schedule(interaction: discord.Interaction):
     if not interaction.guild:
         await interaction.response.send_message("This command must be used in a server (guild).", ephemeral=True)
@@ -4604,7 +4608,7 @@ async def show_schedule(interaction: discord.Interaction):
     guild_id = getattr(interaction.guild, 'id', 0) or 0
     conn = get_db_conn()
     cur = conn.cursor()
-    cur.execute("SELECT slot, user_id, game FROM schedule_entries WHERE date = %s AND guild_id = %s ORDER BY slot", (today, guild_id))
+    cur.execute("SELECT slot, user_id, game, local_tz, local_slot FROM schedule_entries WHERE date = %s AND guild_id = %s ORDER BY slot", (today, guild_id))
     rows = cur.fetchall()
     conn.close()
 
@@ -4614,10 +4618,10 @@ async def show_schedule(interaction: discord.Interaction):
     user_tz = ZoneInfo(user_tz_name)
     time_str_fmt = "%I:%M %p" if user_fmt == "12h" else "%H:%M"
 
-    # build a map slot -> list of entries
+    # build a map slot -> list of entries (include the user's timezone and selected local slot)
     slots = {i: [] for i in range(24)}
-    for slot, user_id, game in rows:
-        slots.setdefault(slot, []).append((user_id, game))
+    for slot, user_id, game, local_tz, local_slot in rows:
+        slots.setdefault(slot, []).append((user_id, game, local_tz, local_slot))
 
     # Build description converting each UTC slot to the user's local time and format
     desc_lines = []
@@ -4628,7 +4632,17 @@ async def show_schedule(interaction: discord.Interaction):
         time_token = slot_local.strftime(time_str_fmt)
         entries = slots.get(hour) or []
         if entries:
-            entry_text = ", ".join([f"<@{uid}> ({game})" for uid, game in entries])
+            parts = []
+            for uid, game, entry_tz_name, entry_local_slot in entries:
+                try:
+                    entry_tz = ZoneInfo(entry_tz_name or "Etc/UTC")
+                except Exception:
+                    entry_tz = timezone.utc
+                entry_local = slot_utc.astimezone(entry_tz)
+                entry_time_token = entry_local.strftime(time_str_fmt)
+                tz_display = entry_tz_name or "Etc/UTC"
+                parts.append(f"<@{uid}> ({game}) — {entry_time_token} ({tz_display})")
+            entry_text = ", ".join(parts)
         else:
             entry_text = "(empty)"
         # display slot number 1..24 on the left for simpler selection
@@ -4677,8 +4691,8 @@ async def add_schedule(interaction: discord.Interaction, slot: int, game: str):
     # Upsert using UTC-normalized date and slot
     try:
         cur.execute(
-            "INSERT INTO schedule_entries(date, slot, guild_id, user_id, game) VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
-            (utc_date, utc_slot, guild_id, interaction.user.id, game),
+            "INSERT INTO schedule_entries(date, slot, guild_id, user_id, game, local_tz, local_slot) VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+            (utc_date, utc_slot, guild_id, interaction.user.id, game, user_tz_name, slot),
         )
         conn.commit()
     except Exception as e:

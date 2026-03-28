@@ -133,9 +133,24 @@ Notas:
    - ` /settings currency [name] [emoji]` : Set currency display (UI only). Use `-` to reset a field to default.
 
 - **Scheduling:**
+- **Scheduling:**
    - ` /schedule show` : Show today's schedule (24 slots UTC).
    - ` /schedule add <slot> <game>` : Add yourself to a numbered slot (1-24).
    - ` /schedule delete <slot>` : Remove your signup from a numbered slot (1-24).
+
+Notes on timezones:
+
+- Slots are stored in UTC (date + hour) to represent an absolute instant.
+- When you add a signup with ` /schedule add <slot>`, the bot interprets the slot number as the hour in your own timezone and saves both the UTC slot and the local time/zone you selected.
+- When someone runs ` /schedule show`, each slot line shows the slot number and the time converted to the viewer's local timezone, and each signup also shows the time the user selected along with their timezone. This avoids ambiguity when members are in different zones.
+
+Example line shown by `/schedule show`:
+
+```
+**10** — 11:00 : @Alice (Chess) — 10:00 (Europe/London)
+```
+
+In the example, the viewer sees the slot as `11:00` in their timezone, while Alice originally selected `10:00` in `Europe/London`.
 
 - **Utilities & Admin:**
    - ` /resync_commands` : Force re-sync of application commands in this guild (admins only).
