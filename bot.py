@@ -4604,36 +4604,56 @@ async def show_schedule(interaction: discord.Interaction):
         return
     await interaction.response.defer()
     _cleanup_old_schedule()
-    today = _current_date_str()
-    guild_id = getattr(interaction.guild, 'id', 0) or 0
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT slot, user_id, game, local_tz, local_slot FROM schedule_entries WHERE date = %s AND guild_id = %s ORDER BY slot", (today, guild_id))
-    rows = cur.fetchall()
-    conn.close()
 
-    # Get the requesting user's timezone and time format preferences
+    # Viewer settings define which local day and slot labels (1-24) are shown.
     user_tz_name = get_user_timezone(interaction.user.id) or "Etc/UTC"
     user_fmt = get_user_time_format(interaction.user.id)
     user_tz = ZoneInfo(user_tz_name)
     time_str_fmt = "%I:%M %p" if user_fmt == "12h" else "%H:%M"
+    local_today = datetime.now(user_tz).date()
+    local_start = datetime(local_today.year, local_today.month, local_today.day, 0, 0, 0, tzinfo=user_tz)
+    local_end = local_start + timedelta(days=1)
+    utc_start = local_start.astimezone(timezone.utc)
+    utc_end = local_end.astimezone(timezone.utc)
+    utc_date_start = utc_start.strftime("%Y-%m-%d")
+    utc_date_end = (utc_end - timedelta(seconds=1)).strftime("%Y-%m-%d")
 
-    # build a map slot -> list of entries (include the user's timezone and selected local slot)
+    guild_id = getattr(interaction.guild, 'id', 0) or 0
+    conn = get_db_conn()
+    cur = conn.cursor()
+    if utc_date_start == utc_date_end:
+        cur.execute(
+            "SELECT date, slot, user_id, game, local_tz, local_slot FROM schedule_entries WHERE guild_id = %s AND date = %s ORDER BY date, slot",
+            (guild_id, utc_date_start),
+        )
+    else:
+        cur.execute(
+            "SELECT date, slot, user_id, game, local_tz, local_slot FROM schedule_entries WHERE guild_id = %s AND date IN (%s, %s) ORDER BY date, slot",
+            (guild_id, utc_date_start, utc_date_end),
+        )
+    rows = cur.fetchall()
+    conn.close()
+
+    # Re-bucket UTC rows into viewer-local slots for the viewer's local day.
     slots = {i: [] for i in range(24)}
-    for slot, user_id, game, local_tz, local_slot in rows:
-        slots.setdefault(slot, []).append((user_id, game, local_tz, local_slot))
+    for row_date, utc_slot, user_id, game, local_tz, local_slot in rows:
+        try:
+            slot_utc = datetime.strptime(f"{row_date} {utc_slot:02d}:00:00", "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        except Exception:
+            continue
+        slot_local_for_viewer = slot_utc.astimezone(user_tz)
+        if slot_local_for_viewer.date() != local_today:
+            continue
+        slots[slot_local_for_viewer.hour].append((user_id, game, local_tz, slot_utc))
 
-    # Build description converting each UTC slot to the user's local time and format
     desc_lines = []
     for hour in range(24):
-        # compute the UTC datetime for this slot, then convert to user's timezone
-        slot_utc = datetime.strptime(f"{today} {hour:02d}:00:00", "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-        slot_local = slot_utc.astimezone(user_tz)
+        slot_local = datetime(local_today.year, local_today.month, local_today.day, hour, 0, 0, tzinfo=user_tz)
         time_token = slot_local.strftime(time_str_fmt)
         entries = slots.get(hour) or []
         if entries:
             parts = []
-            for uid, game, entry_tz_name, entry_local_slot in entries:
+            for uid, game, entry_tz_name, slot_utc in entries:
                 try:
                     entry_tz = ZoneInfo(entry_tz_name or "Etc/UTC")
                 except Exception:
@@ -4645,7 +4665,6 @@ async def show_schedule(interaction: discord.Interaction):
             entry_text = ", ".join(parts)
         else:
             entry_text = "(empty)"
-        # display slot number 1..24 on the left for simpler selection
         slot_label = hour + 1
         desc_lines.append(f"**{slot_label}** — {time_token} : {entry_text}")
 
@@ -4718,8 +4737,7 @@ except Exception:
 @schedule_group.command(name="delete", description="Remove your signup from a numbered slot (1-24)")
 @app_commands.describe(slot="Slot number 1-24 to remove your signup from")
 async def delete_schedule(interaction: discord.Interaction, slot: int):
-    """Delete the invoking user's signup for the given slot (UTC date: today)."""
-    # validate slot
+    """Delete the invoking user's signup for the given slot on the user's local day."""
     if slot < 1 or slot > 24:
         await interaction.response.send_message("Please provide a slot number between 1 and 24.", ephemeral=True)
         return
@@ -4727,15 +4745,25 @@ async def delete_schedule(interaction: discord.Interaction, slot: int):
         await interaction.response.send_message("This command must be used in a server (guild).", ephemeral=True)
         return
     await interaction.response.defer(ephemeral=True)
-    time_idx = slot - 1
 
-    today = _current_date_str()
+    user_tz_name = get_user_timezone(interaction.user.id) or "Etc/UTC"
+    try:
+        utc_date, utc_slot, utc_dt, _local_dt = local_slot_to_utc(slot, user_tz_name)
+    except Exception:
+        now_utc = datetime.now(timezone.utc)
+        utc_date = now_utc.strftime("%Y-%m-%d")
+        utc_slot = now_utc.hour
+        utc_dt = now_utc
+
     _cleanup_old_schedule()
     conn = get_db_conn()
     cur = conn.cursor()
     try:
         guild_id = getattr(interaction.guild, 'id', 0) or 0
-        cur.execute("DELETE FROM schedule_entries WHERE date = %s AND slot = %s AND guild_id = %s AND user_id = %s", (today, time_idx, guild_id, interaction.user.id))
+        cur.execute(
+            "DELETE FROM schedule_entries WHERE date = %s AND slot = %s AND guild_id = %s AND user_id = %s",
+            (utc_date, utc_slot, guild_id, interaction.user.id),
+        )
         deleted = cur.rowcount
         conn.commit()
     except Exception as e:
@@ -4745,8 +4773,7 @@ async def delete_schedule(interaction: discord.Interaction, slot: int):
         conn.close()
 
     if deleted:
-        struct = time.strptime(f"{today} {time_idx:02d}:00:00", "%Y-%m-%d %H:%M:%S")
-        slot_ts = int(calendar.timegm(struct))
+        slot_ts = int(utc_dt.timestamp())
         await interaction.followup.send(f"Removed your signup from slot **{slot}** (<t:{slot_ts}:t>). Use `/schedule show` to view.")
     else:
         await interaction.followup.send(f"No signup found for you in slot {slot}. Use `/schedule show` to check current signups.")
