@@ -18,6 +18,15 @@ def load_teddy_images():
     files = [f for f in os.listdir(TEDDY_ASSETS_DIR) if f.lower().endswith((".png", ".jpg", ".jpeg", ".gif"))]
     return [os.path.join(TEDDY_ASSETS_DIR, f) for f in files]
 
+
+def get_special_teddy_images(prefix: str):
+    """Return teddy asset paths whose basename starts with `prefix` (case-insensitive)."""
+    assets = load_teddy_images()
+    if not assets:
+        return []
+    p = prefix.lower()
+    return [a for a in assets if os.path.basename(a).lower().startswith(p)]
+
 TEDDY_MESSAGE_GROUPS = {
     "pillow": {
         "attacks": [
@@ -134,9 +143,13 @@ def _get_teddy_messages_for_image(image_path: str):
 
 def ensure_teddy_images(participants):
     assets = load_teddy_images()
+    # Reserve special images (balive*, winner*) for their events
+    reserved_prefixes = ("balive", "winner")
+    filtered = [a for a in assets if not os.path.basename(a).lower().startswith(reserved_prefixes)]
+    use_pool = filtered if filtered else assets
     image_map = {}
     for uid in participants:
-        chosen = random.choice(assets) if assets else None
+        chosen = random.choice(use_pool) if use_pool else None
         image_map[uid] = chosen
     return image_map
 
@@ -197,7 +210,10 @@ def simulate(num_players: int = 4, pause: float = 0.4):
             alive.append(victim)
             rev_msgs = _get_teddy_messages_for_image(image_map.get(victim)) or TEDDY_MESSAGE_GROUPS["sword"]
             rev_msg = random.choice(rev_msgs["revives"]).format(d=f"@{id_to_name[victim]}")
-            post_img = _pick_non_repeating_image([image_map.get(victim)], last_posted_image)
+            # Prefer 'balive*' images for revive visuals; fall back to the victim's image
+            balive_imgs = get_special_teddy_images("balive")
+            candidates = balive_imgs if balive_imgs else [image_map.get(victim)]
+            post_img = _pick_non_repeating_image(candidates, last_posted_image)
             print("REVIVE:", rev_msg)
             print("IMAGE:", os.path.basename(post_img) if post_img else "(no image)")
             last_posted_image = post_img
@@ -207,6 +223,13 @@ def simulate(num_players: int = 4, pause: float = 0.4):
 
     winner = alive[0]
     print(f"\nTournament finished! Winner: @{id_to_name[winner]} (id={winner})")
+    # Post special winner message and image (prefer 'winner*' assets)
+    winner_imgs = get_special_teddy_images("winner")
+    winner_img = _pick_non_repeating_image(winner_imgs, last_posted_image) if winner_imgs else None
+    winner_ping = f"@{id_to_name[winner]}"
+    winner_text = f"Now war ended and {winner_ping} is the last survivor  {winner_ping} is going to sleep, dinner dinner sleppy before dinner"
+    print("WINNER:", winner_text)
+    print("IMAGE:", os.path.basename(winner_img) if winner_img else "(no image)")
 
 
 def main():
