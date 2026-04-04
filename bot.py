@@ -688,6 +688,12 @@ def load_teddy_images():
 
 teddy_image_files = load_teddy_images()
 
+def get_special_teddy_images(prefix: str):
+    """Return teddy asset paths whose basename starts with `prefix` (case-insensitive)."""
+    assets = load_teddy_images()
+    p = prefix.lower()
+    return [a for a in assets if os.path.basename(a).lower().startswith(p)]
+
 def ensure_teddy_images(msg_id: int, participants: list[int]):
     """Ensure each participant has an assigned teddy image file. Returns a dict user_id -> image_path."""
     meta = tournaments_meta.setdefault(msg_id, {})
@@ -2518,7 +2524,9 @@ class TeddyTournamentView(discord.ui.View):
                 rev_msgs = _get_teddy_messages_for_image(image_map.get(victim)) or TEDDY_MESSAGE_GROUPS["sword"]
                 rev_msg = random.choice(rev_msgs["revives"]).format(d=f"<@{victim}>")
 
-                post_img = _pick_non_repeating_image([image_map.get(victim)], last_posted_image)
+                balive_imgs = get_special_teddy_images("balive")
+                rev_candidates = balive_imgs if balive_imgs else [image_map.get(victim)]
+                post_img = _pick_non_repeating_image(rev_candidates, last_posted_image)
                 try:
                     if post_img:
                         embed_rev = discord.Embed(description=rev_msg)
@@ -2584,8 +2592,20 @@ class TeddyTournamentView(discord.ui.View):
             duration_text = f"{mins}m {secs}s"
         winner_mention = f"<@{winner_id}>"
         host_mention = f"<@{self.host.id}>" if self.host else "(unknown)"
+        winner_text = f"Now war ended and {winner_mention} is the last survivor  {winner_mention} is going to sleep, dinner dinner sleppy before dinner"
+        winner_imgs = get_special_teddy_images("winner")
+        winner_img = _pick_non_repeating_image(winner_imgs, last_posted_image) if winner_imgs else None
         try:
-            await channel.send(f"Teddy war finished! Winner: {winner_mention}. Host: {host_mention}")
+            if winner_img:
+                embed_w = discord.Embed(description=winner_text)
+                try:
+                    file = discord.File(winner_img)
+                    embed_w.set_image(url=f"attachment://{os.path.basename(winner_img)}")
+                    await channel.send(embed=embed_w, file=file)
+                except Exception:
+                    await channel.send(winner_text)
+            else:
+                await channel.send(winner_text)
         except Exception:
             pass
         # Award turkeys/snuggles similar to furby
