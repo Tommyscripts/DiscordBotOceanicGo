@@ -5179,6 +5179,15 @@ async def post_official_links(interaction: discord.Interaction):
 # In-memory tracking: message_id -> {"guild_id": int, "claimed": bool}
 _active_eggs: dict[int, dict] = {}
 
+# Active event loops per guild: guild_id -> asyncio.Task
+_easter_event_tasks: dict[int, asyncio.Task] = {}
+
+# Eligible channels per active event: guild_id -> list[int] (channel ids)
+_easter_event_channels: dict[int, list[int]] = {}
+
+_EASTER_MIN_INTERVAL = 300   # 5 minutes
+_EASTER_MAX_INTERVAL = 600   # 10 minutes
+
 
 def _easter_add_egg(guild_id: int, user_id: int, username: str):
     conn = get_db_conn()
@@ -5199,11 +5208,52 @@ def _easter_add_egg(guild_id: int, user_id: int, username: str):
         conn.close()
 
 
+async def _spawn_single_egg(guild_id: int) -> bool:
+    """Pick a random eligible channel and spawn one egg. Returns True if successful."""
+    channel_ids = _easter_event_channels.get(guild_id, [])
+    if not channel_ids:
+        return False
+    # Shuffle so each call is random
+    pool = list(channel_ids)
+    random.shuffle(pool)
+    for ch_id in pool:
+        ch = bot.get_channel(ch_id)
+        if ch is None:
+            continue
+        embed = discord.Embed(
+            title="🥚 An Easter Egg appeared!",
+            description="Be the first to click the button and collect it!\n\n**Only one person can grab it!**",
+            color=0xFFD700,
+        )
+        embed.set_footer(text="Easter Egg Event • First click wins!")
+        view = EasterEggView()
+        try:
+            msg = await ch.send(embed=embed, view=view)
+            _active_eggs[msg.id] = {"guild_id": guild_id, "claimed": False}
+            return True
+        except Exception:
+            continue
+    return False
+
+
+async def _easter_loop(guild_id: int):
+    """Background task that spawns eggs at random intervals until cancelled."""
+    await bot.wait_until_ready()
+    try:
+        while True:
+            delay = random.randint(_EASTER_MIN_INTERVAL, _EASTER_MAX_INTERVAL)
+            await asyncio.sleep(delay)
+            # Check event is still active
+            if guild_id not in _easter_event_channels:
+                break
+            await _spawn_single_egg(guild_id)
+    except asyncio.CancelledError:
+        pass
+
+
 class EasterEggView(discord.ui.View):
-    def __init__(self, message_id_ref: list):
-        # timeout=None so the button survives until claimed
+    def __init__(self):
         super().__init__(timeout=None)
-        self._message_id_ref = message_id_ref  # mutable list so we can set message_id after send
 
     @discord.ui.button(label="🥚 Collect Egg!", style=discord.ButtonStyle.success, custom_id="easter_egg_collect")
     async def collect(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -5235,49 +5285,62 @@ class EasterEggView(discord.ui.View):
             await interaction.response.send_message("You collected the egg! 🥚", ephemeral=True)
 
 
-@bot.tree.command(name="start_easter_event", description="Spawn easter eggs in all channels visible to a role")
-@app_commands.describe(role="The role whose visible channels will receive an easter egg")
+@bot.tree.command(name="start_easter_event", description="Start the Easter egg event — eggs will randomly appear every 5–10 min")
+@app_commands.describe(role="The role whose visible channels can receive easter eggs")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def start_easter_event(interaction: discord.Interaction, role: discord.Role):
     if not interaction.guild:
         await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
         return
 
+    guild_id = interaction.guild.id
+
+    if guild_id in _easter_event_tasks and not _easter_event_tasks[guild_id].done():
+        await interaction.response.send_message(
+            "An Easter egg event is already running! Use `/end_easter_event` to stop it first.",
+            ephemeral=True,
+        )
+        return
+
     await interaction.response.defer(ephemeral=True)
 
     me = interaction.guild.me
-    spawned = 0
-    failed = 0
+    eligible: list[int] = []
+    skipped = 0
 
     for channel in interaction.guild.text_channels:
-        # Check if the role can view and send in this channel
         role_perms = channel.permissions_for(role)
         if not (role_perms.view_channel and role_perms.send_messages):
             continue
-        # Check bot has permission to send there
         bot_perms = channel.permissions_for(me)
         if not (bot_perms.send_messages and bot_perms.embed_links):
-            failed += 1
+            skipped += 1
             continue
+        eligible.append(channel.id)
 
-        embed = discord.Embed(
-            title="🥚 An Easter Egg appeared!",
-            description="Be the first to click the button and collect it!\n\n**Only one person can grab it!**",
-            color=0xFFD700,
+    if not eligible:
+        await interaction.followup.send(
+            "No eligible channels found for that role (no channels where the role can view + interact and the bot can post).",
+            ephemeral=True,
         )
-        embed.set_footer(text="Easter Egg Event • First click wins!")
+        return
 
-        view = EasterEggView([])
-        try:
-            msg = await channel.send(embed=embed, view=view)
-            _active_eggs[msg.id] = {"guild_id": interaction.guild.id, "claimed": False}
-            spawned += 1
-        except Exception:
-            failed += 1
+    _easter_event_channels[guild_id] = eligible
 
-    summary = f"Easter egg event started! 🥚 Eggs spawned in **{spawned}** channel(s)."
-    if failed:
-        summary += f"\n⚠️ Could not post in **{failed}** channel(s) (missing bot permissions)."
+    # Spawn the very first egg immediately
+    await _spawn_single_egg(guild_id)
+
+    # Start background loop
+    task = asyncio.create_task(_easter_loop(guild_id))
+    _easter_event_tasks[guild_id] = task
+
+    summary = (
+        f"🥚 Easter egg event started! First egg has been spawned.\n"
+        f"New eggs will appear randomly every **5–10 minutes** across **{len(eligible)}** eligible channel(s).\n"
+        f"Use `/end_easter_event` to stop the event and see the leaderboard."
+    )
+    if skipped:
+        summary += f"\n⚠️ Skipped **{skipped}** channel(s) — bot is missing permissions there."
     await interaction.followup.send(summary, ephemeral=True)
 
 
@@ -5288,8 +5351,18 @@ async def end_easter_event(interaction: discord.Interaction):
         await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
         return
 
-    # Clear all unclaimed eggs for this guild
-    to_remove = [mid for mid, data in _active_eggs.items() if data["guild_id"] == interaction.guild.id]
+    guild_id = interaction.guild.id
+
+    # Stop background loop
+    task = _easter_event_tasks.pop(guild_id, None)
+    if task and not task.done():
+        task.cancel()
+
+    # Remove eligible channels
+    _easter_event_channels.pop(guild_id, None)
+
+    # Clear unclaimed eggs from memory
+    to_remove = [mid for mid, data in _active_eggs.items() if data["guild_id"] == guild_id]
     for mid in to_remove:
         _active_eggs.pop(mid, None)
 
@@ -5298,11 +5371,10 @@ async def end_easter_event(interaction: discord.Interaction):
     try:
         cur.execute(
             "SELECT user_id, username, egg_count FROM easter_egg_scores WHERE guild_id = %s ORDER BY egg_count DESC",
-            (interaction.guild.id,),
+            (guild_id,),
         )
         rows = cur.fetchall()
-        # Clear scores for this guild after fetching
-        cur.execute("DELETE FROM easter_egg_scores WHERE guild_id = %s", (interaction.guild.id,))
+        cur.execute("DELETE FROM easter_egg_scores WHERE guild_id = %s", (guild_id,))
         conn.commit()
     finally:
         conn.close()
