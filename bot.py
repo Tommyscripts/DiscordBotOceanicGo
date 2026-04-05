@@ -4808,7 +4808,7 @@ async def delete_schedule(interaction: discord.Interaction, slot: int):
 import re as _re
 _MONOPOLY_LINK_PATTERNS = [
     _re.compile(r'https?://monopolygo\.com/', _re.I),
-    _re.compile(r'https?://mply\.go/', _re.I),
+    _re.compile(r'https?://mply\.io/', _re.I),
     _re.compile(r'https?://monopolygo\.onelink\.me/', _re.I),
     _re.compile(r'https?://board-kings\.onelink\.me/[^"\'>\s]*monopolygo', _re.I),
     _re.compile(r'https?://[^\s"\'<>]*scopely\.com/[^\s"\'<>]*monopoly', _re.I),
@@ -4816,12 +4816,11 @@ _MONOPOLY_LINK_PATTERNS = [
 ]
 # Human-readable aggregator pages that are kept up-to-date with official links.
 _MONOPOLY_SOURCES = [
-    "https://www.pocketgamer.com/monopoly-go/codes/",
-    "https://www.pockettactics.com/monopoly-go/free-dice",
-    "https://appgamer.com/monopoly-go/strategy-guide/free-dice-links",
-    "https://www.gamesatlas.com/monopoly-go/free-dice/",
+    "https://www.pocketgamer.com/monopoly-go/free-dice/",
+    "https://progameguides.com/monopoly-go/monopoly-go-free-dice-links/",
+    "https://www.videogamer.com/guides/monopoly-go-free-dice-links/",
 ]
-_MONOPOLY_POLL_INTERVAL = 180  # seconds between polls (3 min)
+_MONOPOLY_POLL_INTERVAL = 3600  # seconds between polls (1 hour)
 
 
 def _is_monopoly_reward_link(url: str) -> bool:
