@@ -1298,6 +1298,8 @@ async def schedule_unmute_check():
 
 @bot.event
 async def on_connect():
+    # Register persistent Easter Egg view so buttons survive bot restarts
+    bot.add_view(EasterEggView())
     # start background unmute scheduler
     try:
         asyncio.create_task(schedule_unmute_check())
@@ -5259,30 +5261,41 @@ class EasterEggView(discord.ui.View):
     async def collect(self, interaction: discord.Interaction, button: discord.ui.Button):
         msg_id = interaction.message.id if interaction.message else None
         if msg_id is None:
-            await interaction.response.send_message("Something went wrong.", ephemeral=True)
+            try:
+                await interaction.response.send_message("Something went wrong.", ephemeral=True)
+            except Exception:
+                pass
             return
 
         egg_data = _active_eggs.get(msg_id)
         if egg_data is None or egg_data.get("claimed"):
-            await interaction.response.send_message("This egg has already been collected! 🐣", ephemeral=True)
+            try:
+                await interaction.response.send_message("This egg has already been collected! 🐣", ephemeral=True)
+            except Exception:
+                pass
             return
 
-        # Claim atomically in memory first
+        # Acknowledge immediately to beat the 3-second Discord deadline
+        try:
+            await interaction.response.defer()
+        except Exception:
+            return  # interaction already expired or used
+
+        # Claim atomically in memory
         egg_data["claimed"] = True
 
         guild_id = egg_data["guild_id"]
         user = interaction.user
-        username = str(user)
-        _easter_add_egg(guild_id, user.id, username)
+        _easter_add_egg(guild_id, user.id, str(user))
 
-        # Disable button and update message
+        # Update button appearance and edit the original message
         button.disabled = True
         button.label = f"🐣 Collected by {user.display_name}!"
         button.style = discord.ButtonStyle.secondary
         try:
-            await interaction.response.edit_message(view=self)
+            await interaction.message.edit(view=self)
         except Exception:
-            await interaction.response.send_message("You collected the egg! 🥚", ephemeral=True)
+            pass
 
 
 @bot.tree.command(name="start_easter_event", description="Start the Easter egg event — eggs will randomly appear every 5–10 min")
