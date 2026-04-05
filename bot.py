@@ -650,6 +650,17 @@ def init_db():
     )
     cur.execute(
         """
+        CREATE TABLE IF NOT EXISTS easter_egg_scores (
+            guild_id BIGINT,
+            user_id BIGINT,
+            username TEXT,
+            egg_count INT NOT NULL DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id)
+        )
+        """
+    )
+    cur.execute(
+        """
         CREATE TABLE IF NOT EXISTS user_timezones (
             user_id BIGINT PRIMARY KEY,
             timezone TEXT NOT NULL
@@ -4177,13 +4188,6 @@ async def slash_mm(interaction: discord.Interaction):
             pass
 
 
-@bot.tree.command(name="nyxie", description="💕")
-@app_commands.allowed_installs(guilds=False, users=True)
-@app_commands.allowed_contexts(guilds=False, dms=True, private_channels=True)
-async def slash_nyxie(interaction: discord.Interaction):
-    await interaction.response.send_message("Hello Ella you look so beautiful today 💕")
-
-
 @house_group.command(name="invite", description="Invite a user to your House game (host only). Uses your active lobby.)")
 @app_commands.describe(user="User ID or mention to invite")
 async def house_invite(interaction: discord.Interaction, user: str):
@@ -5166,6 +5170,161 @@ async def post_official_links(interaction: discord.Interaction):
         await interaction.response.send_message(f"Enlaces publicados en {dest.mention}", ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"Error al publicar enlaces: {e}", ephemeral=True)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# EASTER EGG EVENT
+# ──────────────────────────────────────────────────────────────────────────────
+
+# In-memory tracking: message_id -> {"guild_id": int, "claimed": bool}
+_active_eggs: dict[int, dict] = {}
+
+
+def _easter_add_egg(guild_id: int, user_id: int, username: str):
+    conn = get_db_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO easter_egg_scores (guild_id, user_id, username, egg_count)
+            VALUES (%s, %s, %s, 1)
+            ON CONFLICT (guild_id, user_id)
+            DO UPDATE SET egg_count = easter_egg_scores.egg_count + 1,
+                          username = EXCLUDED.username
+            """,
+            (guild_id, user_id, username),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+class EasterEggView(discord.ui.View):
+    def __init__(self, message_id_ref: list):
+        # timeout=None so the button survives until claimed
+        super().__init__(timeout=None)
+        self._message_id_ref = message_id_ref  # mutable list so we can set message_id after send
+
+    @discord.ui.button(label="🥚 Collect Egg!", style=discord.ButtonStyle.success, custom_id="easter_egg_collect")
+    async def collect(self, interaction: discord.Interaction, button: discord.ui.Button):
+        msg_id = interaction.message.id if interaction.message else None
+        if msg_id is None:
+            await interaction.response.send_message("Something went wrong.", ephemeral=True)
+            return
+
+        egg_data = _active_eggs.get(msg_id)
+        if egg_data is None or egg_data.get("claimed"):
+            await interaction.response.send_message("This egg has already been collected! 🐣", ephemeral=True)
+            return
+
+        # Claim atomically in memory first
+        egg_data["claimed"] = True
+
+        guild_id = egg_data["guild_id"]
+        user = interaction.user
+        username = str(user)
+        _easter_add_egg(guild_id, user.id, username)
+
+        # Disable button and update message
+        button.disabled = True
+        button.label = f"🐣 Collected by {user.display_name}!"
+        button.style = discord.ButtonStyle.secondary
+        try:
+            await interaction.response.edit_message(view=self)
+        except Exception:
+            await interaction.response.send_message("You collected the egg! 🥚", ephemeral=True)
+
+
+@bot.tree.command(name="start_easter_event", description="Spawn easter eggs in all channels visible to a role")
+@app_commands.describe(role="The role whose visible channels will receive an easter egg")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def start_easter_event(interaction: discord.Interaction, role: discord.Role):
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    me = interaction.guild.me
+    spawned = 0
+    failed = 0
+
+    for channel in interaction.guild.text_channels:
+        # Check if the role can view and send in this channel
+        role_perms = channel.permissions_for(role)
+        if not (role_perms.view_channel and role_perms.send_messages):
+            continue
+        # Check bot has permission to send there
+        bot_perms = channel.permissions_for(me)
+        if not (bot_perms.send_messages and bot_perms.embed_links):
+            failed += 1
+            continue
+
+        embed = discord.Embed(
+            title="🥚 An Easter Egg appeared!",
+            description="Be the first to click the button and collect it!\n\n**Only one person can grab it!**",
+            color=0xFFD700,
+        )
+        embed.set_footer(text="Easter Egg Event • First click wins!")
+
+        view = EasterEggView([])
+        try:
+            msg = await channel.send(embed=embed, view=view)
+            _active_eggs[msg.id] = {"guild_id": interaction.guild.id, "claimed": False}
+            spawned += 1
+        except Exception:
+            failed += 1
+
+    summary = f"Easter egg event started! 🥚 Eggs spawned in **{spawned}** channel(s)."
+    if failed:
+        summary += f"\n⚠️ Could not post in **{failed}** channel(s) (missing bot permissions)."
+    await interaction.followup.send(summary, ephemeral=True)
+
+
+@bot.tree.command(name="end_easter_event", description="End the Easter egg event and show the leaderboard")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def end_easter_event(interaction: discord.Interaction):
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+        return
+
+    # Clear all unclaimed eggs for this guild
+    to_remove = [mid for mid, data in _active_eggs.items() if data["guild_id"] == interaction.guild.id]
+    for mid in to_remove:
+        _active_eggs.pop(mid, None)
+
+    conn = get_db_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT user_id, username, egg_count FROM easter_egg_scores WHERE guild_id = %s ORDER BY egg_count DESC",
+            (interaction.guild.id,),
+        )
+        rows = cur.fetchall()
+        # Clear scores for this guild after fetching
+        cur.execute("DELETE FROM easter_egg_scores WHERE guild_id = %s", (interaction.guild.id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+    if not rows:
+        await interaction.response.send_message("The Easter event has ended. No eggs were collected! 🐣", ephemeral=False)
+        return
+
+    embed = discord.Embed(
+        title="🐣 Easter Egg Event — Final Results",
+        color=0xFFD700,
+    )
+    lines = []
+    medals = ["🥇", "🥈", "🥉"]
+    for i, (user_id, username, count) in enumerate(rows):
+        medal = medals[i] if i < 3 else f"**#{i+1}**"
+        lines.append(f"{medal} <@{user_id}> (`{username}` · ID: `{user_id}`) — **{count}** egg{'s' if count != 1 else ''}")
+    embed.description = "\n".join(lines)
+    embed.set_footer(text=f"Total participants: {len(rows)}")
+
+    await interaction.response.send_message(embed=embed)
+
 
 # ---------------- TIMEZONE COMMANDS (/time + /setmytime) ----------------
 
