@@ -8,7 +8,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
-import psycopg2
+import asyncpg
 import time
 import random
 import math
@@ -360,7 +360,9 @@ async def run_wordchain_game(game: WordChainGame):
     try:
         participants_total = len(game.players)
         turkeys_awarded = max(1, 2 * participants_total)
-        await channel.send(f"Word Chain: the game is live! The first player will be chosen from the lobby. Winner will receive {fmt_currency(getattr(channel.guild, 'id', None), turkeys_awarded)}.")
+        await channel.send(
+            f"Word Chain: the game is live! The first player will be chosen from the lobby. Winner will receive {await fmt_currency(getattr(channel.guild, 'id', None), turkeys_awarded)}."
+        )
     except Exception:
         await channel.send("Word Chain: the game is live! The first player will be chosen from the lobby.")
     # pick starting player index 0
@@ -416,14 +418,14 @@ async def run_wordchain_game(game: WordChainGame):
             guild = channel.guild if hasattr(channel, 'guild') else None
             if await is_staff_in_guild(guild, winner):
                 try:
-                    emoji, name = get_currency_display(getattr(channel.guild, 'id', None))
+                    emoji, name = await get_currency_display(getattr(channel.guild, 'id', None))
                     await channel.send(f"Game over! Winner is <@{winner}> 🎉 — Congrats! As staff you have unlimited {emoji} {name}.")
                 except Exception:
                     pass
             else:
-                add_turkeys(getattr(channel.guild, 'id', 0) or 0, winner, turkeys_awarded)
+                await add_turkeys(getattr(channel.guild, 'id', 0) or 0, winner, turkeys_awarded)
                 try:
-                    await channel.send(f"Game over! Winner is <@{winner}> 🎉 — Congrats! You've won {fmt_currency(getattr(channel.guild, 'id', None), turkeys_awarded)}.")
+                    await channel.send(f"Game over! Winner is <@{winner}> 🎉 — Congrats! You've won {await fmt_currency(getattr(channel.guild, 'id', None), turkeys_awarded)}.")
                 except Exception:
                     pass
         except Exception:
@@ -509,175 +511,169 @@ if not DATABASE_URL:
     print("DATABASE_URL not set in environment. Please add it to your .env file.")
     raise SystemExit(1)
 
-def get_db_conn():
-    """Return a new psycopg2 connection. Caller is responsible for closing it."""
-    return psycopg2.connect(DATABASE_URL)
+# Async DB pool (asyncpg) - lazy-created for async operations
+db_pool: Optional[asyncpg.pool.Pool] = None
+
+
+async def _ensure_db_pool() -> None:
+    """Lazily create an asyncpg pool for async DB operations."""
+    global db_pool
+    if db_pool is None:
+        try:
+            db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
+        except Exception as e:
+            logging.exception("[DB] Failed to create asyncpg pool: %s", e)
+            raise
 
 # (SQLite file migration removed — using PostgreSQL)
 
-def init_db():
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS wins_global (
-            user_id BIGINT PRIMARY KEY,
-            wins INTEGER NOT NULL DEFAULT 0
+async def init_db_async():
+    """Async init/migrations using asyncpg pool."""
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS wins_global (
+                user_id BIGINT PRIMARY KEY,
+                wins INTEGER NOT NULL DEFAULT 0
+            )
+            """
         )
-        """
-    )
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS wins_guild (
-            guild_id BIGINT,
-            user_id BIGINT,
-            wins INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (guild_id, user_id)
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS wins_guild (
+                guild_id BIGINT,
+                user_id BIGINT,
+                wins INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (guild_id, user_id)
+            )
+            """
         )
-        """
-    )
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS schedule_entries (
-            date TEXT,
-            slot INTEGER,
-            guild_id BIGINT,
-            user_id BIGINT,
-            game TEXT,
-            local_tz TEXT NOT NULL DEFAULT 'Etc/UTC',
-            local_slot INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (date, slot, guild_id, user_id)
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS schedule_entries (
+                date TEXT,
+                slot INTEGER,
+                guild_id BIGINT,
+                user_id BIGINT,
+                game TEXT,
+                local_tz TEXT NOT NULL DEFAULT 'Etc/UTC',
+                local_slot INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (date, slot, guild_id, user_id)
+            )
+            """
         )
-        """
-    )
-    # Migration: ensure existing installations get a guild_id column and composite PK
-    try:
-        cur.execute("ALTER TABLE schedule_entries ADD COLUMN IF NOT EXISTS guild_id BIGINT NOT NULL DEFAULT 0")
-        cur.execute("ALTER TABLE schedule_entries ADD COLUMN IF NOT EXISTS local_tz TEXT NOT NULL DEFAULT 'Etc/UTC'")
-        cur.execute("ALTER TABLE schedule_entries ADD COLUMN IF NOT EXISTS local_slot INTEGER NOT NULL DEFAULT 0")
-        cur.execute("ALTER TABLE schedule_entries DROP CONSTRAINT IF EXISTS schedule_entries_pkey")
-        cur.execute("ALTER TABLE schedule_entries ADD PRIMARY KEY (date, slot, guild_id, user_id)")
-    except Exception:
-        # best-effort migration; ignore errors (e.g., running on SQLite or unsupported PG version)
-        pass
-    # Economy: per-guild balances (same user has separate balances per server)
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS turkeys_balances (
-            guild_id BIGINT NOT NULL,
-            user_id BIGINT NOT NULL,
-            turkeys INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (guild_id, user_id)
+        # Migration: ensure existing installations get a guild_id column and composite PK
+        try:
+            await conn.execute("ALTER TABLE schedule_entries ADD COLUMN IF NOT EXISTS guild_id BIGINT NOT NULL DEFAULT 0")
+            await conn.execute("ALTER TABLE schedule_entries ADD COLUMN IF NOT EXISTS local_tz TEXT NOT NULL DEFAULT 'Etc/UTC'")
+            await conn.execute("ALTER TABLE schedule_entries ADD COLUMN IF NOT EXISTS local_slot INTEGER NOT NULL DEFAULT 0")
+            await conn.execute("ALTER TABLE schedule_entries DROP CONSTRAINT IF EXISTS schedule_entries_pkey")
+            await conn.execute("ALTER TABLE schedule_entries ADD PRIMARY KEY (date, slot, guild_id, user_id)")
+        except Exception:
+            pass
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS turkeys_balances (
+                guild_id BIGINT NOT NULL,
+                user_id BIGINT NOT NULL,
+                turkeys INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (guild_id, user_id)
+            )
+            """
         )
-        """
-    )
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS shop_items (
-            id BIGSERIAL PRIMARY KEY,
-            guild_id BIGINT,
-            name TEXT NOT NULL,
-            price INTEGER NOT NULL,
-            role_id BIGINT,
-            metadata TEXT
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS shop_items (
+                id BIGSERIAL PRIMARY KEY,
+                guild_id BIGINT,
+                name TEXT NOT NULL,
+                price INTEGER NOT NULL,
+                role_id BIGINT,
+                metadata TEXT
+            )
+            """
         )
-        """
-    )
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS settings (
-            guild_id BIGINT PRIMARY KEY,
-            staff_role_id BIGINT,
-            mod_ban_role_id BIGINT,
-            mod_kick_role_id BIGINT,
-            mod_mute_role_id BIGINT,
-            currency_display_name TEXT,
-            currency_emoji TEXT,
-            official_links_channel_id BIGINT,
-            currency_command_name TEXT,
-            language TEXT
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS settings (
+                guild_id BIGINT PRIMARY KEY,
+                staff_role_id BIGINT,
+                mod_ban_role_id BIGINT,
+                mod_kick_role_id BIGINT,
+                mod_mute_role_id BIGINT,
+                currency_display_name TEXT,
+                currency_emoji TEXT,
+                official_links_channel_id BIGINT,
+                currency_command_name TEXT,
+                language TEXT
+            )
+            """
         )
-        """
-    )
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS official_links (
-            guild_id BIGINT,
-            name TEXT NOT NULL,
-            url TEXT NOT NULL,
-            PRIMARY KEY (guild_id, name)
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS official_links (
+                guild_id BIGINT,
+                name TEXT NOT NULL,
+                url TEXT NOT NULL,
+                PRIMARY KEY (guild_id, name)
+            )
+            """
         )
-        """
-    )
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS mod_log (
-            id BIGSERIAL PRIMARY KEY,
-            guild_id BIGINT,
-            action TEXT,
-            target_id BIGINT,
-            moderator_id BIGINT,
-            reason TEXT,
-            created_at TEXT
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mod_log (
+                id BIGSERIAL PRIMARY KEY,
+                guild_id BIGINT,
+                action TEXT,
+                target_id BIGINT,
+                moderator_id BIGINT,
+                reason TEXT,
+                created_at TEXT
+            )
+            """
         )
-        """
-    )
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS custom_commands (
-            guild_id BIGINT,
-            name TEXT NOT NULL,
-            info TEXT NOT NULL,
-            PRIMARY KEY (guild_id, name)
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS custom_commands (
+                guild_id BIGINT,
+                name TEXT NOT NULL,
+                info TEXT NOT NULL,
+                PRIMARY KEY (guild_id, name)
+            )
+            """
         )
-        """
-    )
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS monopoly_go_config (
-            guild_id BIGINT PRIMARY KEY,
-            channel_id BIGINT NOT NULL
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS monopoly_go_config (
+                guild_id BIGINT PRIMARY KEY,
+                channel_id BIGINT NOT NULL
+            )
+            """
         )
-        """
-    )
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS monopoly_go_posted (
-            url TEXT PRIMARY KEY,
-            posted_at TEXT NOT NULL
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS monopoly_go_posted (
+                url TEXT PRIMARY KEY,
+                posted_at TEXT NOT NULL
+            )
+            """
         )
-        """
-    )
-    # cur.execute(
-    #     """
-    #     CREATE TABLE IF NOT EXISTS easter_egg_scores (
-    #         guild_id BIGINT,
-    #         user_id BIGINT,
-    #         username TEXT,
-    #         egg_count INT NOT NULL DEFAULT 0,
-    #         PRIMARY KEY (guild_id, user_id)
-    #     )
-    #     """
-    # )
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS user_timezones (
-            user_id BIGINT PRIMARY KEY,
-            timezone TEXT NOT NULL
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_timezones (
+                user_id BIGINT PRIMARY KEY,
+                timezone TEXT NOT NULL
+            )
+            """
         )
-        """
-    )
-    # Add time_format column if it doesn't exist yet (migration for existing tables)
-    cur.execute(
-        """
-        ALTER TABLE user_timezones
-            ADD COLUMN IF NOT EXISTS time_format TEXT NOT NULL DEFAULT '24h'
-        """
-    )
-    conn.commit()
-    conn.close()
-
-init_db()
+        # Add time_format column if it doesn't exist yet (migration for existing tables)
+        await conn.execute(
+            """
+            ALTER TABLE user_timezones
+                ADD COLUMN IF NOT EXISTS time_format TEXT NOT NULL DEFAULT '24h'
+            """
+        )
 
 # Load available furby images (assets)
 FURBY_ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets", "furbys")
@@ -954,41 +950,37 @@ COMMAND_DESCRIPTIONS: dict[str, dict[str, str]] = {
 }
 
 
-def get_currency_display(guild_id: int | None) -> tuple[str, str]:
-    """Return (emoji, name) for currency display.
+async def get_currency_display(guild_id: int | None) -> tuple[str, str]:
+    """Async: Return (emoji, name) for currency display.
 
     This is UI-only: balances remain stored as turkeys in the DB.
     """
     if not guild_id:
         return DEFAULT_CURRENCY_EMOJI, DEFAULT_CURRENCY_NAME
     try:
-        conn = get_db_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT currency_display_name, currency_emoji FROM settings WHERE guild_id = %s", (guild_id,))
-        row = cur.fetchone()
-        conn.close()
-        name = (row[0] if row and row[0] else DEFAULT_CURRENCY_NAME)
-        emoji = (row[1] if row and row[1] else DEFAULT_CURRENCY_EMOJI)
+        await _ensure_db_pool()
+        async with db_pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT currency_display_name, currency_emoji FROM settings WHERE guild_id = $1", guild_id)
+        name = (row["currency_display_name"] if row and row["currency_display_name"] else DEFAULT_CURRENCY_NAME)
+        emoji = (row["currency_emoji"] if row and row["currency_emoji"] else DEFAULT_CURRENCY_EMOJI)
         return emoji, name
     except Exception:
         return DEFAULT_CURRENCY_EMOJI, DEFAULT_CURRENCY_NAME
 
 
-def set_currency_display(guild_id: int, name: str | None, emoji: str | None):
-    """Set UI-only currency display values for a guild."""
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO settings(guild_id, currency_display_name, currency_emoji) VALUES (%s, %s, %s) "
-        "ON CONFLICT(guild_id) DO UPDATE SET currency_display_name = %s, currency_emoji = %s",
-        (guild_id, name, emoji, name, emoji),
-    )
-    conn.commit()
-    conn.close()
+async def set_currency_display(guild_id: int, name: str | None, emoji: str | None):
+    """Async: Set UI-only currency display values for a guild."""
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO settings(guild_id, currency_display_name, currency_emoji) VALUES ($1, $2, $3) "
+            "ON CONFLICT (guild_id) DO UPDATE SET currency_display_name = $2, currency_emoji = $3",
+            guild_id, name, emoji,
+        )
 
 
-def fmt_currency(guild_id: int | None, amount: int | str) -> str:
-    emoji, name = get_currency_display(guild_id)
+async def fmt_currency(guild_id: int | None, amount: int | str) -> str:
+    emoji, name = await get_currency_display(guild_id)
     # keep name pluralization simple but nice
     try:
         n = int(amount)
@@ -998,126 +990,108 @@ def fmt_currency(guild_id: int | None, amount: int | str) -> str:
     return f"{emoji} {amount} {unit}"
 
 
-def get_currency_command_name(guild_id: int) -> str:
-    """Return the stored slash command name for the balance command (defaults to 'snuggles')."""
+async def get_currency_command_name(guild_id: int) -> str:
+    """Async: Return the stored slash command name for the balance command (defaults to 'snuggles')."""
     try:
-        conn = get_db_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT currency_command_name FROM settings WHERE guild_id = %s", (guild_id,))
-        row = cur.fetchone()
-        conn.close()
-        return (row[0] if row and row[0] else "snuggles")
+        await _ensure_db_pool()
+        async with db_pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT currency_command_name FROM settings WHERE guild_id = $1", guild_id)
+        return (row["currency_command_name"] if row and row["currency_command_name"] else "snuggles")
     except Exception:
         return "snuggles"
 
 
-def set_currency_command_name(guild_id: int, cmd_name: str):
-    """Persist the slash command name for the balance command for a guild."""
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO settings(guild_id, currency_command_name) VALUES (%s, %s) "
-        "ON CONFLICT(guild_id) DO UPDATE SET currency_command_name = %s",
-        (guild_id, cmd_name, cmd_name),
-    )
-    conn.commit()
-    conn.close()
+async def set_currency_command_name(guild_id: int, cmd_name: str):
+    """Async: Persist the slash command name for the balance command for a guild."""
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO settings(guild_id, currency_command_name) VALUES ($1, $2) "
+            "ON CONFLICT (guild_id) DO UPDATE SET currency_command_name = $2",
+            guild_id, cmd_name,
+        )
 
 
-def get_all_custom_command_names() -> list[tuple[int, str]]:
-    """Return [(guild_id, cmd_name), ...] for all guilds with a custom balance command name."""
+async def get_all_custom_command_names() -> list[tuple[int, str]]:
+    """Async: Return [(guild_id, cmd_name), ...] for all guilds with a custom balance command name."""
     try:
-        conn = get_db_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT guild_id, currency_command_name FROM settings WHERE currency_command_name IS NOT NULL")
-        rows = cur.fetchall()
-        conn.close()
-        return [(r[0], r[1]) for r in rows if r[1]]
+        await _ensure_db_pool()
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch("SELECT guild_id, currency_command_name FROM settings WHERE currency_command_name IS NOT NULL")
+        return [(r["guild_id"], r["currency_command_name"]) for r in rows if r["currency_command_name"]]
     except Exception:
         return []
 
 
-def get_guild_language(guild_id: int) -> str:
-    """Return the language code for command descriptions for this guild ('en' or 'es'). Defaults to 'en'."""
+async def get_guild_language(guild_id: int) -> str:
+    """Async: Return the language code for command descriptions for this guild ('en' or 'es'). Defaults to 'en'."""
     try:
-        conn = get_db_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT language FROM settings WHERE guild_id = %s", (guild_id,))
-        row = cur.fetchone()
-        conn.close()
-        return (row[0] if row and row[0] in ("en", "es") else "en")
+        await _ensure_db_pool()
+        async with db_pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT language FROM settings WHERE guild_id = $1", guild_id)
+        return (row["language"] if row and row["language"] in ("en", "es") else "en")
     except Exception:
         return "en"
 
 
-def set_guild_language(guild_id: int, lang: str):
-    """Persist the language preference for command descriptions for a guild."""
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO settings(guild_id, language) VALUES (%s, %s) "
-        "ON CONFLICT(guild_id) DO UPDATE SET language = %s",
-        (guild_id, lang, lang),
-    )
-    conn.commit()
-    conn.close()
+async def set_guild_language(guild_id: int, lang: str):
+    """Async: Persist the language preference for command descriptions for a guild."""
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO settings(guild_id, language) VALUES ($1, $2) "
+            "ON CONFLICT (guild_id) DO UPDATE SET language = $2",
+            guild_id, lang,
+        )
 
 
-def get_all_guild_languages() -> list[tuple[int, str]]:
-    """Return [(guild_id, lang), ...] for guilds with a non-default language set."""
+async def get_all_guild_languages() -> list[tuple[int, str]]:
+    """Async: Return [(guild_id, lang), ...] for guilds with a non-default language set."""
     try:
-        conn = get_db_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT guild_id, language FROM settings WHERE language IS NOT NULL AND language != 'en'")
-        rows = cur.fetchall()
-        conn.close()
-        return [(r[0], r[1]) for r in rows if r[1]]
+        await _ensure_db_pool()
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch("SELECT guild_id, language FROM settings WHERE language IS NOT NULL AND language != 'en'")
+        return [(r["guild_id"], r["language"]) for r in rows if r["language"]]
     except Exception:
         return []
 
 
-def add_turkeys(guild_id: int, user_id: int, amount: int):
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO turkeys_balances(guild_id, user_id, turkeys) VALUES (%s, %s, %s) "
-        "ON CONFLICT(guild_id, user_id) DO UPDATE SET turkeys = turkeys_balances.turkeys + %s",
-        (guild_id, user_id, amount, amount),
-    )
-    conn.commit()
-    conn.close()
+async def add_turkeys(guild_id: int, user_id: int, amount: int):
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO turkeys_balances(guild_id, user_id, turkeys) VALUES ($1, $2, $3) "
+            "ON CONFLICT (guild_id, user_id) DO UPDATE SET turkeys = turkeys + $3",
+            guild_id, user_id, amount,
+        )
 
-def get_turkeys(guild_id: int, user_id: int) -> int:
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT turkeys FROM turkeys_balances WHERE guild_id = %s AND user_id = %s", (guild_id, user_id))
-    row = cur.fetchone()
-    conn.close()
-    return row[0] if row else 0
+async def get_turkeys(guild_id: int, user_id: int) -> int:
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT turkeys FROM turkeys_balances WHERE guild_id = $1 AND user_id = $2", guild_id, user_id)
+    return row["turkeys"] if row else 0
 
-def set_turkeys(guild_id: int, user_id: int, amount: int):
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO turkeys_balances(guild_id, user_id, turkeys) VALUES (%s, %s, %s) "
-        "ON CONFLICT(guild_id, user_id) DO UPDATE SET turkeys = %s",
-        (guild_id, user_id, amount, amount),
-    )
-    conn.commit()
-    conn.close()
+async def set_turkeys(guild_id: int, user_id: int, amount: int):
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO turkeys_balances(guild_id, user_id, turkeys) VALUES ($1, $2, $3) "
+            "ON CONFLICT (guild_id, user_id) DO UPDATE SET turkeys = $3",
+            guild_id, user_id, amount,
+        )
 
 
 # Backwards-compatibility wrappers for the old "ghosts" naming. These call the
 # new turkey-based functions so external scripts or leftover references keep
 # working during the migration.
-def add_ghosts(guild_id: int, user_id: int, amount: int):
-    return add_turkeys(guild_id, user_id, amount)
+async def add_ghosts(guild_id: int, user_id: int, amount: int):
+    return await add_turkeys(guild_id, user_id, amount)
 
-def get_ghosts(guild_id: int, user_id: int) -> int:
-    return get_turkeys(guild_id, user_id)
+async def get_ghosts(guild_id: int, user_id: int) -> int:
+    return await get_turkeys(guild_id, user_id)
 
-def set_ghosts(guild_id: int, user_id: int, amount: int):
-    return set_turkeys(guild_id, user_id, amount)
+async def set_ghosts(guild_id: int, user_id: int, amount: int):
+    return await set_turkeys(guild_id, user_id, amount)
 
 
 async def is_staff_in_guild(guild: discord.Guild | None, user_id: int) -> bool:
@@ -1129,7 +1103,7 @@ async def is_staff_in_guild(guild: discord.Guild | None, user_id: int) -> bool:
     gid = guild.id
     # check configured staff role first
     try:
-        staff_role_id = get_staff_role(gid)
+        staff_role_id = await get_staff_role(gid)
         if staff_role_id:
             # if the member has the role, they're staff
             member = guild.get_member(user_id)
@@ -1159,27 +1133,23 @@ async def is_staff_in_guild(guild: discord.Guild | None, user_id: int) -> bool:
         return False
 
 
-def set_staff_role(guild_id: int, role_id: int | None):
-    conn = get_db_conn()
-    cur = conn.cursor()
-    if role_id is None:
-        cur.execute("INSERT INTO settings(guild_id, staff_role_id) VALUES (%s, NULL) ON CONFLICT(guild_id) DO UPDATE SET staff_role_id = NULL", (guild_id,))
-    else:
-        cur.execute("INSERT INTO settings(guild_id, staff_role_id) VALUES (%s, %s) ON CONFLICT(guild_id) DO UPDATE SET staff_role_id = %s", (guild_id, role_id, role_id))
-    conn.commit()
-    conn.close()
+async def set_staff_role(guild_id: int, role_id: int | None):
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        if role_id is None:
+            await conn.execute("INSERT INTO settings(guild_id, staff_role_id) VALUES ($1, NULL) ON CONFLICT (guild_id) DO UPDATE SET staff_role_id = NULL", guild_id)
+        else:
+            await conn.execute("INSERT INTO settings(guild_id, staff_role_id) VALUES ($1, $2) ON CONFLICT (guild_id) DO UPDATE SET staff_role_id = $2", guild_id, role_id)
 
 
-def get_staff_role(guild_id: int) -> int | None:
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT staff_role_id FROM settings WHERE guild_id = %s", (guild_id,))
-    row = cur.fetchone()
-    conn.close()
-    return row[0] if row and row[0] is not None else None
+async def get_staff_role(guild_id: int) -> int | None:
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT staff_role_id FROM settings WHERE guild_id = $1", guild_id)
+    return row["staff_role_id"] if row and row["staff_role_id"] is not None else None
 
 
-def set_mod_role(guild_id: int, command: str, role_id: int | None):
+async def set_mod_role(guild_id: int, command: str, role_id: int | None):
     """Set role id for a moderation command (ban/kick/mute) in settings table."""
     field = None
     if command == 'ban':
@@ -1190,29 +1160,27 @@ def set_mod_role(guild_id: int, command: str, role_id: int | None):
         field = 'mod_mute_role_id'
     else:
         return
-    conn = get_db_conn()
-    cur = conn.cursor()
-    if role_id is None:
-        cur.execute(f"INSERT INTO settings(guild_id, {field}) VALUES (%s, NULL) ON CONFLICT(guild_id) DO UPDATE SET {field} = NULL", (guild_id,))
-    else:
-        cur.execute(f"INSERT INTO settings(guild_id, {field}) VALUES (%s, %s) ON CONFLICT(guild_id) DO UPDATE SET {field} = %s", (guild_id, role_id, role_id))
-    conn.commit()
-    conn.close()
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        if role_id is None:
+            await conn.execute(f"INSERT INTO settings(guild_id, {field}) VALUES ($1, NULL) ON CONFLICT (guild_id) DO UPDATE SET {field} = NULL", guild_id)
+        else:
+            await conn.execute(f"INSERT INTO settings(guild_id, {field}) VALUES ($1, $2) ON CONFLICT (guild_id) DO UPDATE SET {field} = $2", guild_id, role_id)
 
 
-def log_moderation(guild_id: int | None, action: str, target_id: int, moderator_id: int, reason: str | None = None):
+async def log_moderation(guild_id: int | None, action: str, target_id: int, moderator_id: int, reason: str | None = None):
     try:
-        conn = get_db_conn()
-        cur = conn.cursor()
-        cur.execute("INSERT INTO mod_log(guild_id, action, target_id, moderator_id, reason, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
-                    (guild_id, action, target_id, moderator_id, reason, datetime.now(timezone.utc).isoformat()))
-        conn.commit()
-        conn.close()
+        await _ensure_db_pool()
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO mod_log(guild_id, action, target_id, moderator_id, reason, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+                guild_id, action, target_id, moderator_id, reason, datetime.now(timezone.utc).isoformat()
+            )
     except Exception:
         pass
 
 
-def get_mod_role(guild_id: int, command: str) -> int | None:
+async def get_mod_role(guild_id: int, command: str) -> int | None:
     field = None
     if command == 'ban':
         field = 'mod_ban_role_id'
@@ -1222,12 +1190,10 @@ def get_mod_role(guild_id: int, command: str) -> int | None:
         field = 'mod_mute_role_id'
     else:
         return None
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute(f"SELECT {field} FROM settings WHERE guild_id = %s", (guild_id,))
-    row = cur.fetchone()
-    conn.close()
-    return row[0] if row and row[0] is not None else None
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(f"SELECT {field} FROM settings WHERE guild_id = $1", guild_id)
+    return row[field] if row and row[field] is not None else None
 
 
 async def has_mod_permission(interaction: discord.Interaction, command: str) -> bool:
@@ -1251,7 +1217,7 @@ async def has_mod_permission(interaction: discord.Interaction, command: str) -> 
         if perms.administrator or perms.manage_guild:
             return True
         # check role
-        role_id = get_mod_role(interaction.guild.id, command)
+        role_id = await get_mod_role(interaction.guild.id, command)
         if role_id:
             if any(r.id == role_id for r in member.roles):
                 return True
@@ -1310,6 +1276,11 @@ async def on_connect():
         asyncio.create_task(_monopoly_poster_loop())
     except Exception:
         pass
+    # ensure DB and run migrations asynchronously
+    try:
+        asyncio.create_task(init_db_async())
+    except Exception:
+        pass
 
 
 async def _apply_guild_currency_command(guild_id: int, new_cmd_name: str, old_cmd_name: str | None = None):
@@ -1344,13 +1315,13 @@ async def _apply_guild_currency_command(guild_id: int, new_cmd_name: str, old_cm
     async def _balance_callback(interaction: discord.Interaction, user: discord.User | None = None):
         target = user or interaction.user
         gid = getattr(interaction.guild, 'id', 0) or 0
-        bal = get_turkeys(gid, target.id)
+        bal = await get_turkeys(gid, target.id)
         await interaction.response.send_message(
-            f"{fmt_currency(getattr(interaction.guild, 'id', None), bal)} — {target.mention}",
+            f"{await fmt_currency(getattr(interaction.guild, 'id', None), bal)} — {target.mention}",
             ephemeral=True,
         )
 
-    _, cname = get_currency_display(guild_id)
+    _, cname = await get_currency_display(guild_id)
     cmd = app_commands.Command(
         name=clean,
         description=f"Check your {cname} balance",
@@ -1731,16 +1702,11 @@ async def on_message(message: discord.Message):
     if content.startswith('!') and message.guild:
         raw = content[1:].split()[0].lower() if content[1:].strip() else ''
         if raw:
-            conn = get_db_conn()
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT info FROM custom_commands WHERE guild_id = %s AND name = %s",
-                (message.guild.id, raw)
-            )
-            row = cur.fetchone()
-            conn.close()
+            await _ensure_db_pool()
+            async with db_pool.acquire() as conn:
+                row = await conn.fetchrow("SELECT info FROM custom_commands WHERE guild_id = $1 AND name = $2", message.guild.id, raw)
             if row:
-                await message.channel.send(row[0])
+                await message.channel.send(row["info"])
                 return
 
     cmd = ''
@@ -1803,7 +1769,7 @@ async def on_message(message: discord.Message):
         # an explicit overwrite allowing send_messages and is not staff/admin,
         # flip it to deny so non-staff can't send.
         new_overwrites = dict(original_overwrites)  # start from original
-        staff_role_id = get_staff_role(guild.id)
+        staff_role_id = await get_staff_role(guild.id)
 
         # Ensure @everyone is denied send_messages (preserve view_channel)
         try:
@@ -1979,7 +1945,7 @@ async def slash_ban(interaction: discord.Interaction, user_id: str, reason: str 
     try:
         # attempt to ban by object id (works even if user not in guild)
         await interaction.guild.ban(discord.Object(id=uid), reason=reason)
-        log_moderation(interaction.guild.id, 'ban', uid, interaction.user.id, reason)
+        asyncio.create_task(log_moderation(interaction.guild.id, 'ban', uid, interaction.user.id, reason))
         await safe_reply(interaction, f'Banned <@{uid}>.')
     except Exception as e:
         await safe_reply(interaction, f'Failed to ban: {e}')
@@ -2007,7 +1973,7 @@ async def slash_kick(interaction: discord.Interaction, user_id: str, reason: str
             await safe_reply(interaction, 'Member not found in guild.')
             return
         await member.kick(reason=reason)
-        log_moderation(interaction.guild.id, 'kick', member.id, interaction.user.id, reason)
+        asyncio.create_task(log_moderation(interaction.guild.id, 'kick', member.id, interaction.user.id, reason))
         await safe_reply(interaction, f'Kicked {member.mention}.')
     except Exception as e:
         await safe_reply(interaction, f'Failed to kick: {e}')
@@ -2099,7 +2065,7 @@ async def slash_mute(interaction: discord.Interaction, user_id: str, duration: s
         if unmute_ts:
             users = muted_until.setdefault(interaction.guild.id, {})
             users[member.id] = unmute_ts
-        log_moderation(interaction.guild.id, 'mute', member.id, interaction.user.id, reason)
+        asyncio.create_task(log_moderation(interaction.guild.id, 'mute', member.id, interaction.user.id, reason))
         await safe_reply(interaction, f'{member.mention} has been muted.')
     except Exception as e:
         await safe_reply(interaction, f'Failed to mute: {e}')
@@ -2126,7 +2092,7 @@ async def slash_settings_mod(interaction: discord.Interaction, command: str, rol
         return
     role_id = role.id if role else None
     try:
-        set_mod_role(interaction.guild.id, command, role_id)
+        await set_mod_role(interaction.guild.id, command, role_id)
         if role_id:
             await safe_reply(interaction, f'Role {role.name} set for {command}.')
         else:
@@ -2160,45 +2126,37 @@ async def safe_reply(interaction: discord.Interaction, content: str, ephemeral: 
     except Exception:
         pass
 
-def list_shop_items(guild_id: int | None = None):
-    conn = get_db_conn()
-    cur = conn.cursor()
-    if guild_id:
-        cur.execute("SELECT id, name, price, role_id FROM shop_items WHERE guild_id = %s", (guild_id,))
-    else:
-        cur.execute("SELECT id, name, price, role_id FROM shop_items WHERE guild_id IS NULL")
-    rows = cur.fetchall()
-    conn.close()
+async def list_shop_items(guild_id: int | None = None):
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        if guild_id:
+            rows = await conn.fetch("SELECT id, name, price, role_id FROM shop_items WHERE guild_id = $1", guild_id)
+        else:
+            rows = await conn.fetch("SELECT id, name, price, role_id FROM shop_items WHERE guild_id IS NULL")
     return rows
 
-def add_shop_item(name: str, price: int, guild_id: int | None = None, role_id: int | None = None, metadata: str | None = None):
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute("INSERT INTO shop_items(guild_id, name, price, role_id, metadata) VALUES (%s, %s, %s, %s, %s)", (guild_id, name, price, role_id, metadata))
-    conn.commit()
-    conn.close()
+async def add_shop_item(name: str, price: int, guild_id: int | None = None, role_id: int | None = None, metadata: str | None = None):
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO shop_items(guild_id, name, price, role_id, metadata) VALUES ($1, $2, $3, $4, $5)", guild_id, name, price, role_id, metadata)
 
-def remove_shop_item(item_id: int):
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM shop_items WHERE id = %s", (item_id,))
-    conn.commit()
-    conn.close()
+async def remove_shop_item(item_id: int):
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM shop_items WHERE id = $1", item_id)
 
-def get_shop_item(item_id: int):
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT id, guild_id, name, price, role_id, metadata FROM shop_items WHERE id = %s", (item_id,))
-    row = cur.fetchone()
-    conn.close()
+async def get_shop_item(item_id: int):
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT id, guild_id, name, price, role_id, metadata FROM shop_items WHERE id = $1", item_id)
     return row
 
-def maybe_halloween_announce(channel: discord.abc.GuildChannel):
+async def maybe_halloween_announce(channel: discord.abc.GuildChannel):
     today = date.today()
     if today.month == 10 and 25 <= today.day <= 31:
         if random.random() < 0.25:
             try:
-                emoji, name = get_currency_display(getattr(channel, 'guild', None).id if getattr(channel, 'guild', None) else None)
+                emoji, name = await get_currency_display(getattr(channel, 'guild', None).id if getattr(channel, 'guild', None) else None)
                 asyncio.create_task(run_coro_safe(channel.send(f"Halloween event active! In this game the winner will receive {emoji} {name}."), name=f"halloween-announce-{getattr(channel, 'id', 'chan')}"))
             except Exception:
                 pass
@@ -2581,21 +2539,24 @@ class TeddyTournamentView(discord.ui.View):
         # Winner
         winner_id = alive[0]
         guild = interaction.guild
-        # Save stats (reuse existing wins tables)
-        conn = get_db_conn()
-        cur = conn.cursor()
-        cur.execute("INSERT INTO wins_global(user_id, wins) VALUES (%s, 1) ON CONFLICT(user_id) DO UPDATE SET wins = wins_global.wins + 1", (winner_id,))
-        if guild:
-            cur.execute("INSERT INTO wins_guild(guild_id, user_id, wins) VALUES (%s, %s, 1) ON CONFLICT(guild_id, user_id) DO UPDATE SET wins = wins_guild.wins + 1", (guild.id, winner_id))
-        conn.commit()
-        cur.execute("SELECT wins FROM wins_global WHERE user_id = %s", (winner_id,))
-        global_wins = cur.fetchone()[0]
-        guild_wins = 0
-        if guild:
-            cur.execute("SELECT wins FROM wins_guild WHERE guild_id = %s AND user_id = %s", (guild.id, winner_id))
-            row = cur.fetchone()
-            guild_wins = row[0] if row else 0
-        conn.close()
+        # Save stats (reuse existing wins tables) asynchronously
+        await _ensure_db_pool()
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO wins_global(user_id, wins) VALUES ($1, 1) ON CONFLICT(user_id) DO UPDATE SET wins = wins_global.wins + 1",
+                winner_id,
+            )
+            if guild:
+                await conn.execute(
+                    "INSERT INTO wins_guild(guild_id, user_id, wins) VALUES ($1, $2, 1) ON CONFLICT(guild_id, user_id) DO UPDATE SET wins = wins_guild.wins + 1",
+                    guild.id, winner_id,
+                )
+            row = await conn.fetchrow("SELECT wins FROM wins_global WHERE user_id = $1", winner_id)
+            global_wins = row["wins"] if row else 0
+            guild_wins = 0
+            if guild:
+                row = await conn.fetchrow("SELECT wins FROM wins_guild WHERE guild_id = $1 AND user_id = $2", guild.id, winner_id)
+                guild_wins = row["wins"] if row else 0
         meta = tournaments_meta.get(msg_id, {})
         start_ts = meta.get("start")
         duration_text = "unknown"
@@ -2628,19 +2589,19 @@ class TeddyTournamentView(discord.ui.View):
             try:
                 if await is_staff_in_guild(interaction.guild, winner_id):
                     try:
-                        _emoji, _cname = get_currency_display(getattr(interaction.guild, 'id', None))
+                        _emoji, _cname = await get_currency_display(getattr(interaction.guild, 'id', None))
                         await channel.send(f"{_emoji} {winner_mention} is staff and has unlimited {_cname} — congratulations!")
                     except Exception:
                         pass
                 else:
-                    add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)
+                    await add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)
                     try:
-                        await channel.send(f"{fmt_currency(getattr(interaction.guild, 'id', None), turkeys_awarded)} have been awarded to {winner_mention}!")
+                        await channel.send(f"{await fmt_currency(getattr(interaction.guild, 'id', None), turkeys_awarded)} have been awarded to {winner_mention}!")
                     except Exception:
                         pass
             except Exception:
                 try:
-                    add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)
+                    await add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)
                 except Exception:
                     pass
         except Exception:
@@ -2770,9 +2731,9 @@ except Exception:
 @shop_group.command(name="list", description="List available shop items for this server or global ones")
 async def shop_list(interaction: discord.Interaction):
     gid = interaction.guild.id if interaction.guild else None
-    items = list_shop_items(gid)
+    items = await list_shop_items(gid)
     if not items:
-        items = list_shop_items(None)
+        items = await list_shop_items(None)
     if not items:
         await interaction.response.send_message("No shop items available.", ephemeral=True)
         return
@@ -2780,14 +2741,14 @@ async def shop_list(interaction: discord.Interaction):
     for row in items:
         item_id, name, price, role_id = row[0], row[1], row[2], row[3]
         role_part = f" (role: <@&{role_id}>)" if role_id else ""
-        lines.append(f"{item_id}: {name} — {fmt_currency(gid, price)}{role_part}")
+        lines.append(f"{item_id}: {name} — {await fmt_currency(gid, price)}{role_part}")
     await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
 
 @shop_group.command(name="buy", description="Buy a shop item using Snuggles")
 @app_commands.describe(item_id="ID of the shop item to buy")
 async def shop_buy(interaction: discord.Interaction, item_id: int):
-    row = get_shop_item(item_id)
+    row = await get_shop_item(item_id)
     if not row:
         await interaction.response.send_message("Item not found.", ephemeral=True)
         return
@@ -2798,16 +2759,16 @@ async def shop_buy(interaction: discord.Interaction, item_id: int):
         return
     user_id = interaction.user.id
     gid = getattr(interaction.guild, 'id', 0) or 0
-    bal = get_turkeys(gid, user_id)
+    bal = await get_turkeys(gid, user_id)
     if bal < price:
-        emoji, cname = get_currency_display(getattr(interaction.guild, 'id', None))
+        emoji, cname = await get_currency_display(getattr(interaction.guild, 'id', None))
         await interaction.response.send_message(
-            f"You don't have enough {emoji} {cname}. You have {fmt_currency(getattr(interaction.guild, 'id', None), bal)}, but the item costs {fmt_currency(getattr(interaction.guild, 'id', None), price)}.",
+            f"You don't have enough {emoji} {cname}. You have {await fmt_currency(getattr(interaction.guild, 'id', None), bal)}, but the item costs {await fmt_currency(getattr(interaction.guild, 'id', None), price)}.",
             ephemeral=True,
         )
         return
     # deduct
-    add_turkeys(gid, user_id, -price)
+    await add_turkeys(gid, user_id, -price)
     # assign role if applicable
     if role_id and interaction.guild:
         try:
@@ -2819,7 +2780,7 @@ async def shop_buy(interaction: discord.Interaction, item_id: int):
                     pass
         except Exception:
             pass
-    await interaction.response.send_message(f"You bought **{name}** for {fmt_currency(getattr(interaction.guild, 'id', None), price)}.", ephemeral=True)
+    await interaction.response.send_message(f"You bought **{name}** for {await fmt_currency(getattr(interaction.guild, 'id', None), price)}.", ephemeral=True)
 
 
 @shop_group.command(name="add", description="(Admin) Add a shop item to this server or global")
@@ -2828,18 +2789,18 @@ async def shop_buy(interaction: discord.Interaction, item_id: int):
 async def shop_add(interaction: discord.Interaction, name: str, price: int, role: discord.Role | None = None, global_item: bool = False):
     gid = None if global_item else (interaction.guild.id if interaction.guild else None)
     role_id = role.id if role else None
-    add_shop_item(name=name, price=price, guild_id=gid, role_id=role_id)
-    await interaction.response.send_message(f"Added shop item: {name} — {fmt_currency(gid, price)}", ephemeral=True)
+    await add_shop_item(name=name, price=price, guild_id=gid, role_id=role_id)
+    await interaction.response.send_message(f"Added shop item: {name} — {await fmt_currency(gid, price)}", ephemeral=True)
 
 
 @shop_group.command(name="remove", description="(Admin) Remove a shop item by id")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def shop_remove(interaction: discord.Interaction, item_id: int):
-    row = get_shop_item(item_id)
+    row = await get_shop_item(item_id)
     if not row:
         await interaction.response.send_message("Item not found.", ephemeral=True)
         return
-    remove_shop_item(item_id)
+    await remove_shop_item(item_id)
     await interaction.response.send_message(f"Removed shop item {item_id}.", ephemeral=True)
 
 
@@ -3011,7 +2972,7 @@ async def slash_m_lock(interaction: discord.Interaction):
         await safe_reply(interaction, "You do not have permission to use this command.")
         return
 
-    staff_role_id = get_staff_role(interaction.guild.id)
+    staff_role_id = await get_staff_role(interaction.guild.id)
     try:
         await apply_lock_channel(interaction.channel, interaction.guild, staff_role_id=staff_role_id)
         await safe_reply(interaction, "Channel locked: only staff can send messages. Viewing permissions were not changed.", ephemeral=False)
@@ -3128,7 +3089,7 @@ async def settings_set_staff_role(interaction: discord.Interaction, role: discor
         return
     try:
         role_id = role.id if role else None
-        set_staff_role(interaction.guild.id, role_id)
+        await set_staff_role(interaction.guild.id, role_id)
         if role:
             await interaction.response.send_message(f"Staff role set to {role.mention}.", ephemeral=True)
         else:
@@ -3143,7 +3104,7 @@ async def settings_get_staff_role(interaction: discord.Interaction):
         await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
         return
     try:
-        role_id = get_staff_role(interaction.guild.id)
+        role_id = await get_staff_role(interaction.guild.id)
         if role_id:
             role = interaction.guild.get_role(role_id)
             if role:
@@ -3164,18 +3125,18 @@ async def settings_show(interaction: discord.Interaction):
         return
     gid = interaction.guild.id
     try:
-        emoji, cname = get_currency_display(gid)
+        emoji, cname = await get_currency_display(gid)
     except Exception:
         emoji, cname = DEFAULT_CURRENCY_EMOJI, DEFAULT_CURRENCY_NAME
     try:
-        staff_role_id = get_staff_role(gid)
+        staff_role_id = await get_staff_role(gid)
     except Exception:
         staff_role_id = None
 
     try:
-        ban_role_id = get_mod_role(gid, 'ban')
-        kick_role_id = get_mod_role(gid, 'kick')
-        mute_role_id = get_mod_role(gid, 'mute')
+        ban_role_id = await get_mod_role(gid, 'ban')
+        kick_role_id = await get_mod_role(gid, 'kick')
+        mute_role_id = await get_mod_role(gid, 'mute')
     except Exception:
         ban_role_id = kick_role_id = mute_role_id = None
 
@@ -3653,35 +3614,36 @@ async def wheels_start(interaction: discord.Interaction):
 
     # Optionally record a win in DB (global)
     try:
-        conn = get_db_conn()
-        cur = conn.cursor()
-        cur.execute("INSERT INTO wins_global(user_id, wins) VALUES (%s, 1) ON CONFLICT(user_id) DO UPDATE SET wins = wins_global.wins + 1", (winner_id,))
-        conn.commit()
-        conn.close()
+        await _ensure_db_pool()
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO wins_global(user_id, wins) VALUES ($1, 1) ON CONFLICT(user_id) DO UPDATE SET wins = wins_global.wins + 1",
+                winner_id,
+            )
     except Exception:
         pass
 
     # Award turkeys to the winner (unless staff)
     try:
-        try:
-            if await is_staff_in_guild(interaction.guild, winner_id):
-                try:
-                    _emoji, _cname = get_currency_display(getattr(interaction.guild, 'id', None))
-                    await channel.send(f"{_emoji} {winner_mention} is staff and has unlimited {_cname} — congratulations!")
-                except Exception:
-                    pass
-            else:
-                add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)
-                try:
-                    await channel.send(f"{fmt_currency(getattr(interaction.guild, 'id', None), turkeys_awarded)} have been awarded to {winner_mention}!")
-                except Exception:
-                    pass
-        except Exception:
-            # fallback: award normally
             try:
-                add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)
+                if await is_staff_in_guild(interaction.guild, winner_id):
+                    try:
+                        _emoji, _cname = await get_currency_display(getattr(interaction.guild, 'id', None))
+                        await channel.send(f"{_emoji} {winner_mention} is staff and has unlimited {_cname} — congratulations!")
+                    except Exception:
+                        pass
+                else:
+                    await add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)
+                    try:
+                        await channel.send(f"{await fmt_currency(getattr(interaction.guild, 'id', None), turkeys_awarded)} have been awarded to {winner_mention}!")
+                    except Exception:
+                        pass
             except Exception:
-                pass
+                # fallback: award normally
+                try:
+                    await add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)
+                except Exception:
+                    pass
     except Exception:
         pass
 
@@ -4595,14 +4557,12 @@ def _current_date_str():
     return time.strftime("%Y-%m-%d", time.gmtime())
 
 
-def _cleanup_old_schedule():
+async def _cleanup_old_schedule():
     """Remove schedule entries older than today (UTC-based daily reset)."""
     today = _current_date_str()
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM schedule_entries WHERE date < %s", (today,))
-    conn.commit()
-    conn.close()
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM schedule_entries WHERE date < $1", today)
 
 
 def local_slot_to_utc(slot: int, tz_name: str, local_date: Optional[date] = None):
@@ -4629,11 +4589,11 @@ async def show_schedule(interaction: discord.Interaction):
         await interaction.response.send_message("This command must be used in a server (guild).", ephemeral=True)
         return
     await interaction.response.defer()
-    _cleanup_old_schedule()
+    await _cleanup_old_schedule()
 
     # Viewer settings define which local day and slot labels (1-24) are shown.
-    user_tz_name = get_user_timezone(interaction.user.id) or "Etc/UTC"
-    user_fmt = get_user_time_format(interaction.user.id)
+    user_tz_name = await get_user_timezone(interaction.user.id) or "Etc/UTC"
+    user_fmt = await get_user_time_format(interaction.user.id)
     user_tz = ZoneInfo(user_tz_name)
     time_str_fmt = "%I:%M %p" if user_fmt == "12h" else "%H:%M"
     local_today = datetime.now(user_tz).date()
@@ -4645,20 +4605,18 @@ async def show_schedule(interaction: discord.Interaction):
     utc_date_end = (utc_end - timedelta(seconds=1)).strftime("%Y-%m-%d")
 
     guild_id = getattr(interaction.guild, 'id', 0) or 0
-    conn = get_db_conn()
-    cur = conn.cursor()
-    if utc_date_start == utc_date_end:
-        cur.execute(
-            "SELECT date, slot, user_id, game, local_tz, local_slot FROM schedule_entries WHERE guild_id = %s AND date = %s ORDER BY date, slot",
-            (guild_id, utc_date_start),
-        )
-    else:
-        cur.execute(
-            "SELECT date, slot, user_id, game, local_tz, local_slot FROM schedule_entries WHERE guild_id = %s AND date IN (%s, %s) ORDER BY date, slot",
-            (guild_id, utc_date_start, utc_date_end),
-        )
-    rows = cur.fetchall()
-    conn.close()
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        if utc_date_start == utc_date_end:
+            rows = await conn.fetch(
+                "SELECT date, slot, user_id, game, local_tz, local_slot FROM schedule_entries WHERE guild_id = $1 AND date = $2 ORDER BY date, slot",
+                guild_id, utc_date_start,
+            )
+        else:
+            rows = await conn.fetch(
+                "SELECT date, slot, user_id, game, local_tz, local_slot FROM schedule_entries WHERE guild_id = $1 AND date IN ($2, $3) ORDER BY date, slot",
+                guild_id, utc_date_start, utc_date_end,
+            )
 
     # Re-bucket UTC rows into viewer-local slots for the viewer's local day.
     slots = {i: [] for i in range(24)}
@@ -4729,21 +4687,17 @@ async def add_schedule(interaction: discord.Interaction, slot: int, game: str):
         except Exception:
             local_dt = now_utc
 
-    _cleanup_old_schedule()
+    await _cleanup_old_schedule()
     guild_id = getattr(interaction.guild, 'id', 0) or 0
-    conn = get_db_conn()
-    cur = conn.cursor()
-    # Upsert using UTC-normalized date and slot
-    try:
-        cur.execute(
-            "INSERT INTO schedule_entries(date, slot, guild_id, user_id, game, local_tz, local_slot) VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
-            (utc_date, utc_slot, guild_id, interaction.user.id, game, user_tz_name, slot),
-        )
-        conn.commit()
-    except Exception as e:
-        print("DB error adding schedule:", e)
-    finally:
-        conn.close()
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        try:
+            await conn.execute(
+                "INSERT INTO schedule_entries(date, slot, guild_id, user_id, game, local_tz, local_slot) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING",
+                utc_date, utc_slot, guild_id, interaction.user.id, game, user_tz_name, slot,
+            )
+        except Exception as e:
+            print("DB error adding schedule:", e)
 
     # Build a timestamp from the UTC datetime so Discord shows it localized for each viewer
     slot_ts = int(utc_dt.timestamp())
@@ -4781,22 +4735,26 @@ async def delete_schedule(interaction: discord.Interaction, slot: int):
         utc_slot = now_utc.hour
         utc_dt = now_utc
 
-    _cleanup_old_schedule()
-    conn = get_db_conn()
-    cur = conn.cursor()
-    try:
-        guild_id = getattr(interaction.guild, 'id', 0) or 0
-        cur.execute(
-            "DELETE FROM schedule_entries WHERE date = %s AND slot = %s AND guild_id = %s AND user_id = %s",
-            (utc_date, utc_slot, guild_id, interaction.user.id),
-        )
-        deleted = cur.rowcount
-        conn.commit()
-    except Exception as e:
-        print("DB error deleting schedule:", e)
-        deleted = 0
-    finally:
-        conn.close()
+    await _cleanup_old_schedule()
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        try:
+            guild_id = getattr(interaction.guild, 'id', 0) or 0
+            row = await conn.fetchrow(
+                "SELECT 1 FROM schedule_entries WHERE date = $1 AND slot = $2 AND guild_id = $3 AND user_id = $4",
+                utc_date, utc_slot, guild_id, interaction.user.id,
+            )
+            if row:
+                await conn.execute(
+                    "DELETE FROM schedule_entries WHERE date = $1 AND slot = $2 AND guild_id = $3 AND user_id = $4",
+                    utc_date, utc_slot, guild_id, interaction.user.id,
+                )
+                deleted = 1
+            else:
+                deleted = 0
+        except Exception as e:
+            print("DB error deleting schedule:", e)
+            deleted = 0
 
     if deleted:
         slot_ts = int(utc_dt.timestamp())
@@ -4863,34 +4821,33 @@ async def _fetch_monopoly_links_from_source(session, url: str) -> list[str]:
         return []
 
 
-def _monopoly_already_posted(url: str) -> bool:
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT 1 FROM monopoly_go_posted WHERE url = %s", (url,))
-    exists = cur.fetchone() is not None
-    conn.close()
-    return exists
 
 
-def _monopoly_mark_posted(url: str):
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO monopoly_go_posted (url, posted_at) VALUES (%s, %s) ON CONFLICT DO NOTHING",
-        (url, datetime.now(timezone.utc).isoformat())
-    )
-    conn.commit()
-    conn.close()
+
+async def _monopoly_get_channels_async() -> list[tuple[int, int]]:
+    """Async variant returning list of (guild_id, channel_id)."""
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("SELECT guild_id, channel_id FROM monopoly_go_config")
+        return [(r["guild_id"], r["channel_id"]) for r in rows]
 
 
-def _monopoly_get_channels() -> list[tuple[int, int]]:
-    """Return list of (guild_id, channel_id) for all configured guilds."""
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT guild_id, channel_id FROM monopoly_go_config")
-    rows = cur.fetchall()
-    conn.close()
-    return rows
+async def _monopoly_already_posted_async(url: str) -> bool:
+    """Async check whether a Monopoly link was already posted."""
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT 1 FROM monopoly_go_posted WHERE url = $1", url)
+        return row is not None
+
+
+async def _monopoly_mark_posted_async(url: str) -> None:
+    """Async mark a Monopoly link as posted."""
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO monopoly_go_posted (url, posted_at) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+            url, datetime.now(timezone.utc).isoformat()
+        )
 
 
 async def _monopoly_poster_loop():
@@ -4912,13 +4869,13 @@ async def _monopoly_poster_loop():
     async with aiohttp.ClientSession(headers={"User-Agent": "Mozilla/5.0 (compatible; MonopolyGoBot/1.0)"}) as session:
         while not bot.is_closed():
             try:
-                guild_channels = _monopoly_get_channels()
+                guild_channels = await _monopoly_get_channels_async()
                 if guild_channels:
                     new_links: list[str] = []
                     for source_url in _MONOPOLY_SOURCES:
                         links = await _fetch_monopoly_links_from_source(session, source_url)
                         for link in links:
-                            if not _monopoly_already_posted(link):
+                            if not await _monopoly_already_posted_async(link):
                                 new_links.append(link)
 
                     # Deduplicate across sources
@@ -4931,7 +4888,7 @@ async def _monopoly_poster_loop():
 
                     if unique_new:
                         for link in unique_new:
-                            _monopoly_mark_posted(link)
+                            await _monopoly_mark_posted_async(link)
                             embed = discord.Embed(
                                 title="🎲 Monopoly GO — Free Reward Link!",
                                 description=link,
@@ -4960,16 +4917,14 @@ async def set_monopoly_channel(interaction: discord.Interaction, channel: discor
     if not interaction.guild:
         await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
         return
-    conn = get_db_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            "INSERT INTO monopoly_go_config (guild_id, channel_id) VALUES (%s, %s) ON CONFLICT(guild_id) DO UPDATE SET channel_id = %s",
-            (interaction.guild.id, channel.id, channel.id)
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            """INSERT INTO monopoly_go_config (guild_id, channel_id)
+               VALUES ($1, $2)
+               ON CONFLICT (guild_id) DO UPDATE SET channel_id = EXCLUDED.channel_id""",
+            interaction.guild.id, channel.id
         )
-        conn.commit()
-    finally:
-        conn.close()
     await interaction.response.send_message(
         f"✅ Monopoly GO reward links will be auto-posted in {channel.mention}.\n"
         "The bot checks official sources every 3 minutes and posts each link only once.",
@@ -4983,18 +4938,14 @@ async def unset_monopoly_channel(interaction: discord.Interaction):
     if not interaction.guild:
         await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
         return
-    conn = get_db_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute("DELETE FROM monopoly_go_config WHERE guild_id = %s", (interaction.guild.id,))
-        deleted = cur.rowcount
-        conn.commit()
-    finally:
-        conn.close()
-    if deleted:
-        await interaction.response.send_message("✅ Monopoly GO auto-posting disabled for this server.", ephemeral=True)
-    else:
-        await interaction.response.send_message("No Monopoly GO channel was configured for this server.", ephemeral=True)
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT 1 FROM monopoly_go_config WHERE guild_id = $1", interaction.guild.id)
+        if row:
+            await conn.execute("DELETE FROM monopoly_go_config WHERE guild_id = $1", interaction.guild.id)
+            await interaction.response.send_message("✅ Monopoly GO auto-posting disabled for this server.", ephemeral=True)
+        else:
+            await interaction.response.send_message("No Monopoly GO channel was configured for this server.", ephemeral=True)
 
 
 @bot.tree.command(name="custom", description="Crea un comando personalizado para este servidor")
@@ -5011,16 +4962,12 @@ async def custom_command_create(interaction: discord.Interaction, name: str, inf
     if not cmd_name or any(c in cmd_name for c in (' ', '\t', '\n')):
         await interaction.response.send_message("El nombre del comando debe ser una sola palabra sin espacios.", ephemeral=True)
         return
-    conn = get_db_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            "INSERT INTO custom_commands (guild_id, name, info) VALUES (%s, %s, %s) ON CONFLICT(guild_id, name) DO UPDATE SET info = %s",
-            (interaction.guild.id, cmd_name, info, info)
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO custom_commands (guild_id, name, info) VALUES ($1, $2, $3) ON CONFLICT(guild_id, name) DO UPDATE SET info = $3",
+            interaction.guild.id, cmd_name, info,
         )
-        conn.commit()
-    finally:
-        conn.close()
     await interaction.response.send_message(f"Comando personalizado `!{cmd_name}` creado correctamente.", ephemeral=True)
 
 
@@ -5032,17 +4979,14 @@ async def custom_command_delete(interaction: discord.Interaction, name: str):
         await interaction.response.send_message("Este comando solo se puede usar en un servidor.", ephemeral=True)
         return
     cmd_name = name.lower().strip()
-    conn = get_db_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            "DELETE FROM custom_commands WHERE guild_id = %s AND name = %s",
-            (interaction.guild.id, cmd_name)
-        )
-        deleted = cur.rowcount
-        conn.commit()
-    finally:
-        conn.close()
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT 1 FROM custom_commands WHERE guild_id = $1 AND name = $2", interaction.guild.id, cmd_name)
+        if row:
+            await conn.execute("DELETE FROM custom_commands WHERE guild_id = $1 AND name = $2", interaction.guild.id, cmd_name)
+            deleted = True
+        else:
+            deleted = False
     if deleted:
         await interaction.response.send_message(f"Comando personalizado `!{cmd_name}` eliminado.", ephemeral=True)
     else:
@@ -5056,17 +5000,12 @@ async def set_official_links_channel(interaction: discord.Interaction, channel: 
     if not interaction.guild:
         await interaction.response.send_message("Este comando solo se puede usar en un servidor.", ephemeral=True)
         return
-    conn = get_db_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            "INSERT INTO settings (guild_id, official_links_channel_id) VALUES (%s, %s) "
-            "ON CONFLICT(guild_id) DO UPDATE SET official_links_channel_id = %s",
-            (interaction.guild.id, channel.id, channel.id)
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO settings (guild_id, official_links_channel_id) VALUES ($1, $2) ON CONFLICT (guild_id) DO UPDATE SET official_links_channel_id = $2",
+            interaction.guild.id, channel.id,
         )
-        conn.commit()
-    finally:
-        conn.close()
     await interaction.response.send_message(f"Canal de enlaces oficiales establecido a {channel.mention}", ephemeral=True)
 
 
@@ -5078,14 +5017,12 @@ async def add_official_link(interaction: discord.Interaction, name: str, url: st
         await interaction.response.send_message("Este comando solo se puede usar en un servidor.", ephemeral=True)
         return
     key = name.lower().strip()
-    conn = get_db_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute("INSERT INTO official_links (guild_id, name, url) VALUES (%s, %s, %s) ON CONFLICT(guild_id, name) DO UPDATE SET url = %s",
-                    (interaction.guild.id, key, url, url))
-        conn.commit()
-    finally:
-        conn.close()
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO official_links (guild_id, name, url) VALUES ($1, $2, $3) ON CONFLICT (guild_id, name) DO UPDATE SET url = $3",
+            interaction.guild.id, key, url,
+        )
     await interaction.response.send_message(f"Enlace oficial '{key}' guardado.", ephemeral=True)
 
 
@@ -5097,14 +5034,14 @@ async def remove_official_link(interaction: discord.Interaction, name: str):
         await interaction.response.send_message("Este comando solo se puede usar en un servidor.", ephemeral=True)
         return
     key = name.lower().strip()
-    conn = get_db_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute("DELETE FROM official_links WHERE guild_id = %s AND name = %s", (interaction.guild.id, key))
-        deleted = cur.rowcount
-        conn.commit()
-    finally:
-        conn.close()
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT 1 FROM official_links WHERE guild_id = $1 AND name = $2", interaction.guild.id, key)
+        if row:
+            await conn.execute("DELETE FROM official_links WHERE guild_id = $1 AND name = $2", interaction.guild.id, key)
+            deleted = True
+        else:
+            deleted = False
     if deleted:
         await interaction.response.send_message(f"Enlace oficial '{key}' eliminado.", ephemeral=True)
     else:
@@ -5117,13 +5054,9 @@ async def list_official_links(interaction: discord.Interaction):
     if not interaction.guild:
         await interaction.response.send_message("Este comando solo se puede usar en un servidor.", ephemeral=True)
         return
-    conn = get_db_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute("SELECT name, url FROM official_links WHERE guild_id = %s ORDER BY name", (interaction.guild.id,))
-        rows = cur.fetchall()
-    finally:
-        conn.close()
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("SELECT name, url FROM official_links WHERE guild_id = $1 ORDER BY name", interaction.guild.id)
     if not rows:
         await interaction.response.send_message("No hay enlaces oficiales guardados para este servidor.", ephemeral=True)
         return
@@ -5137,16 +5070,11 @@ async def post_official_links(interaction: discord.Interaction):
     if not interaction.guild:
         await interaction.response.send_message("Este comando solo se puede usar en un servidor.", ephemeral=True)
         return
-    conn = get_db_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute("SELECT official_links_channel_id FROM settings WHERE guild_id = %s", (interaction.guild.id,))
-        row = cur.fetchone()
-        channel_id = row[0] if row and row[0] is not None else None
-        cur.execute("SELECT name, url FROM official_links WHERE guild_id = %s ORDER BY name", (interaction.guild.id,))
-        links = cur.fetchall()
-    finally:
-        conn.close()
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT official_links_channel_id FROM settings WHERE guild_id = $1", interaction.guild.id)
+        channel_id = row["official_links_channel_id"] if row and row["official_links_channel_id"] is not None else None
+        links = await conn.fetch("SELECT name, url FROM official_links WHERE guild_id = $1 ORDER BY name", interaction.guild.id)
 
     if not links:
         await interaction.response.send_message("No hay enlaces oficiales guardados para publicar.", ephemeral=True)
@@ -5437,50 +5365,42 @@ def _get_all_timezones_sorted() -> list[str]:
     return _ALL_TIMEZONES_SORTED
 
 
-def get_user_timezone(user_id: int) -> str | None:
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT timezone FROM user_timezones WHERE user_id = %s", (user_id,))
-    row = cur.fetchone()
-    conn.close()
-    return row[0] if row else None
+async def get_user_timezone(user_id: int) -> str | None:
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT timezone FROM user_timezones WHERE user_id = $1", user_id)
+        return row["timezone"] if row else None
 
 
-def set_user_timezone(user_id: int, timezone: str) -> None:
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO user_timezones (user_id, timezone) VALUES (%s, %s) ON CONFLICT(user_id) DO UPDATE SET timezone = %s",
-        (user_id, timezone, timezone),
-    )
-    conn.commit()
-    conn.close()
+async def set_user_timezone(user_id: int, timezone: str) -> None:
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO user_timezones (user_id, timezone) VALUES ($1, $2) ON CONFLICT(user_id) DO UPDATE SET timezone = $2",
+            user_id, timezone,
+        )
 
 
-def get_user_time_format(user_id: int) -> str:
+async def get_user_time_format(user_id: int) -> str:
     """Returns '12h' or '24h' (default '24h') for the given user."""
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT time_format FROM user_timezones WHERE user_id = %s", (user_id,))
-    row = cur.fetchone()
-    conn.close()
-    return row[0] if row else "24h"
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT time_format FROM user_timezones WHERE user_id = $1", user_id)
+        return row["time_format"] if row else "24h"
 
 
-def set_user_time_format(user_id: int, fmt: str) -> None:
+async def set_user_time_format(user_id: int, fmt: str) -> None:
     """Saves the user's time format preference ('12h' or '24h')."""
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO user_timezones (user_id, timezone, time_format)
-        VALUES (%s, 'Etc/UTC', %s)
-        ON CONFLICT(user_id) DO UPDATE SET time_format = %s
-        """,
-        (user_id, fmt, fmt),
-    )
-    conn.commit()
-    conn.close()
+    await _ensure_db_pool()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO user_timezones (user_id, timezone, time_format)
+            VALUES ($1, 'Etc/UTC', $2)
+            ON CONFLICT(user_id) DO UPDATE SET time_format = $2
+            """,
+            user_id, fmt,
+        )
 
 
 async def timezone_autocomplete(
@@ -5529,9 +5449,9 @@ def _format_time_in_zone(tz_name: str, time_format: str = "24h") -> str:
 async def cmd_settimeformat(interaction: discord.Interaction, formato: str):
     await interaction.response.defer(ephemeral=True)
     guild_id = interaction.guild.id if interaction.guild else None
-    is_es = get_guild_language(guild_id) == "es" if guild_id else False
+    is_es = (await get_guild_language(guild_id)) == "es" if guild_id else False
 
-    set_user_time_format(interaction.user.id, formato)
+    await set_user_time_format(interaction.user.id, formato)
 
     if formato == "12h":
         label = "12h (AM/PM)"
@@ -5563,7 +5483,7 @@ async def cmd_settimeformat(interaction: discord.Interaction, formato: str):
 async def cmd_setmytime(interaction: discord.Interaction, timezone: str):
     await interaction.response.defer(ephemeral=True)
     guild_id = interaction.guild.id if interaction.guild else None
-    is_es = get_guild_language(guild_id) == "es" if guild_id else False
+    is_es = (await get_guild_language(guild_id)) == "es" if guild_id else False
     try:
         ZoneInfo(timezone)
     except (ZoneInfoNotFoundError, KeyError):
@@ -5574,8 +5494,8 @@ async def cmd_setmytime(interaction: discord.Interaction, timezone: str):
         )
         await interaction.followup.send(err, ephemeral=True)
         return
-    set_user_timezone(interaction.user.id, timezone)
-    user_fmt = get_user_time_format(interaction.user.id)
+    await set_user_timezone(interaction.user.id, timezone)
+    user_fmt = await get_user_time_format(interaction.user.id)
     formatted = _format_time_in_zone(timezone, user_fmt)
     if is_es:
         msg = (
@@ -5605,18 +5525,18 @@ async def cmd_time(interaction: discord.Interaction, timezone: str | None = None
     await interaction.response.defer()
 
     guild_id = interaction.guild.id if interaction.guild else None
-    lang = get_guild_language(guild_id) if guild_id else "en"
+    lang = await get_guild_language(guild_id) if guild_id else "en"
     is_es = lang == "es"
 
     # Fetch the caller's time format preference once (used throughout this command)
-    my_fmt = get_user_time_format(interaction.user.id)
+    my_fmt = await get_user_time_format(interaction.user.id)
 
     # --- Modo: comparar con otro usuario ---
     if usuario is not None:
         try:
-            my_tz = get_user_timezone(interaction.user.id)
-            other_tz = get_user_timezone(usuario.id)
-            other_fmt = get_user_time_format(usuario.id)
+            my_tz = await get_user_timezone(interaction.user.id)
+            other_tz = await get_user_timezone(usuario.id)
+            other_fmt = await get_user_time_format(usuario.id)
         except Exception:
             logging.exception("/time usuario: error al consultar la DB")
             err = (
