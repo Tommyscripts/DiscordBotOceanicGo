@@ -4820,23 +4820,46 @@ async def show_schedule(interaction: discord.Interaction):
     slots = {i: [] for i in range(24)}
     for row_date, utc_slot, user_id, game, local_tz, local_slot in rows:
         try:
-            # Normalize utc_slot to a UTC datetime `slot_utc`.
-            if isinstance(utc_slot, int):
-                slot_val = utc_slot
-            else:
-                slot_val = int(utc_slot)
+            # Attempt to reconstruct the UTC datetime for this entry using the stored local_tz/local_slot
+            # This is robust to mixed storage formats and DST changes: we try candidate local dates
+            slot_utc = None
+            try:
+                parsed_row_date = datetime.strptime(row_date, "%Y-%m-%d").date()
+            except Exception:
+                parsed_row_date = None
 
-            if slot_val == 24:
-                # 24:00 on `row_date` is equivalent to 00:00 on the next day
-                next_day = datetime.strptime(row_date, "%Y-%m-%d").date() + timedelta(days=1)
-                slot_utc = datetime(next_day.year, next_day.month, next_day.day, 0, 0, 0, tzinfo=timezone.utc)
-            elif 1 <= slot_val <= 24:
-                # Treat 1-24 as 1-based hours (1 -> 00:00, 24 -> next day's 00:00 handled above)
-                hour = (slot_val - 1) % 24
-                slot_utc = datetime.strptime(f"{row_date} {hour:02d}:00:00", "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-            else:
-                # 0-23
-                slot_utc = datetime.strptime(f"{row_date} {slot_val:02d}:00:00", "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            # If we have a valid local_slot and tz, try to rebuild the UTC datetime that matches row_date
+            if local_tz and isinstance(local_slot, int) and 1 <= local_slot <= 24 and parsed_row_date:
+                for ddelta in (-1, 0, 1):
+                    try:
+                        candidate_local = parsed_row_date + timedelta(days=ddelta)
+                        utc_date_c, utc_slot_c, utc_dt_c, local_dt_c = local_slot_to_utc(local_slot, local_tz, candidate_local)
+                        if utc_date_c == row_date:
+                            slot_utc = utc_dt_c
+                            break
+                    except Exception:
+                        continue
+
+            # Fallback: interpret the stored utc_slot directly (prefer 0-23 semantics)
+            if slot_utc is None:
+                if isinstance(utc_slot, int):
+                    slot_val = utc_slot
+                else:
+                    try:
+                        slot_val = int(utc_slot)
+                    except Exception:
+                        continue
+
+                if slot_val == 24:
+                    next_day = datetime.strptime(row_date, "%Y-%m-%d").date() + timedelta(days=1)
+                    slot_utc = datetime(next_day.year, next_day.month, next_day.day, 0, 0, 0, tzinfo=timezone.utc)
+                elif 0 <= slot_val <= 23:
+                    slot_utc = datetime.strptime(f"{row_date} {slot_val:02d}:00:00", "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                else:
+                    # older 1-24 format (best-effort)
+                    hour = (slot_val - 1) % 24
+                    slot_utc = datetime.strptime(f"{row_date} {hour:02d}:00:00", "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+
         except Exception:
             continue
 
@@ -5115,54 +5138,200 @@ except Exception:
     pass
 
 
-@schedule_group.command(name="delete", description="Remove your signup from a numbered slot (1-24)")
-@app_commands.describe(slot="Slot number 1-24 to remove your signup from")
-async def delete_schedule(interaction: discord.Interaction, slot: int):
-    """Delete the invoking user's signup for the given slot on the user's local day."""
-    if slot < 1 or slot > 24:
-        await interaction.response.send_message("Please provide a slot number between 1 and 24.", ephemeral=True)
-        return
+@schedule_group.command(name="delete", description="Remove your signup by choosing an hour interactively")
+async def delete_schedule(interaction: discord.Interaction):
+    """Show the schedule and provide buttons to remove your signup for a given hour (viewer-local)."""
     if not interaction.guild:
-        await interaction.response.send_message("This command must be used in a server (guild).", ephemeral=True)
+        await safe_reply(interaction, "This command must be used in a server (guild).")
         return
-    await interaction.response.defer(ephemeral=True)
 
+    guild_id = getattr(interaction.guild, "id", None)
+    is_es = (await get_guild_language(guild_id)) == "es" if guild_id else False
     user_tz_name = await get_user_timezone(interaction.user.id) or "Etc/UTC"
-    try:
-        utc_date, utc_slot, utc_dt, _local_dt = local_slot_to_utc(slot, user_tz_name)
-    except Exception:
-        logging.exception("delete_schedule: local_slot_to_utc failed for slot=%s user_tz=%s", slot, user_tz_name)
-        now_utc = datetime.now(timezone.utc)
-        utc_date = now_utc.strftime("%Y-%m-%d")
-        utc_slot = now_utc.hour
-        utc_dt = now_utc
+    user_fmt = await get_user_time_format(interaction.user.id)
+    user_tz = ZoneInfo(user_tz_name)
+    time_str_fmt = "%I:%M %p" if user_fmt == "12h" else "%H:%M"
 
-    await _cleanup_old_schedule()
-    await _ensure_db_pool()
-    async with db_pool.acquire() as conn:
-        try:
-            guild_id = getattr(interaction.guild, 'id', 0) or 0
-            row = await conn.fetchrow(
-                "SELECT 1 FROM schedule_entries WHERE date = $1 AND slot = $2 AND guild_id = $3 AND user_id = $4",
-                utc_date, utc_slot, guild_id, interaction.user.id,
-            )
-            if row:
-                await conn.execute(
-                    "DELETE FROM schedule_entries WHERE date = $1 AND slot = $2 AND guild_id = $3 AND user_id = $4",
-                    utc_date, utc_slot, guild_id, interaction.user.id,
+    async def build_embed():
+        await _cleanup_old_schedule()
+        local_today = datetime.now(user_tz).date()
+        local_start = datetime(local_today.year, local_today.month, local_today.day, 0, 0, 0, tzinfo=user_tz)
+        local_end = local_start + timedelta(days=1)
+        utc_start = local_start.astimezone(timezone.utc)
+        utc_end = local_end.astimezone(timezone.utc)
+        utc_date_start = utc_start.strftime("%Y-%m-%d")
+        utc_date_end = (utc_end - timedelta(seconds=1)).strftime("%Y-%m-%d")
+
+        await _ensure_db_pool()
+        async with db_pool.acquire() as conn:
+            if utc_date_start == utc_date_end:
+                rows = await conn.fetch(
+                    "SELECT date, slot, user_id, game, local_tz, local_slot FROM schedule_entries WHERE guild_id = $1 AND date = $2 ORDER BY date, slot",
+                    guild_id, utc_date_start,
                 )
-                deleted = 1
             else:
-                deleted = 0
-        except Exception:
-            logging.exception("DB error deleting schedule")
-            deleted = 0
+                rows = await conn.fetch(
+                    "SELECT date, slot, user_id, game, local_tz, local_slot FROM schedule_entries WHERE guild_id = $1 AND date IN ($2, $3) ORDER BY date, slot",
+                    guild_id, utc_date_start, utc_date_end,
+                )
 
-    if deleted:
-        slot_ts = int(utc_dt.timestamp())
-        await interaction.followup.send(f"Removed your signup from slot **{slot}** (<t:{slot_ts}:t>). Use `/schedule show` to view.")
-    else:
-        await interaction.followup.send(f"No signup found for you in slot {slot}. Use `/schedule show` to check current signups.")
+        slots = {i: [] for i in range(24)}
+        for row_date, utc_slot, user_id, game_row, local_tz, local_slot in rows:
+            try:
+                slot_utc = None
+                try:
+                    parsed_row_date = datetime.strptime(row_date, "%Y-%m-%d").date()
+                except Exception:
+                    parsed_row_date = None
+
+                if local_tz and isinstance(local_slot, int) and 1 <= local_slot <= 24 and parsed_row_date:
+                    for ddelta in (-1, 0, 1):
+                        try:
+                            candidate_local = parsed_row_date + timedelta(days=ddelta)
+                            utc_date_c, utc_slot_c, utc_dt_c, local_dt_c = local_slot_to_utc(local_slot, local_tz, candidate_local)
+                            if utc_date_c == row_date:
+                                slot_utc = utc_dt_c
+                                break
+                        except Exception:
+                            continue
+
+                if slot_utc is None:
+                    if isinstance(utc_slot, int):
+                        slot_val = utc_slot
+                    else:
+                        try:
+                            slot_val = int(utc_slot)
+                        except Exception:
+                            continue
+
+                    if slot_val == 24:
+                        next_day = datetime.strptime(row_date, "%Y-%m-%d").date() + timedelta(days=1)
+                        slot_utc = datetime(next_day.year, next_day.month, next_day.day, 0, 0, 0, tzinfo=timezone.utc)
+                    elif 0 <= slot_val <= 23:
+                        slot_utc = datetime.strptime(f"{row_date} {slot_val:02d}:00:00", "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                    else:
+                        hour = (slot_val - 1) % 24
+                        slot_utc = datetime.strptime(f"{row_date} {hour:02d}:00:00", "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+
+            except Exception:
+                continue
+
+            slot_local_for_viewer = slot_utc.astimezone(user_tz)
+            if slot_local_for_viewer.date() != local_today:
+                continue
+            slots[slot_local_for_viewer.hour].append((user_id, game_row, local_tz, slot_utc))
+
+        desc_lines = []
+        for hour in range(24):
+            slot_local = datetime(local_today.year, local_today.month, local_today.day, hour, 0, 0, tzinfo=user_tz)
+            time_token = slot_local.strftime(time_str_fmt)
+            entries = slots.get(hour) or []
+            if entries:
+                parts = []
+                for uid, game_row, entry_tz_name, slot_utc in entries:
+                    try:
+                        entry_tz = ZoneInfo(entry_tz_name or "Etc/UTC")
+                    except Exception:
+                        entry_tz = timezone.utc
+                    entry_local = slot_utc.astimezone(entry_tz)
+                    entry_time_token = entry_local.strftime(time_str_fmt)
+                    tz_display = entry_tz_name or "Etc/UTC"
+                    parts.append(f"<@{uid}> ({game_row}) — {entry_time_token} ({tz_display})")
+                entry_text = ", ".join(parts)
+            else:
+                entry_text = "(empty)"
+            desc_lines.append(f"**{time_token}** : {entry_text}")
+
+        fmt_label = "12h (AM/PM)" if user_fmt == "12h" else "24h"
+        embed = discord.Embed(
+            title=f"Schedule ({fmt_label}, {user_tz_name})",
+            description="\n".join(desc_lines),
+            color=0x00BFFF,
+        )
+        return embed
+
+    # Build embed and interactive view
+    await interaction.response.defer(ephemeral=True)
+    embed = await build_embed()
+
+    view = discord.ui.View(timeout=120)
+    container = {"msg": None}
+
+    local_today_for_buttons = datetime.now(user_tz).date()
+    for hour in range(24):
+        slot_local = datetime(local_today_for_buttons.year, local_today_for_buttons.month, local_today_for_buttons.day, hour, 0, 0, tzinfo=user_tz)
+        label = slot_local.strftime(time_str_fmt)
+        row = hour // 5
+        btn = discord.ui.Button(label=label, style=discord.ButtonStyle.danger, row=row)
+
+        async def _make_delete_cb(btn_interaction: discord.Interaction, _hour=hour):
+            if btn_interaction.user.id != interaction.user.id:
+                await safe_reply(btn_interaction, "Solo la persona que abrió este menú puede usarlo.")
+                return
+            await btn_interaction.response.defer(ephemeral=True)
+            try:
+                utc_date, utc_slot, utc_dt, _local_dt = local_slot_to_utc(_hour + 1, user_tz_name)
+            except Exception:
+                utc_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                utc_slot = datetime.now(timezone.utc).hour
+                utc_dt = datetime.now(timezone.utc)
+
+            await _ensure_db_pool()
+            async with db_pool.acquire() as conn:
+                try:
+                    guild_id_inner = getattr(interaction.guild, 'id', 0) or 0
+                    row = await conn.fetchrow(
+                        "SELECT 1 FROM schedule_entries WHERE date = $1 AND slot = $2 AND guild_id = $3 AND user_id = $4",
+                        utc_date, utc_slot, guild_id_inner, interaction.user.id,
+                    )
+                    if row:
+                        await conn.execute(
+                            "DELETE FROM schedule_entries WHERE date = $1 AND slot = $2 AND guild_id = $3 AND user_id = $4",
+                            utc_date, utc_slot, guild_id_inner, interaction.user.id,
+                        )
+                        deleted = True
+                    else:
+                        deleted = False
+                except Exception:
+                    logging.exception("DB error deleting schedule")
+                    deleted = False
+
+            if deleted:
+                try:
+                    await safe_reply(btn_interaction, f"Removed your signup for {label}.")
+                except Exception:
+                    try:
+                        if btn_interaction.channel:
+                            await btn_interaction.channel.send(f"Removed your signup for {label}.")
+                    except Exception:
+                        pass
+            else:
+                try:
+                    await safe_reply(btn_interaction, f"No signup found for you at {label}.")
+                except Exception:
+                    try:
+                        if btn_interaction.channel:
+                            await btn_interaction.channel.send(f"No signup found for you at {label}.")
+                    except Exception:
+                        pass
+
+            # refresh embed
+            try:
+                new_embed = await build_embed()
+                msg = container.get("msg")
+                if msg:
+                    try:
+                        await msg.edit(embed=new_embed, view=view)
+                    except Exception:
+                        pass
+            except Exception:
+                logging.exception("Failed to refresh schedule embed after delete")
+
+        btn.callback = _make_delete_cb  # type: ignore
+        view.add_item(btn)
+
+    sent = await interaction.followup.send(embed=embed, ephemeral=True, view=view)
+    container["msg"] = sent
 
 
 # ──────────────────────────────────────────────────────────────────────────────
