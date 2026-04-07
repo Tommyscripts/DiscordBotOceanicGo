@@ -1365,7 +1365,7 @@ async def _apply_guild_language(guild_id: int, lang: str):
     """
     guild_obj = discord.Object(id=guild_id)
     descs = COMMAND_DESCRIPTIONS.get(lang, COMMAND_DESCRIPTIONS["en"])
-    custom_cmd = get_currency_command_name(guild_id)
+    custom_cmd = await get_currency_command_name(guild_id)
 
     if lang == "en" and (not custom_cmd or custom_cmd == "snuggles"):
         # Clear guild overrides, fall back to global commands
@@ -1504,7 +1504,7 @@ async def on_ready():
         logging.exception("Failed to sync application commands")
 
     # Re-register guild-specific balance commands for guilds with a custom command name
-    for _gid, _cmd_name in get_all_custom_command_names():
+    for _gid, _cmd_name in await get_all_custom_command_names():
         try:
             await _apply_guild_currency_command(_gid, _cmd_name)
             logging.info(f"Restored guild balance command '/{_cmd_name}' for guild {_gid}")
@@ -1512,7 +1512,7 @@ async def on_ready():
             logging.warning(f"Could not restore guild balance command for {_gid}: {_e}")
 
     # Restore guild-specific language overrides
-    for _gid, _lang in get_all_guild_languages():
+    for _gid, _lang in await get_all_guild_languages():
         try:
             await _apply_guild_language(_gid, _lang)
             logging.info(f"Restored language '{_lang}' for guild {_gid}")
@@ -2667,8 +2667,8 @@ async def teddy_war(interaction: discord.Interaction, title: str = "Teddy War"):
 async def turkeys_balance(interaction: discord.Interaction, user: discord.User | None = None):
     target = user or interaction.user
     gid = getattr(interaction.guild, 'id', 0) or 0
-    bal = get_turkeys(gid, target.id)
-    await interaction.response.send_message(f"{fmt_currency(getattr(interaction.guild, 'id', None), bal)} — {target.mention}", ephemeral=True)
+    bal = await get_turkeys(gid, target.id)
+    await interaction.response.send_message(f"{await fmt_currency(getattr(interaction.guild, 'id', None), bal)} — {target.mention}", ephemeral=True)
 
 
 @bot.tree.command(name="give_snuggles", description="(Staff) Give Snuggles to a user")
@@ -2682,14 +2682,14 @@ async def give_turkeys(interaction: discord.Interaction, target: discord.User, a
             return
         # check configured staff role or fallback permissions
         if not await is_staff_in_guild(guild, interaction.user.id):
-            emoji, name = get_currency_display(guild.id)
+            emoji, name = await get_currency_display(guild.id)
             await safe_reply(interaction, f"You are not authorized to give {emoji} {name}. Staff only.")
             return
 
         # proceed to give turkeys
-        add_turkeys(guild.id, target.id, amount)
-        bal = get_turkeys(guild.id, target.id)
-        await safe_reply(interaction, f"{fmt_currency(guild.id, amount)} given to {target.mention}. New balance: {fmt_currency(guild.id, bal)}")
+        await add_turkeys(guild.id, target.id, amount)
+        bal = await get_turkeys(guild.id, target.id)
+        await safe_reply(interaction, f"{await fmt_currency(guild.id, amount)} given to {target.mention}. New balance: {await fmt_currency(guild.id, bal)}")
     except Exception as e:
         await safe_reply(interaction, f"Error giving Snuggles: {e}")
 
@@ -2707,17 +2707,17 @@ async def rename_currency(interaction: discord.Interaction, name: str | None = N
         await safe_reply(interaction, "Only staff can rename the currency.")
         return
     if name is None and emoji is None:
-        e, n = get_currency_display(interaction.guild.id)
+        e, n = await get_currency_display(interaction.guild.id)
         await safe_reply(interaction, f"Current currency display: {e} {n}\nUse `/rename_currency name:<name> emoji:<emoji>` to change it.", ephemeral=True)
         return
     if name == '-':
         name = None
     if emoji == '-':
         emoji = None
-    cur_emoji, cur_name = get_currency_display(interaction.guild.id)
+    cur_emoji, cur_name = await get_currency_display(interaction.guild.id)
     new_name = (name.strip() or cur_name) if name is not None else cur_name
     new_emoji = (emoji.strip() or cur_emoji) if emoji is not None else cur_emoji
-    set_currency_display(interaction.guild.id, new_name, new_emoji)
+    await set_currency_display(interaction.guild.id, new_name, new_emoji)
     await safe_reply(interaction, f"Currency renamed to: {new_emoji} {new_name}\n*(Display only — balances in the DB are unchanged.)*", ephemeral=True)
 
 
@@ -2858,8 +2858,8 @@ class CurrencySettingsModal(discord.ui.Modal, title="Configurar moneda"):
 
         # Si no pone nada, mostramos el estado actual
         if not name and not emoji and not cmd:
-            e, n = get_currency_display(interaction.guild.id)
-            cur_cmd = get_currency_command_name(interaction.guild.id)
+            e, n = await get_currency_display(interaction.guild.id)
+            cur_cmd = await get_currency_command_name(interaction.guild.id)
             await safe_reply(interaction, f"Moneda actual: {e} {n}  |  Comando: `/{cur_cmd}` (solo UI)")
             return
 
@@ -2872,10 +2872,10 @@ class CurrencySettingsModal(discord.ui.Modal, title="Configurar moneda"):
             cmd = ""
 
         try:
-            cur_emoji, cur_name = get_currency_display(interaction.guild.id)
+            cur_emoji, cur_name = await get_currency_display(interaction.guild.id)
             new_name = cur_name if name == "" else name
             new_emoji = cur_emoji if emoji == "" else emoji
-            set_currency_display(interaction.guild.id, new_name, new_emoji)
+            await set_currency_display(interaction.guild.id, new_name, new_emoji)
 
             # Registrar nuevo comando de guild si se especificó
             cmd_info = ""
@@ -2884,8 +2884,8 @@ class CurrencySettingsModal(discord.ui.Modal, title="Configurar moneda"):
                 if not _re.match(r'^[\w-]{1,32}$', cmd):
                     await safe_reply(interaction, f"Nombre de comando inválido `{cmd}`: solo letras, números, _ o - (1-32 caracteres).")
                     return
-                old_cmd = get_currency_command_name(interaction.guild.id)
-                set_currency_command_name(interaction.guild.id, cmd)
+                old_cmd = await get_currency_command_name(interaction.guild.id)
+                await set_currency_command_name(interaction.guild.id, cmd)
                 try:
                     await _apply_guild_currency_command(interaction.guild.id, cmd, old_cmd if old_cmd != cmd else None)
                     cmd_info = f"  |  Comando renombrado a `/{cmd}`"
@@ -3035,8 +3035,8 @@ async def settings_currency(
 
     # If nothing provided, show current settings
     if name is None and emoji is None and command_name is None:
-        e, n = get_currency_display(interaction.guild.id)
-        cur_cmd = get_currency_command_name(interaction.guild.id)
+        e, n = await get_currency_display(interaction.guild.id)
+        cur_cmd = await get_currency_command_name(interaction.guild.id)
         await safe_reply(interaction, f"Current currency display: {e} {n}  |  Balance command: `/{cur_cmd}` (UI only)")
         return
 
@@ -3050,10 +3050,10 @@ async def settings_currency(
 
     try:
         # Merge with existing values to avoid wiping the other field
-        cur_emoji, cur_name = get_currency_display(interaction.guild.id)
+        cur_emoji, cur_name = await get_currency_display(interaction.guild.id)
         new_name = cur_name if name is None else name
         new_emoji = cur_emoji if emoji is None else emoji
-        set_currency_display(interaction.guild.id, new_name, new_emoji)
+        await set_currency_display(interaction.guild.id, new_name, new_emoji)
 
         # Handle command rename if requested
         cmd_info = ""
@@ -3062,8 +3062,8 @@ async def settings_currency(
             if not _re.match(r'^[\w-]{1,32}$', command_name):
                 await safe_reply(interaction, f"Invalid command name `{command_name}`: use only letters, numbers, _ or - (1–32 chars).")
                 return
-            old_cmd = get_currency_command_name(interaction.guild.id)
-            set_currency_command_name(interaction.guild.id, command_name)
+            old_cmd = await get_currency_command_name(interaction.guild.id)
+            await set_currency_command_name(interaction.guild.id, command_name)
             try:
                 await _apply_guild_currency_command(
                     interaction.guild.id, command_name, old_cmd if old_cmd != command_name else None
@@ -3172,7 +3172,7 @@ async def settings_mod_role(interaction: discord.Interaction, command: str, role
         return
     role_id = role.id if role else None
     try:
-        set_mod_role(interaction.guild.id, command, role_id)
+        await set_mod_role(interaction.guild.id, command, role_id)
         if role_id:
             await safe_reply(interaction, f'Role {role.name} set for {command}.')
         else:
@@ -3379,7 +3379,7 @@ async def wheels_start(interaction: discord.Interaction):
     participants_count = len(participants)
     turkeys_awarded = max(1, 2 * participants_count)
     try:
-        await interaction.response.send_message(f"Spinning the wheel... 🎡 Winner will receive {fmt_currency(getattr(interaction.guild, 'id', None), turkeys_awarded)}.", ephemeral=False)
+        await interaction.response.send_message(f"Spinning the wheel... 🎡 Winner will receive {await fmt_currency(getattr(interaction.guild, 'id', None), turkeys_awarded)}.", ephemeral=False)
     except Exception:
         try:
             await interaction.response.send_message("Spinning the wheel... 🎡", ephemeral=False)
@@ -4673,7 +4673,7 @@ async def add_schedule(interaction: discord.Interaction, slot: int, game: str):
         return
     await interaction.response.defer(ephemeral=True)
     # Normalize selected slot (1-24) from user's timezone to UTC date/slot.
-    user_tz_name = get_user_timezone(interaction.user.id) or "Etc/UTC"
+    user_tz_name = await get_user_timezone(interaction.user.id) or "Etc/UTC"
     try:
         utc_date, utc_slot, utc_dt, local_dt = local_slot_to_utc(slot, user_tz_name)
     except Exception:
@@ -4726,7 +4726,7 @@ async def delete_schedule(interaction: discord.Interaction, slot: int):
         return
     await interaction.response.defer(ephemeral=True)
 
-    user_tz_name = get_user_timezone(interaction.user.id) or "Etc/UTC"
+    user_tz_name = await get_user_timezone(interaction.user.id) or "Etc/UTC"
     try:
         utc_date, utc_slot, utc_dt, _local_dt = local_slot_to_utc(slot, user_tz_name)
     except Exception:
@@ -5403,7 +5403,7 @@ async def set_user_time_format(user_id: int, fmt: str) -> None:
         )
 
 
-async def timezone_autocomplete(
+def timezone_autocomplete(
     interaction: discord.Interaction, current: str
 ) -> list[app_commands.Choice[str]]:
     current_lower = current.lower().strip()
@@ -5653,7 +5653,7 @@ async def cmd_time(interaction: discord.Interaction, timezone: str | None = None
     )
     embed.add_field(name=f"📍  {timezone}", value=f"`{target_time}`", inline=False)
 
-    my_tz = get_user_timezone(interaction.user.id)
+    my_tz = await get_user_timezone(interaction.user.id)
     if my_tz and my_tz != timezone:
         try:
             my_time = _format_time_in_zone(my_tz, my_fmt)

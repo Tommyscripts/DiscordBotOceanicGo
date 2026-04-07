@@ -1,0 +1,4866 @@
+{
+  "async_funcs": [
+    {
+      "file": "bot.py",
+      "name": "run_coro_safe",
+      "lineno": 94,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 354,
+          "line": "        asyncio.create_task(run_coro_safe(run_wordchain_game(game), name=f\"wordchain-{game.channel.id}\"))"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2049,
+          "line": "                        asyncio.create_task(run_coro_safe(_apply_muted_overwrites(), name=f\"apply-muted-{interaction.guild.id}\"))"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2160,
+          "line": "                asyncio.create_task(run_coro_safe(channel.send(f\"Halloween event active! In this game the winner will receive {emoji} {name}.\"), name=f\"halloween-announce-{getattr(channel, 'id', 'chan')}\"))"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4328,
+          "line": "    asyncio.create_task(run_coro_safe(run_house_game(game), name=f\"house-{game.id}\"))"
+        }
+      ],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "end_game",
+      "lineno": 102,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 3936,
+          "line": "                            await end_game(self.view.parent_game, announce=True, delete_channel=False)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4035,
+          "line": "            # disable view and then run end_game (include winner name)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4045,
+          "line": "                await end_game(self.game, announce=True, delete_channel=False)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4377,
+          "line": "            await end_game(game, announce=True, delete_channel=False)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4538,
+          "line": "            await end_game(game, announce=True, delete_channel=False)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 3936,
+          "line": "                            await end_game(self.view.parent_game, announce=True, delete_channel=False)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4045,
+          "line": "                await end_game(self.game, announce=True, delete_channel=False)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4377,
+          "line": "            await end_game(game, announce=True, delete_channel=False)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4538,
+          "line": "            await end_game(game, announce=True, delete_channel=False)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "run_wordchain_game",
+      "lineno": 357,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 354,
+          "line": "        asyncio.create_task(run_coro_safe(run_wordchain_game(game), name=f\"wordchain-{game.channel.id}\"))"
+        }
+      ],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "slash_wordchain",
+      "lineno": 447,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='wordchain', description='Start a Word Chain game (join with buttons, start when ready)')",
+        "app_commands.describe(timeout='Turn timeout in seconds (10-30). Default 15')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "_ensure_db_pool",
+      "lineno": 518,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 532,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 961,
+          "line": "        await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 973,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 996,
+          "line": "        await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1006,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1018,
+          "line": "        await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1029,
+          "line": "        await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1039,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1051,
+          "line": "        await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1060,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1069,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1075,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1137,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1146,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1163,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1173,
+          "line": "        await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1193,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1705,
+          "line": "            await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2130,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2139,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2144,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2149,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2543,
+          "line": "        await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3617,
+          "line": "        await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4563,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4608,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4692,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4739,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4829,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4837,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4845,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4920,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4941,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4965,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4982,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5003,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5020,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5037,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5057,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5073,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5369,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5376,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5386,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5394,
+          "line": "    await _ensure_db_pool()"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 532,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 961,
+          "line": "        await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 973,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 996,
+          "line": "        await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1006,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1018,
+          "line": "        await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1029,
+          "line": "        await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1039,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1051,
+          "line": "        await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1060,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1069,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1075,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1137,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1146,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1163,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1173,
+          "line": "        await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1193,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1705,
+          "line": "            await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2130,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2139,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2144,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2149,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2543,
+          "line": "        await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3617,
+          "line": "        await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4563,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4608,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4692,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4739,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4829,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4837,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4845,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4920,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4941,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4965,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4982,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5003,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5020,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5037,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5057,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5073,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5369,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5376,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5386,
+          "line": "    await _ensure_db_pool()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5394,
+          "line": "    await _ensure_db_pool()"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "init_db_async",
+      "lineno": 530,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 1281,
+          "line": "        asyncio.create_task(init_db_async())"
+        }
+      ],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "get_currency_display",
+      "lineno": 953,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 421,
+          "line": "                    emoji, name = await get_currency_display(getattr(channel.guild, 'id', None))"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 983,
+          "line": "    emoji, name = await get_currency_display(guild_id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1324,
+          "line": "    _, cname = await get_currency_display(guild_id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2159,
+          "line": "                emoji, name = await get_currency_display(getattr(channel, 'guild', None).id if getattr(channel, 'guild', None) else None)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2592,
+          "line": "                        _emoji, _cname = await get_currency_display(getattr(interaction.guild, 'id', None))"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2685,
+          "line": "            emoji, name = await get_currency_display(guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2710,
+          "line": "        e, n = await get_currency_display(interaction.guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2717,
+          "line": "    cur_emoji, cur_name = await get_currency_display(interaction.guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2764,
+          "line": "        emoji, cname = await get_currency_display(getattr(interaction.guild, 'id', None))"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2861,
+          "line": "            e, n = await get_currency_display(interaction.guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2875,
+          "line": "            cur_emoji, cur_name = await get_currency_display(interaction.guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3038,
+          "line": "        e, n = await get_currency_display(interaction.guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3053,
+          "line": "        cur_emoji, cur_name = await get_currency_display(interaction.guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3128,
+          "line": "        emoji, cname = await get_currency_display(gid)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3631,
+          "line": "                        _emoji, _cname = await get_currency_display(getattr(interaction.guild, 'id', None))"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 421,
+          "line": "                    emoji, name = await get_currency_display(getattr(channel.guild, 'id', None))"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 983,
+          "line": "    emoji, name = await get_currency_display(guild_id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1324,
+          "line": "    _, cname = await get_currency_display(guild_id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2159,
+          "line": "                emoji, name = await get_currency_display(getattr(channel, 'guild', None).id if getattr(channel, 'guild', None) else None)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2592,
+          "line": "                        _emoji, _cname = await get_currency_display(getattr(interaction.guild, 'id', None))"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2685,
+          "line": "            emoji, name = await get_currency_display(guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2710,
+          "line": "        e, n = await get_currency_display(interaction.guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2717,
+          "line": "    cur_emoji, cur_name = await get_currency_display(interaction.guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2764,
+          "line": "        emoji, cname = await get_currency_display(getattr(interaction.guild, 'id', None))"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2861,
+          "line": "            e, n = await get_currency_display(interaction.guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2875,
+          "line": "            cur_emoji, cur_name = await get_currency_display(interaction.guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3038,
+          "line": "        e, n = await get_currency_display(interaction.guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3053,
+          "line": "        cur_emoji, cur_name = await get_currency_display(interaction.guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3128,
+          "line": "        emoji, cname = await get_currency_display(gid)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3631,
+          "line": "                        _emoji, _cname = await get_currency_display(getattr(interaction.guild, 'id', None))"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "set_currency_display",
+      "lineno": 971,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 2720,
+          "line": "    await set_currency_display(interaction.guild.id, new_name, new_emoji)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2878,
+          "line": "            await set_currency_display(interaction.guild.id, new_name, new_emoji)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3056,
+          "line": "        await set_currency_display(interaction.guild.id, new_name, new_emoji)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 2720,
+          "line": "    await set_currency_display(interaction.guild.id, new_name, new_emoji)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2878,
+          "line": "            await set_currency_display(interaction.guild.id, new_name, new_emoji)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3056,
+          "line": "        await set_currency_display(interaction.guild.id, new_name, new_emoji)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "fmt_currency",
+      "lineno": 982,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 364,
+          "line": "            f\"Word Chain: the game is live! The first player will be chosen from the lobby. Winner will receive {await fmt_currency(getattr(channel.guild, 'id', None), turkeys_awarded)}.\""
+        },
+        {
+          "file": "bot.py",
+          "lineno": 428,
+          "line": "                    await channel.send(f\"Game over! Winner is <@{winner}> \ud83c\udf89 \u2014 Congrats! You've won {await fmt_currency(getattr(channel.guild, 'id', None), turkeys_awarded)}.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1320,
+          "line": "            f\"{await fmt_currency(getattr(interaction.guild, 'id', None), bal)} \u2014 {target.mention}\","
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2599,
+          "line": "                        await channel.send(f\"{await fmt_currency(getattr(interaction.guild, 'id', None), turkeys_awarded)} have been awarded to {winner_mention}!\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2671,
+          "line": "    await interaction.response.send_message(f\"{await fmt_currency(getattr(interaction.guild, 'id', None), bal)} \u2014 {target.mention}\", ephemeral=True)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2692,
+          "line": "        await safe_reply(interaction, f\"{await fmt_currency(guild.id, amount)} given to {target.mention}. New balance: {await fmt_currency(guild.id, bal)}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2692,
+          "line": "        await safe_reply(interaction, f\"{await fmt_currency(guild.id, amount)} given to {target.mention}. New balance: {await fmt_currency(guild.id, bal)}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2744,
+          "line": "        lines.append(f\"{item_id}: {name} \u2014 {await fmt_currency(gid, price)}{role_part}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2766,
+          "line": "            f\"You don't have enough {emoji} {cname}. You have {await fmt_currency(getattr(interaction.guild, 'id', None), bal)}, but the item costs {await fmt_currency(getattr(interaction.guild, 'id', None), price)}.\","
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2766,
+          "line": "            f\"You don't have enough {emoji} {cname}. You have {await fmt_currency(getattr(interaction.guild, 'id', None), bal)}, but the item costs {await fmt_currency(getattr(interaction.guild, 'id', None), price)}.\","
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2783,
+          "line": "    await interaction.response.send_message(f\"You bought **{name}** for {await fmt_currency(getattr(interaction.guild, 'id', None), price)}.\", ephemeral=True)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2793,
+          "line": "    await interaction.response.send_message(f\"Added shop item: {name} \u2014 {await fmt_currency(gid, price)}\", ephemeral=True)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3382,
+          "line": "        await interaction.response.send_message(f\"Spinning the wheel... \ud83c\udfa1 Winner will receive {await fmt_currency(getattr(interaction.guild, 'id', None), turkeys_awarded)}.\", ephemeral=False)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3638,
+          "line": "                        await channel.send(f\"{await fmt_currency(getattr(interaction.guild, 'id', None), turkeys_awarded)} have been awarded to {winner_mention}!\")"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 364,
+          "line": "            f\"Word Chain: the game is live! The first player will be chosen from the lobby. Winner will receive {await fmt_currency(getattr(channel.guild, 'id', None), turkeys_awarded)}.\""
+        },
+        {
+          "file": "bot.py",
+          "lineno": 428,
+          "line": "                    await channel.send(f\"Game over! Winner is <@{winner}> \ud83c\udf89 \u2014 Congrats! You've won {await fmt_currency(getattr(channel.guild, 'id', None), turkeys_awarded)}.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1320,
+          "line": "            f\"{await fmt_currency(getattr(interaction.guild, 'id', None), bal)} \u2014 {target.mention}\","
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2599,
+          "line": "                        await channel.send(f\"{await fmt_currency(getattr(interaction.guild, 'id', None), turkeys_awarded)} have been awarded to {winner_mention}!\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2671,
+          "line": "    await interaction.response.send_message(f\"{await fmt_currency(getattr(interaction.guild, 'id', None), bal)} \u2014 {target.mention}\", ephemeral=True)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2692,
+          "line": "        await safe_reply(interaction, f\"{await fmt_currency(guild.id, amount)} given to {target.mention}. New balance: {await fmt_currency(guild.id, bal)}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2692,
+          "line": "        await safe_reply(interaction, f\"{await fmt_currency(guild.id, amount)} given to {target.mention}. New balance: {await fmt_currency(guild.id, bal)}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2744,
+          "line": "        lines.append(f\"{item_id}: {name} \u2014 {await fmt_currency(gid, price)}{role_part}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2766,
+          "line": "            f\"You don't have enough {emoji} {cname}. You have {await fmt_currency(getattr(interaction.guild, 'id', None), bal)}, but the item costs {await fmt_currency(getattr(interaction.guild, 'id', None), price)}.\","
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2766,
+          "line": "            f\"You don't have enough {emoji} {cname}. You have {await fmt_currency(getattr(interaction.guild, 'id', None), bal)}, but the item costs {await fmt_currency(getattr(interaction.guild, 'id', None), price)}.\","
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2783,
+          "line": "    await interaction.response.send_message(f\"You bought **{name}** for {await fmt_currency(getattr(interaction.guild, 'id', None), price)}.\", ephemeral=True)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2793,
+          "line": "    await interaction.response.send_message(f\"Added shop item: {name} \u2014 {await fmt_currency(gid, price)}\", ephemeral=True)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3382,
+          "line": "        await interaction.response.send_message(f\"Spinning the wheel... \ud83c\udfa1 Winner will receive {await fmt_currency(getattr(interaction.guild, 'id', None), turkeys_awarded)}.\", ephemeral=False)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3638,
+          "line": "                        await channel.send(f\"{await fmt_currency(getattr(interaction.guild, 'id', None), turkeys_awarded)} have been awarded to {winner_mention}!\")"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "get_currency_command_name",
+      "lineno": 993,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 1368,
+          "line": "    custom_cmd = await get_currency_command_name(guild_id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2862,
+          "line": "            cur_cmd = await get_currency_command_name(interaction.guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2887,
+          "line": "                old_cmd = await get_currency_command_name(interaction.guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3039,
+          "line": "        cur_cmd = await get_currency_command_name(interaction.guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3065,
+          "line": "            old_cmd = await get_currency_command_name(interaction.guild.id)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 1368,
+          "line": "    custom_cmd = await get_currency_command_name(guild_id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2862,
+          "line": "            cur_cmd = await get_currency_command_name(interaction.guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2887,
+          "line": "                old_cmd = await get_currency_command_name(interaction.guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3039,
+          "line": "        cur_cmd = await get_currency_command_name(interaction.guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3065,
+          "line": "            old_cmd = await get_currency_command_name(interaction.guild.id)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "set_currency_command_name",
+      "lineno": 1004,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 2888,
+          "line": "                await set_currency_command_name(interaction.guild.id, cmd)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3066,
+          "line": "            await set_currency_command_name(interaction.guild.id, command_name)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 2888,
+          "line": "                await set_currency_command_name(interaction.guild.id, cmd)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3066,
+          "line": "            await set_currency_command_name(interaction.guild.id, command_name)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "get_all_custom_command_names",
+      "lineno": 1015,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 1507,
+          "line": "    for _gid, _cmd_name in await get_all_custom_command_names():"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 1507,
+          "line": "    for _gid, _cmd_name in await get_all_custom_command_names():"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "get_guild_language",
+      "lineno": 1026,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 5452,
+          "line": "    is_es = (await get_guild_language(guild_id)) == \"es\" if guild_id else False"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5486,
+          "line": "    is_es = (await get_guild_language(guild_id)) == \"es\" if guild_id else False"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5528,
+          "line": "    lang = await get_guild_language(guild_id) if guild_id else \"en\""
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 5452,
+          "line": "    is_es = (await get_guild_language(guild_id)) == \"es\" if guild_id else False"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5486,
+          "line": "    is_es = (await get_guild_language(guild_id)) == \"es\" if guild_id else False"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5528,
+          "line": "    lang = await get_guild_language(guild_id) if guild_id else \"en\""
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "set_guild_language",
+      "lineno": 1037,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 3196,
+          "line": "    set_guild_language(interaction.guild.id, chosen)"
+        }
+      ],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "get_all_guild_languages",
+      "lineno": 1048,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 1515,
+          "line": "    for _gid, _lang in await get_all_guild_languages():"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 1515,
+          "line": "    for _gid, _lang in await get_all_guild_languages():"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "add_turkeys",
+      "lineno": 1059,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 426,
+          "line": "                await add_turkeys(getattr(channel.guild, 'id', 0) or 0, winner, turkeys_awarded)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1088,
+          "line": "    return await add_turkeys(guild_id, user_id, amount)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2597,
+          "line": "                    await add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2604,
+          "line": "                    await add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2690,
+          "line": "        await add_turkeys(guild.id, target.id, amount)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2771,
+          "line": "    await add_turkeys(gid, user_id, -price)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3636,
+          "line": "                    await add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3644,
+          "line": "                    await add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 426,
+          "line": "                await add_turkeys(getattr(channel.guild, 'id', 0) or 0, winner, turkeys_awarded)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1088,
+          "line": "    return await add_turkeys(guild_id, user_id, amount)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2597,
+          "line": "                    await add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2604,
+          "line": "                    await add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2690,
+          "line": "        await add_turkeys(guild.id, target.id, amount)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2771,
+          "line": "    await add_turkeys(gid, user_id, -price)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3636,
+          "line": "                    await add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3644,
+          "line": "                    await add_turkeys(getattr(interaction.guild, 'id', 0) or 0, winner_id, turkeys_awarded)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "get_turkeys",
+      "lineno": 1068,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 1091,
+          "line": "    return await get_turkeys(guild_id, user_id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1318,
+          "line": "        bal = await get_turkeys(gid, target.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2670,
+          "line": "    bal = await get_turkeys(gid, target.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2691,
+          "line": "        bal = await get_turkeys(guild.id, target.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2762,
+          "line": "    bal = await get_turkeys(gid, user_id)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 1091,
+          "line": "    return await get_turkeys(guild_id, user_id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1318,
+          "line": "        bal = await get_turkeys(gid, target.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2670,
+          "line": "    bal = await get_turkeys(gid, target.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2691,
+          "line": "        bal = await get_turkeys(guild.id, target.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2762,
+          "line": "    bal = await get_turkeys(gid, user_id)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "set_turkeys",
+      "lineno": 1074,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 1094,
+          "line": "    return await set_turkeys(guild_id, user_id, amount)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 1094,
+          "line": "    return await set_turkeys(guild_id, user_id, amount)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "add_ghosts",
+      "lineno": 1087,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "get_ghosts",
+      "lineno": 1090,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "set_ghosts",
+      "lineno": 1093,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "is_staff_in_guild",
+      "lineno": 1097,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 419,
+          "line": "            if await is_staff_in_guild(guild, winner):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1741,
+          "line": "        allowed = await is_staff_in_guild(message.guild, message.author.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2590,
+          "line": "                if await is_staff_in_guild(interaction.guild, winner_id):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2684,
+          "line": "        if not await is_staff_in_guild(guild, interaction.user.id):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2706,
+          "line": "    if not await is_staff_in_guild(interaction.guild, interaction.user.id):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2968,
+          "line": "        allowed = await is_staff_in_guild(interaction.guild, interaction.user.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2992,
+          "line": "        allowed = await is_staff_in_guild(interaction.guild, interaction.user.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3629,
+          "line": "                if await is_staff_in_guild(interaction.guild, winner_id):"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 419,
+          "line": "            if await is_staff_in_guild(guild, winner):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1741,
+          "line": "        allowed = await is_staff_in_guild(message.guild, message.author.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2590,
+          "line": "                if await is_staff_in_guild(interaction.guild, winner_id):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2684,
+          "line": "        if not await is_staff_in_guild(guild, interaction.user.id):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2706,
+          "line": "    if not await is_staff_in_guild(interaction.guild, interaction.user.id):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2968,
+          "line": "        allowed = await is_staff_in_guild(interaction.guild, interaction.user.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2992,
+          "line": "        allowed = await is_staff_in_guild(interaction.guild, interaction.user.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3629,
+          "line": "                if await is_staff_in_guild(interaction.guild, winner_id):"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "set_staff_role",
+      "lineno": 1136,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 3092,
+          "line": "        await set_staff_role(interaction.guild.id, role_id)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 3092,
+          "line": "        await set_staff_role(interaction.guild.id, role_id)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "get_staff_role",
+      "lineno": 1145,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 1106,
+          "line": "        staff_role_id = await get_staff_role(gid)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1772,
+          "line": "        staff_role_id = await get_staff_role(guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2975,
+          "line": "    staff_role_id = await get_staff_role(interaction.guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3107,
+          "line": "        role_id = await get_staff_role(interaction.guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3132,
+          "line": "        staff_role_id = await get_staff_role(gid)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 1106,
+          "line": "        staff_role_id = await get_staff_role(gid)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1772,
+          "line": "        staff_role_id = await get_staff_role(guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2975,
+          "line": "    staff_role_id = await get_staff_role(interaction.guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3107,
+          "line": "        role_id = await get_staff_role(interaction.guild.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3132,
+          "line": "        staff_role_id = await get_staff_role(gid)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "set_mod_role",
+      "lineno": 1152,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 2095,
+          "line": "        await set_mod_role(interaction.guild.id, command, role_id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3175,
+          "line": "        await set_mod_role(interaction.guild.id, command, role_id)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 2095,
+          "line": "        await set_mod_role(interaction.guild.id, command, role_id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3175,
+          "line": "        await set_mod_role(interaction.guild.id, command, role_id)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "log_moderation",
+      "lineno": 1171,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 1948,
+          "line": "        asyncio.create_task(log_moderation(interaction.guild.id, 'ban', uid, interaction.user.id, reason))"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1976,
+          "line": "        asyncio.create_task(log_moderation(interaction.guild.id, 'kick', member.id, interaction.user.id, reason))"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2068,
+          "line": "        asyncio.create_task(log_moderation(interaction.guild.id, 'mute', member.id, interaction.user.id, reason))"
+        }
+      ],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "get_mod_role",
+      "lineno": 1183,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 1220,
+          "line": "        role_id = await get_mod_role(interaction.guild.id, command)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3137,
+          "line": "        ban_role_id = await get_mod_role(gid, 'ban')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3138,
+          "line": "        kick_role_id = await get_mod_role(gid, 'kick')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3139,
+          "line": "        mute_role_id = await get_mod_role(gid, 'mute')"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 1220,
+          "line": "        role_id = await get_mod_role(interaction.guild.id, command)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3137,
+          "line": "        ban_role_id = await get_mod_role(gid, 'ban')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3138,
+          "line": "        kick_role_id = await get_mod_role(gid, 'kick')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3139,
+          "line": "        mute_role_id = await get_mod_role(gid, 'mute')"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "has_mod_permission",
+      "lineno": 1199,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 1924,
+          "line": "    if not await has_mod_permission(interaction, 'ban'):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1960,
+          "line": "    if not await has_mod_permission(interaction, 'kick'):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1988,
+          "line": "    if not await has_mod_permission(interaction, 'mute'):"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 1924,
+          "line": "    if not await has_mod_permission(interaction, 'ban'):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1960,
+          "line": "    if not await has_mod_permission(interaction, 'kick'):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1988,
+          "line": "    if not await has_mod_permission(interaction, 'mute'):"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "schedule_unmute_check",
+      "lineno": 1233,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 1271,
+          "line": "        asyncio.create_task(schedule_unmute_check())"
+        }
+      ],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "on_connect",
+      "lineno": 1266,
+      "has_await": false,
+      "decorators": [
+        "bot.event"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "_apply_guild_currency_command",
+      "lineno": 1286,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 1509,
+          "line": "            await _apply_guild_currency_command(_gid, _cmd_name)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2890,
+          "line": "                    await _apply_guild_currency_command(interaction.guild.id, cmd, old_cmd if old_cmd != cmd else None)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3068,
+          "line": "                await _apply_guild_currency_command("
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 1509,
+          "line": "            await _apply_guild_currency_command(_gid, _cmd_name)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2890,
+          "line": "                    await _apply_guild_currency_command(interaction.guild.id, cmd, old_cmd if old_cmd != cmd else None)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3068,
+          "line": "                await _apply_guild_currency_command("
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "_apply_guild_language",
+      "lineno": 1359,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 1517,
+          "line": "            await _apply_guild_language(_gid, _lang)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3198,
+          "line": "        await _apply_guild_language(interaction.guild.id, chosen)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 1517,
+          "line": "            await _apply_guild_language(_gid, _lang)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3198,
+          "line": "        await _apply_guild_language(interaction.guild.id, chosen)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "on_app_command_error",
+      "lineno": 1449,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.error"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "on_command_error",
+      "lineno": 1462,
+      "has_await": false,
+      "decorators": [
+        "bot.event"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "on_ready",
+      "lineno": 1469,
+      "has_await": true,
+      "decorators": [
+        "bot.event"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "_gather_original_overwrites",
+      "lineno": 1523,
+      "has_await": false,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 1549,
+          "line": "    original_overwrites = await _gather_original_overwrites(ch)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 1549,
+          "line": "    original_overwrites = await _gather_original_overwrites(ch)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "apply_lock_channel",
+      "lineno": 1543,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 2977,
+          "line": "        await apply_lock_channel(interaction.channel, interaction.guild, staff_role_id=staff_role_id)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 2977,
+          "line": "        await apply_lock_channel(interaction.channel, interaction.guild, staff_role_id=staff_role_id)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "apply_unlock_channel",
+      "lineno": 1650,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 3003,
+          "line": "        await apply_unlock_channel(interaction.channel)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 3003,
+          "line": "        await apply_unlock_channel(interaction.channel)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "on_message",
+      "lineno": 1685,
+      "has_await": true,
+      "decorators": [
+        "bot.event"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "slash_ban",
+      "lineno": 1920,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='ban', description='Ban a user by ID. Optional reason.')",
+        "app_commands.describe(user_id='ID of the user to ban', reason='Optional reason')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "slash_kick",
+      "lineno": 1956,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='kick', description='Kick a user by ID. Optional reason.')",
+        "app_commands.describe(user_id='ID of the user to kick', reason='Optional reason')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "slash_mute",
+      "lineno": 1984,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='mute', description='Mute a user by ID for a duration. Optional reason. Time format: 10m, 2h, 1d')",
+        "app_commands.describe(user_id='ID of the user to mute', duration='Duration like 10m, 2h, 1d (optional, default permanent)', reason='Optional reason')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "slash_settings_mod",
+      "lineno": 2076,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='settings_mod', description='Configure which role can use moderation commands (ban/kick/mute). Admins/owner only.')",
+        "app_commands.describe(command='Which command to set (ban/kick/mute)', role='Role to allow (leave empty to unset)')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "safe_reply",
+      "lineno": 2104,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 1922,
+          "line": "        await safe_reply(interaction, 'This command must be used in a guild (server).')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1925,
+          "line": "        await safe_reply(interaction, \"You do not have permission to use this command.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1943,
+          "line": "        await safe_reply(interaction, 'Invalid user id or mention.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1949,
+          "line": "        await safe_reply(interaction, f'Banned <@{uid}>.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1951,
+          "line": "        await safe_reply(interaction, f'Failed to ban: {e}')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1958,
+          "line": "        await safe_reply(interaction, 'This command must be used in a guild (server).')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1961,
+          "line": "        await safe_reply(interaction, \"You do not have permission to use this command.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1968,
+          "line": "        await safe_reply(interaction, 'Invalid user id or mention.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1973,
+          "line": "            await safe_reply(interaction, 'Member not found in guild.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1977,
+          "line": "        await safe_reply(interaction, f'Kicked {member.mention}.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1979,
+          "line": "        await safe_reply(interaction, f'Failed to kick: {e}')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1986,
+          "line": "        await safe_reply(interaction, 'This command must be used in a guild (server).')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1989,
+          "line": "        await safe_reply(interaction, \"You do not have permission to use this command.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1995,
+          "line": "        await safe_reply(interaction, 'Invalid user id or mention.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2000,
+          "line": "            await safe_reply(interaction, 'Member not found in guild.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2023,
+          "line": "                await safe_reply(interaction, 'Invalid duration format.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2069,
+          "line": "        await safe_reply(interaction, f'{member.mention} has been muted.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2071,
+          "line": "        await safe_reply(interaction, f'Failed to mute: {e}')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2079,
+          "line": "        await safe_reply(interaction, 'This command must be used in a guild (server).')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2085,
+          "line": "            await safe_reply(interaction, 'Only the server owner or administrators may change moderation settings.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2088,
+          "line": "        await safe_reply(interaction, 'Failed to check permissions.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2091,
+          "line": "        await safe_reply(interaction, 'Command must be one of: ban, kick, mute')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2097,
+          "line": "            await safe_reply(interaction, f'Role {role.name} set for {command}.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2099,
+          "line": "            await safe_reply(interaction, f'Role for {command} cleared.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2101,
+          "line": "        await safe_reply(interaction, f'Error updating settings: {e}')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2351,
+          "line": "                await safe_reply(interaction, \"You are already in the tournament.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2357,
+          "line": "                await safe_reply(interaction, f\"Tournament is full ({maxp} participants). You can't join.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2364,
+          "line": "            await safe_reply(interaction, f\"{interaction.user.mention} just joined the teddy war.\\nParticipants: {len(participants)}/{maxp}\\n\\n{preview}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2382,
+          "line": "                await safe_reply(interaction, \"You are not in the tournament.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2391,
+          "line": "            await safe_reply(interaction, f\"{interaction.user.mention} left the tournament.\\nParticipants: {len(participants)}/{maxp}\\n\\n{preview if preview else 'No participants.'}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2407,
+          "line": "                await safe_reply(interaction, \"Only the host or a manager can start the tournament.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2415,
+          "line": "                await safe_reply(interaction, \"Need at least 2 participants to start.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2620,
+          "line": "                await safe_reply(interaction, \"Only the host or a manager can cancel the tournament.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2627,
+          "line": "            await safe_reply(interaction, \"Tournament cancelled.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2681,
+          "line": "            await safe_reply(interaction, \"This command must be used in a server.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2686,
+          "line": "            await safe_reply(interaction, f\"You are not authorized to give {emoji} {name}. Staff only.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2692,
+          "line": "        await safe_reply(interaction, f\"{await fmt_currency(guild.id, amount)} given to {target.mention}. New balance: {await fmt_currency(guild.id, bal)}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2694,
+          "line": "        await safe_reply(interaction, f\"Error giving Snuggles: {e}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2704,
+          "line": "        await safe_reply(interaction, \"This command must be used in a server.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2707,
+          "line": "        await safe_reply(interaction, \"Only staff can rename the currency.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2711,
+          "line": "        await safe_reply(interaction, f\"Current currency display: {e} {n}\\nUse `/rename_currency name:<name> emoji:<emoji>` to change it.\", ephemeral=True)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2721,
+          "line": "    await safe_reply(interaction, f\"Currency renamed to: {new_emoji} {new_name}\\n*(Display only \u2014 balances in the DB are unchanged.)*\", ephemeral=True)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2841,
+          "line": "            await safe_reply(interaction, \"Este comando debe usarse en un servidor.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2849,
+          "line": "                await safe_reply(interaction, \"Necesitas el permiso **Manage Server** para cambiar la moneda.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2852,
+          "line": "            await safe_reply(interaction, \"No pude comprobar tus permisos.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2863,
+          "line": "            await safe_reply(interaction, f\"Moneda actual: {e} {n}  |  Comando: `/{cur_cmd}` (solo UI)\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2885,
+          "line": "                    await safe_reply(interaction, f\"Nombre de comando inv\u00e1lido `{cmd}`: solo letras, n\u00fameros, _ o - (1-32 caracteres).\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2895,
+          "line": "            await safe_reply(interaction, f\"Moneda actualizada: {new_emoji} {new_name} (solo UI){cmd_info}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2897,
+          "line": "            await safe_reply(interaction, f\"No se pudo actualizar la moneda: {e}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2907,
+          "line": "            await safe_reply(interaction, \"Solo la persona que abri\u00f3 este men\u00fa puede usarlo.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2910,
+          "line": "            await safe_reply(interaction, \"Este men\u00fa solo funciona en un servidor.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2935,
+          "line": "                await safe_reply(interaction, f\"No pude abrir el formulario: {e}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2941,
+          "line": "        await safe_reply(interaction, \"Este comando debe usarse en un servidor.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2962,
+          "line": "        await safe_reply(interaction, \"This command must be used in a server.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2965,
+          "line": "        await safe_reply(interaction, \"This command must be used in a server text channel.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2972,
+          "line": "        await safe_reply(interaction, \"You do not have permission to use this command.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2978,
+          "line": "        await safe_reply(interaction, \"Channel locked: only staff can send messages. Viewing permissions were not changed.\", ephemeral=False)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2980,
+          "line": "        await safe_reply(interaction, f\"Failed to lock channel: {e}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2986,
+          "line": "        await safe_reply(interaction, \"This command must be used in a server.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2989,
+          "line": "        await safe_reply(interaction, \"This command must be used in a server text channel.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2996,
+          "line": "        await safe_reply(interaction, \"You do not have permission to use this command.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3000,
+          "line": "        await safe_reply(interaction, \"Channel is not locked by me or no previous state saved.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3004,
+          "line": "        await safe_reply(interaction, \"Channel unlocked and previous send permissions restored.\", ephemeral=False)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3006,
+          "line": "        await safe_reply(interaction, f\"Failed to unlock channel: {e}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3023,
+          "line": "        await safe_reply(interaction, \"This command must be used in a server.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3040,
+          "line": "        await safe_reply(interaction, f\"Current currency display: {e} {n}  |  Balance command: `/{cur_cmd}` (UI only)\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3063,
+          "line": "                await safe_reply(interaction, f\"Invalid command name `{command_name}`: use only letters, numbers, _ or - (1\u201332 chars).\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3075,
+          "line": "        await safe_reply(interaction, f\"Updated currency display: {new_emoji} {new_name} (UI only){cmd_info}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3077,
+          "line": "        await safe_reply(interaction, f\"Failed to update currency settings: {e}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3158,
+          "line": "        await safe_reply(interaction, 'This command must be used in a guild (server).')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3165,
+          "line": "            await safe_reply(interaction, 'Only the server owner or administrators may change moderation settings.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3168,
+          "line": "        await safe_reply(interaction, 'Failed to check permissions.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3171,
+          "line": "        await safe_reply(interaction, 'Command must be one of: ban, kick, mute')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3177,
+          "line": "            await safe_reply(interaction, f'Role {role.name} set for {command}.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3179,
+          "line": "            await safe_reply(interaction, f'Role for {command} cleared.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3181,
+          "line": "        await safe_reply(interaction, f'Error updating settings: {e}')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3193,
+          "line": "        await safe_reply(interaction, \"This command must be used in a server.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3200,
+          "line": "        await safe_reply("
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3208,
+          "line": "        await safe_reply(interaction, f\"Failed to apply language: {e}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4444,
+          "line": "            await safe_reply(interaction, \"Game ended and cleaned up.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4448,
+          "line": "            await safe_reply(interaction, \"Game ended and cleaned up.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5804,
+          "line": "        await safe_reply(interaction, \"The text is empty \u2013 nothing to translate.\", ephemeral=True)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 1922,
+          "line": "        await safe_reply(interaction, 'This command must be used in a guild (server).')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1925,
+          "line": "        await safe_reply(interaction, \"You do not have permission to use this command.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1943,
+          "line": "        await safe_reply(interaction, 'Invalid user id or mention.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1949,
+          "line": "        await safe_reply(interaction, f'Banned <@{uid}>.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1951,
+          "line": "        await safe_reply(interaction, f'Failed to ban: {e}')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1958,
+          "line": "        await safe_reply(interaction, 'This command must be used in a guild (server).')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1961,
+          "line": "        await safe_reply(interaction, \"You do not have permission to use this command.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1968,
+          "line": "        await safe_reply(interaction, 'Invalid user id or mention.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1973,
+          "line": "            await safe_reply(interaction, 'Member not found in guild.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1977,
+          "line": "        await safe_reply(interaction, f'Kicked {member.mention}.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1979,
+          "line": "        await safe_reply(interaction, f'Failed to kick: {e}')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1986,
+          "line": "        await safe_reply(interaction, 'This command must be used in a guild (server).')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1989,
+          "line": "        await safe_reply(interaction, \"You do not have permission to use this command.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 1995,
+          "line": "        await safe_reply(interaction, 'Invalid user id or mention.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2000,
+          "line": "            await safe_reply(interaction, 'Member not found in guild.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2023,
+          "line": "                await safe_reply(interaction, 'Invalid duration format.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2069,
+          "line": "        await safe_reply(interaction, f'{member.mention} has been muted.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2071,
+          "line": "        await safe_reply(interaction, f'Failed to mute: {e}')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2079,
+          "line": "        await safe_reply(interaction, 'This command must be used in a guild (server).')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2085,
+          "line": "            await safe_reply(interaction, 'Only the server owner or administrators may change moderation settings.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2088,
+          "line": "        await safe_reply(interaction, 'Failed to check permissions.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2091,
+          "line": "        await safe_reply(interaction, 'Command must be one of: ban, kick, mute')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2097,
+          "line": "            await safe_reply(interaction, f'Role {role.name} set for {command}.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2099,
+          "line": "            await safe_reply(interaction, f'Role for {command} cleared.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2101,
+          "line": "        await safe_reply(interaction, f'Error updating settings: {e}')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2351,
+          "line": "                await safe_reply(interaction, \"You are already in the tournament.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2357,
+          "line": "                await safe_reply(interaction, f\"Tournament is full ({maxp} participants). You can't join.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2364,
+          "line": "            await safe_reply(interaction, f\"{interaction.user.mention} just joined the teddy war.\\nParticipants: {len(participants)}/{maxp}\\n\\n{preview}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2382,
+          "line": "                await safe_reply(interaction, \"You are not in the tournament.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2391,
+          "line": "            await safe_reply(interaction, f\"{interaction.user.mention} left the tournament.\\nParticipants: {len(participants)}/{maxp}\\n\\n{preview if preview else 'No participants.'}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2407,
+          "line": "                await safe_reply(interaction, \"Only the host or a manager can start the tournament.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2415,
+          "line": "                await safe_reply(interaction, \"Need at least 2 participants to start.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2620,
+          "line": "                await safe_reply(interaction, \"Only the host or a manager can cancel the tournament.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2627,
+          "line": "            await safe_reply(interaction, \"Tournament cancelled.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2681,
+          "line": "            await safe_reply(interaction, \"This command must be used in a server.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2686,
+          "line": "            await safe_reply(interaction, f\"You are not authorized to give {emoji} {name}. Staff only.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2692,
+          "line": "        await safe_reply(interaction, f\"{await fmt_currency(guild.id, amount)} given to {target.mention}. New balance: {await fmt_currency(guild.id, bal)}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2694,
+          "line": "        await safe_reply(interaction, f\"Error giving Snuggles: {e}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2704,
+          "line": "        await safe_reply(interaction, \"This command must be used in a server.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2707,
+          "line": "        await safe_reply(interaction, \"Only staff can rename the currency.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2711,
+          "line": "        await safe_reply(interaction, f\"Current currency display: {e} {n}\\nUse `/rename_currency name:<name> emoji:<emoji>` to change it.\", ephemeral=True)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2721,
+          "line": "    await safe_reply(interaction, f\"Currency renamed to: {new_emoji} {new_name}\\n*(Display only \u2014 balances in the DB are unchanged.)*\", ephemeral=True)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2841,
+          "line": "            await safe_reply(interaction, \"Este comando debe usarse en un servidor.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2849,
+          "line": "                await safe_reply(interaction, \"Necesitas el permiso **Manage Server** para cambiar la moneda.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2852,
+          "line": "            await safe_reply(interaction, \"No pude comprobar tus permisos.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2863,
+          "line": "            await safe_reply(interaction, f\"Moneda actual: {e} {n}  |  Comando: `/{cur_cmd}` (solo UI)\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2885,
+          "line": "                    await safe_reply(interaction, f\"Nombre de comando inv\u00e1lido `{cmd}`: solo letras, n\u00fameros, _ o - (1-32 caracteres).\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2895,
+          "line": "            await safe_reply(interaction, f\"Moneda actualizada: {new_emoji} {new_name} (solo UI){cmd_info}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2897,
+          "line": "            await safe_reply(interaction, f\"No se pudo actualizar la moneda: {e}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2907,
+          "line": "            await safe_reply(interaction, \"Solo la persona que abri\u00f3 este men\u00fa puede usarlo.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2910,
+          "line": "            await safe_reply(interaction, \"Este men\u00fa solo funciona en un servidor.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2935,
+          "line": "                await safe_reply(interaction, f\"No pude abrir el formulario: {e}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2941,
+          "line": "        await safe_reply(interaction, \"Este comando debe usarse en un servidor.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2962,
+          "line": "        await safe_reply(interaction, \"This command must be used in a server.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2965,
+          "line": "        await safe_reply(interaction, \"This command must be used in a server text channel.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2972,
+          "line": "        await safe_reply(interaction, \"You do not have permission to use this command.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2978,
+          "line": "        await safe_reply(interaction, \"Channel locked: only staff can send messages. Viewing permissions were not changed.\", ephemeral=False)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2980,
+          "line": "        await safe_reply(interaction, f\"Failed to lock channel: {e}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2986,
+          "line": "        await safe_reply(interaction, \"This command must be used in a server.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2989,
+          "line": "        await safe_reply(interaction, \"This command must be used in a server text channel.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2996,
+          "line": "        await safe_reply(interaction, \"You do not have permission to use this command.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3000,
+          "line": "        await safe_reply(interaction, \"Channel is not locked by me or no previous state saved.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3004,
+          "line": "        await safe_reply(interaction, \"Channel unlocked and previous send permissions restored.\", ephemeral=False)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3006,
+          "line": "        await safe_reply(interaction, f\"Failed to unlock channel: {e}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3023,
+          "line": "        await safe_reply(interaction, \"This command must be used in a server.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3040,
+          "line": "        await safe_reply(interaction, f\"Current currency display: {e} {n}  |  Balance command: `/{cur_cmd}` (UI only)\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3063,
+          "line": "                await safe_reply(interaction, f\"Invalid command name `{command_name}`: use only letters, numbers, _ or - (1\u201332 chars).\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3075,
+          "line": "        await safe_reply(interaction, f\"Updated currency display: {new_emoji} {new_name} (UI only){cmd_info}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3077,
+          "line": "        await safe_reply(interaction, f\"Failed to update currency settings: {e}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3158,
+          "line": "        await safe_reply(interaction, 'This command must be used in a guild (server).')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3165,
+          "line": "            await safe_reply(interaction, 'Only the server owner or administrators may change moderation settings.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3168,
+          "line": "        await safe_reply(interaction, 'Failed to check permissions.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3171,
+          "line": "        await safe_reply(interaction, 'Command must be one of: ban, kick, mute')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3177,
+          "line": "            await safe_reply(interaction, f'Role {role.name} set for {command}.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3179,
+          "line": "            await safe_reply(interaction, f'Role for {command} cleared.')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3181,
+          "line": "        await safe_reply(interaction, f'Error updating settings: {e}')"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3193,
+          "line": "        await safe_reply(interaction, \"This command must be used in a server.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3200,
+          "line": "        await safe_reply("
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3208,
+          "line": "        await safe_reply(interaction, f\"Failed to apply language: {e}\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4444,
+          "line": "            await safe_reply(interaction, \"Game ended and cleaned up.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4448,
+          "line": "            await safe_reply(interaction, \"Game ended and cleaned up.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5804,
+          "line": "        await safe_reply(interaction, \"The text is empty \u2013 nothing to translate.\", ephemeral=True)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "list_shop_items",
+      "lineno": 2129,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 2734,
+          "line": "    items = await list_shop_items(gid)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2736,
+          "line": "        items = await list_shop_items(None)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 2734,
+          "line": "    items = await list_shop_items(gid)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2736,
+          "line": "        items = await list_shop_items(None)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "add_shop_item",
+      "lineno": 2138,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 2792,
+          "line": "    await add_shop_item(name=name, price=price, guild_id=gid, role_id=role_id)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 2792,
+          "line": "    await add_shop_item(name=name, price=price, guild_id=gid, role_id=role_id)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "remove_shop_item",
+      "lineno": 2143,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 2803,
+          "line": "    await remove_shop_item(item_id)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 2803,
+          "line": "    await remove_shop_item(item_id)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "get_shop_item",
+      "lineno": 2148,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 2751,
+          "line": "    row = await get_shop_item(item_id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2799,
+          "line": "    row = await get_shop_item(item_id)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 2751,
+          "line": "    row = await get_shop_item(item_id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2799,
+          "line": "    row = await get_shop_item(item_id)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "maybe_halloween_announce",
+      "lineno": 2154,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "teddy_war",
+      "lineno": 2640,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='teddy_war', description='Create a Teddy War tournament embed')",
+        "app_commands.describe(title='Title for the tournament')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "turkeys_balance",
+      "lineno": 2667,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='snuggles', description='Check your Snuggles balance')",
+        "app_commands.describe(user='User to check (optional)')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "give_turkeys",
+      "lineno": 2676,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='give_snuggles', description='(Staff) Give Snuggles to a user')",
+        "app_commands.describe(target='Target user', amount='Amount of Snuggles to give (can be negative)')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "rename_currency",
+      "lineno": 2702,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='rename_currency', description='(Staff) Change the display name and/or emoji of the currency')",
+        "app_commands.describe(name=\"New display name (e.g. Snuggles). Use '-' to reset to default.\", emoji=\"New emoji (e.g. \ud83e\udd83). Use '-' to reset to default.\")"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "shop_list",
+      "lineno": 2732,
+      "has_await": true,
+      "decorators": [
+        "shop_group.command(name='list', description='List available shop items for this server or global ones')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "shop_buy",
+      "lineno": 2750,
+      "has_await": true,
+      "decorators": [
+        "shop_group.command(name='buy', description='Buy a shop item using Snuggles')",
+        "app_commands.describe(item_id='ID of the shop item to buy')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "shop_add",
+      "lineno": 2789,
+      "has_await": true,
+      "decorators": [
+        "shop_group.command(name='add', description='(Admin) Add a shop item to this server or global')",
+        "app_commands.checks.has_permissions(manage_guild=True)",
+        "app_commands.describe(name='Item name', price='Price in Snuggles', role='Optional role to grant')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "shop_remove",
+      "lineno": 2798,
+      "has_await": true,
+      "decorators": [
+        "shop_group.command(name='remove', description='(Admin) Remove a shop item by id')",
+        "app_commands.checks.has_permissions(manage_guild=True)"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "settings_menu",
+      "lineno": 2939,
+      "has_await": true,
+      "decorators": [
+        "settings_group.command(name='menu', description='Abrir un men\u00fa interactivo de configuraci\u00f3n')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "slash_m_lock",
+      "lineno": 2960,
+      "has_await": true,
+      "decorators": [
+        "m_group.command(name='lock', description='Lock the current text channel so non-staff cannot send messages')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "slash_m_unlock",
+      "lineno": 2984,
+      "has_await": true,
+      "decorators": [
+        "m_group.command(name='unlock', description='Unlock the current text channel and restore previous permissions')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "settings_currency",
+      "lineno": 3016,
+      "has_await": true,
+      "decorators": [
+        "settings_group.command(name='currency', description='Configure the display name, emoji and balance command name for the currency (UI only)')",
+        "app_commands.checks.has_permissions(manage_guild=True)",
+        "app_commands.describe(name=\"Currency display name (e.g., Snuggles). Use '-' to reset.\", emoji=\"Emoji to display (unicode or server custom emoji <:name:id>). Use '-' to reset.\", command_name='Slash command name for checking balance (e.g., snuggles). Letters, numbers, _ or - only.')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "settings_set_staff_role",
+      "lineno": 3082,
+      "has_await": true,
+      "decorators": [
+        "settings_group.command(name='set_staff_role', description='(Owner) Configure the staff role for this server')",
+        "app_commands.describe(role='Role to be considered staff. Omit to clear.')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "settings_get_staff_role",
+      "lineno": 3102,
+      "has_await": true,
+      "decorators": [
+        "settings_group.command(name='get_staff_role', description='Show the configured staff role for this server')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "settings_show",
+      "lineno": 3122,
+      "has_await": true,
+      "decorators": [
+        "settings_group.command(name='show', description='Show key server settings (currency, staff role, mod roles)')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "settings_mod_role",
+      "lineno": 3156,
+      "has_await": true,
+      "decorators": [
+        "settings_group.command(name='mod_role', description='(Owner/Admin) Configure which role can use ban/kick/mute')",
+        "app_commands.describe(command='Which command to set (ban/kick/mute)', role='Role to allow (omit to clear)')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "settings_language",
+      "lineno": 3191,
+      "has_await": true,
+      "decorators": [
+        "settings_group.command(name='language', description='Set the language for command descriptions (en/es)')",
+        "app_commands.checks.has_permissions(manage_guild=True)",
+        "app_commands.describe(lang=\"Language code: 'en' for English, 'es' for Spanish\")",
+        "app_commands.choices(lang=[app_commands.Choice(name='English (en)', value='en'), app_commands.Choice(name='Espa\u00f1ol (es)', value='es')])"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "update_tournament_message",
+      "lineno": 3211,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 2367,
+          "line": "        await update_tournament_message(interaction.message)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2394,
+          "line": "        await update_tournament_message(interaction.message)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 2367,
+          "line": "        await update_tournament_message(interaction.message)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2394,
+          "line": "        await update_tournament_message(interaction.message)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "on_raw_reaction_add",
+      "lineno": 3252,
+      "has_await": false,
+      "decorators": [
+        "bot.event"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "on_raw_reaction_remove",
+      "lineno": 3275,
+      "has_await": false,
+      "decorators": [
+        "bot.event"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "wheels_create",
+      "lineno": 3302,
+      "has_await": true,
+      "decorators": [
+        "wheels_group.command(name='create', description=\"Create a wheel post. Users who react with the bot's emoji will join.\")",
+        "app_commands.describe(text='The announcement text for the wheel')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "wheels_start",
+      "lineno": 3338,
+      "has_await": true,
+      "decorators": [
+        "wheels_group.command(name='start', description='Start the wheel and pick a random winner from reactors')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "house_create",
+      "lineno": 4063,
+      "has_await": true,
+      "decorators": [
+        "house_group.command(name='create', description='Create a House game (creates a private channel).')",
+        "app_commands.describe(mode='solo or multi', max_players='Max players for multi mode (ignored for solo)')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "house_howto",
+      "lineno": 4110,
+      "has_await": true,
+      "decorators": [
+        "house_group.command(name='howto', description='Quick explanation of how to play Haunted House')",
+        "app_commands.allowed_installs(guilds=True, users=True)",
+        "app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "slash_mm",
+      "lineno": 4134,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='mm', description=\"Quick explanation of how to play 'mm'\")",
+        "app_commands.allowed_installs(guilds=True, users=True)",
+        "app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "house_invite",
+      "lineno": 4157,
+      "has_await": true,
+      "decorators": [
+        "house_group.command(name='invite', description='Invite a user to your House game (host only). Uses your active lobby.)')",
+        "app_commands.describe(user='User ID or mention to invite')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "house_accept",
+      "lineno": 4242,
+      "has_await": true,
+      "decorators": [
+        "house_group.command(name='accept', description='Accept an invitation to a House game.')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "house_start",
+      "lineno": 4264,
+      "has_await": true,
+      "decorators": [
+        "house_group.command(name='start', description='Start the House game (host only).')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "house_action",
+      "lineno": 4333,
+      "has_await": true,
+      "decorators": [
+        "house_group.command(name='action', description=\"Perform an action in the House game when it's your turn.\")",
+        "app_commands.describe(action='Action name: search|explore|move|use', target='Optional target (direction/item)')"
+      ],
+      "has_decorator": true,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 4391,
+          "line": "    await house_action(interaction, action=\"move\", target=direction)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4396,
+          "line": "    await house_action(interaction, action=\"explore\")"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 4391,
+          "line": "    await house_action(interaction, action=\"move\", target=direction)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4396,
+          "line": "    await house_action(interaction, action=\"explore\")"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "house_move",
+      "lineno": 4389,
+      "has_await": true,
+      "decorators": [
+        "house_group.command(name='move', description='Shortcut to move in the current House game (direction: up/down/left/right)')",
+        "app_commands.describe(direction='Direction to move: up/down/left/right')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "house_explore",
+      "lineno": 4395,
+      "has_await": true,
+      "decorators": [
+        "house_group.command(name='explore', description='Shortcut to explore the current room in the House game')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "house_status",
+      "lineno": 4400,
+      "has_await": true,
+      "decorators": [
+        "house_group.command(name='status', description='Show game status')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "house_leave",
+      "lineno": 4411,
+      "has_await": true,
+      "decorators": [
+        "house_group.command(name='leave', description='Leave a House game')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "house_end",
+      "lineno": 4431,
+      "has_await": true,
+      "decorators": [
+        "house_group.command(name='end', description='End a House game and remove the private channel (host only).')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "run_house_game",
+      "lineno": 4465,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 4328,
+          "line": "    asyncio.create_task(run_coro_safe(run_house_game(game), name=f\"house-{game.id}\"))"
+        }
+      ],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "_cleanup_old_schedule",
+      "lineno": 4560,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 4592,
+          "line": "    await _cleanup_old_schedule()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4690,
+          "line": "    await _cleanup_old_schedule()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4738,
+          "line": "    await _cleanup_old_schedule()"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 4592,
+          "line": "    await _cleanup_old_schedule()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4690,
+          "line": "    await _cleanup_old_schedule()"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4738,
+          "line": "    await _cleanup_old_schedule()"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "show_schedule",
+      "lineno": 4587,
+      "has_await": true,
+      "decorators": [
+        "schedule_group.command(name='show', description=\"Show today's schedule (24 slots) \u2014 shows viewer-local and user-selected local times\")"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "add_schedule",
+      "lineno": 4666,
+      "has_await": true,
+      "decorators": [
+        "schedule_group.command(name='add', description='Add yourself to a numbered slot (1-24)')",
+        "app_commands.describe(slot='Slot number 1-24', game='Game or note to add')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "delete_schedule",
+      "lineno": 4719,
+      "has_await": true,
+      "decorators": [
+        "schedule_group.command(name='delete', description='Remove your signup from a numbered slot (1-24)')",
+        "app_commands.describe(slot='Slot number 1-24 to remove your signup from')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "_fetch_monopoly_links_from_source",
+      "lineno": 4794,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 4876,
+          "line": "                        links = await _fetch_monopoly_links_from_source(session, source_url)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 4876,
+          "line": "                        links = await _fetch_monopoly_links_from_source(session, source_url)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "_monopoly_get_channels_async",
+      "lineno": 4827,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 4872,
+          "line": "                guild_channels = await _monopoly_get_channels_async()"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 4872,
+          "line": "                guild_channels = await _monopoly_get_channels_async()"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "_monopoly_already_posted_async",
+      "lineno": 4835,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 4878,
+          "line": "                            if not await _monopoly_already_posted_async(link):"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 4878,
+          "line": "                            if not await _monopoly_already_posted_async(link):"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "_monopoly_mark_posted_async",
+      "lineno": 4843,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 4891,
+          "line": "                            await _monopoly_mark_posted_async(link)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 4891,
+          "line": "                            await _monopoly_mark_posted_async(link)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "_monopoly_poster_loop",
+      "lineno": 4853,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 1276,
+          "line": "        asyncio.create_task(_monopoly_poster_loop())"
+        }
+      ],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "set_monopoly_channel",
+      "lineno": 4916,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='setmonopolychannel', description='Set the channel where Monopoly GO free reward links will be posted')",
+        "app_commands.describe(channel='The text channel to post Monopoly GO reward links in')",
+        "app_commands.checks.has_permissions(manage_guild=True)"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "unset_monopoly_channel",
+      "lineno": 4937,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='unsetmonopolychannel', description='Disable automatic Monopoly GO reward link posting in this server')",
+        "app_commands.checks.has_permissions(manage_guild=True)"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "custom_command_create",
+      "lineno": 4957,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='custom', description='Crea un comando personalizado para este servidor')",
+        "app_commands.describe(name='Nombre del comando (se invoca con !nombre)', info='Texto que se mostrar\u00e1 al usar el comando')",
+        "app_commands.checks.has_permissions(manage_guild=True)"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "custom_command_delete",
+      "lineno": 4977,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='deletecustom', description='Elimina un comando personalizado de este servidor')",
+        "app_commands.describe(name='Nombre del comando personalizado a eliminar')",
+        "app_commands.checks.has_permissions(manage_guild=True)"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "set_official_links_channel",
+      "lineno": 4999,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='set_official_links_channel', description='Configura el canal donde se publicar\u00e1n los enlaces oficiales')",
+        "app_commands.describe(channel='Canal de texto donde publicar enlaces oficiales')",
+        "app_commands.checks.has_permissions(manage_guild=True)"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "add_official_link",
+      "lineno": 5015,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='add_official_link', description='A\u00f1ade un enlace oficial (ej: dado gratis/escudo)')",
+        "app_commands.describe(name='Etiqueta corta para el enlace', url='URL p\u00fablica del enlace')",
+        "app_commands.checks.has_permissions(manage_guild=True)"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "remove_official_link",
+      "lineno": 5032,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='remove_official_link', description='Elimina un enlace oficial por su nombre')",
+        "app_commands.describe(name='Nombre del enlace a eliminar')",
+        "app_commands.checks.has_permissions(manage_guild=True)"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "list_official_links",
+      "lineno": 5053,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='list_official_links', description='Lista los enlaces oficiales guardados para este servidor')",
+        "app_commands.checks.has_permissions(manage_guild=True)"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "post_official_links",
+      "lineno": 5069,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='post_official_links', description='Publica los enlaces oficiales en el canal configurado (o en este canal si no hay configurado)')",
+        "app_commands.checks.has_permissions(manage_guild=True)"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "get_user_timezone",
+      "lineno": 5368,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 4595,
+          "line": "    user_tz_name = await get_user_timezone(interaction.user.id) or \"Etc/UTC\""
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4676,
+          "line": "    user_tz_name = await get_user_timezone(interaction.user.id) or \"Etc/UTC\""
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4729,
+          "line": "    user_tz_name = await get_user_timezone(interaction.user.id) or \"Etc/UTC\""
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5537,
+          "line": "            my_tz = await get_user_timezone(interaction.user.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5538,
+          "line": "            other_tz = await get_user_timezone(usuario.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5656,
+          "line": "    my_tz = await get_user_timezone(interaction.user.id)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 4595,
+          "line": "    user_tz_name = await get_user_timezone(interaction.user.id) or \"Etc/UTC\""
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4676,
+          "line": "    user_tz_name = await get_user_timezone(interaction.user.id) or \"Etc/UTC\""
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4729,
+          "line": "    user_tz_name = await get_user_timezone(interaction.user.id) or \"Etc/UTC\""
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5537,
+          "line": "            my_tz = await get_user_timezone(interaction.user.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5538,
+          "line": "            other_tz = await get_user_timezone(usuario.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5656,
+          "line": "    my_tz = await get_user_timezone(interaction.user.id)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "set_user_timezone",
+      "lineno": 5375,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 5497,
+          "line": "    await set_user_timezone(interaction.user.id, timezone)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 5497,
+          "line": "    await set_user_timezone(interaction.user.id, timezone)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "get_user_time_format",
+      "lineno": 5384,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 4596,
+          "line": "    user_fmt = await get_user_time_format(interaction.user.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5498,
+          "line": "    user_fmt = await get_user_time_format(interaction.user.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5532,
+          "line": "    my_fmt = await get_user_time_format(interaction.user.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5539,
+          "line": "            other_fmt = await get_user_time_format(usuario.id)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 4596,
+          "line": "    user_fmt = await get_user_time_format(interaction.user.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5498,
+          "line": "    user_fmt = await get_user_time_format(interaction.user.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5532,
+          "line": "    my_fmt = await get_user_time_format(interaction.user.id)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5539,
+          "line": "            other_fmt = await get_user_time_format(usuario.id)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "set_user_time_format",
+      "lineno": 5392,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 5454,
+          "line": "    await set_user_time_format(interaction.user.id, formato)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 5454,
+          "line": "    await set_user_time_format(interaction.user.id, formato)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "cmd_settimeformat",
+      "lineno": 5449,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='settimeformat', description='Elige c\u00f3mo ver la hora: formato 24h (militar) o 12h (AM/PM)')",
+        "app_commands.allowed_installs(guilds=True, users=True)",
+        "app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)",
+        "app_commands.describe(formato='24h = hora militar  |  12h = AM/PM')",
+        "app_commands.choices(formato=[app_commands.Choice(name='24h \u2014 Hora militar (ej: 14:30)', value='24h'), app_commands.Choice(name='12h \u2014 AM/PM (ej: 2:30 PM)', value='12h')])"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "cmd_setmytime",
+      "lineno": 5483,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='setmytime', description='Guarda tu zona horaria para que /time muestre tambi\u00e9n tu hora local')",
+        "app_commands.allowed_installs(guilds=True, users=True)",
+        "app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)",
+        "app_commands.describe(timezone='Tu zona horaria (ej: Europe/Madrid, America/New_York)')",
+        "app_commands.autocomplete(timezone=timezone_autocomplete)"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "cmd_time",
+      "lineno": 5523,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='time', description='Muestra la hora actual en cualquier zona horaria del mundo')",
+        "app_commands.allowed_installs(guilds=True, users=True)",
+        "app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)",
+        "app_commands.describe(timezone='Zona horaria a consultar (ej: Asia/Tokyo, America/New_York)', usuario='Compara tu hora con la de este usuario')",
+        "app_commands.autocomplete(timezone=timezone_autocomplete)"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "resync_commands",
+      "lineno": 5676,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='resync_commands', description='Force re-sync of commands in this guild (admins only)')",
+        "app_commands.checks.has_permissions(manage_guild=True)"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "pato",
+      "lineno": 5692,
+      "has_await": true,
+      "decorators": [
+        "bot.command(name='pato')"
+      ],
+      "has_decorator": true,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 5688,
+          "line": "# Duck commands: !pato (genera pato) y !duelo (simula duelo)"
+        }
+      ],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "duelo",
+      "lineno": 5705,
+      "has_await": true,
+      "decorators": [
+        "bot.command(name='duelo')"
+      ],
+      "has_decorator": true,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 5688,
+          "line": "# Duck commands: !pato (genera pato) y !duelo (simula duelo)"
+        }
+      ],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "howtoplay",
+      "lineno": 5729,
+      "has_await": true,
+      "decorators": [
+        "bot.command(name='howtoplay')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "_run_translation",
+      "lineno": 5775,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 5814,
+          "line": "        translated = await _run_translation(text.strip(), language.value)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5850,
+          "line": "            translated = await _run_translation(self.source_text, target_code)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 5814,
+          "line": "        translated = await _run_translation(text.strip(), language.value)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5850,
+          "line": "            translated = await _run_translation(self.source_text, target_code)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "slash_translate",
+      "lineno": 5797,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.command(name='translate', description='Translate text to a chosen language using Google Translate')",
+        "app_commands.allowed_installs(guilds=True, users=True)",
+        "app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)",
+        "app_commands.describe(text='Text to translate', language='Language to translate to')",
+        "app_commands.choices(language=[app_commands.Choice(name=name, value=code) for name, code in _TRANSLATE_LANGS])"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "context_translate",
+      "lineno": 5864,
+      "has_await": true,
+      "decorators": [
+        "bot.tree.context_menu(name='Translate')",
+        "app_commands.allowed_installs(guilds=True, users=True)",
+        "app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "join",
+      "lineno": 286,
+      "has_await": true,
+      "decorators": [
+        "discord.ui.button(label='Join', style=discord.ButtonStyle.success)"
+      ],
+      "has_decorator": true,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 47,
+          "line": "            env_path = os.path.join(os.path.dirname(__file__), \".env\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 263,
+          "line": "        return \"\\n\".join(lines)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 270,
+          "line": "    filtered = ''.join(ch for ch in w if ch.isalpha() or ch in \"'-\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 273,
+          "line": "        filtered = ''.join(c for c in w if c.isalpha())"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 293,
+          "line": "            await interaction.response.send_message(\"You can't join (maybe game started or already joined).\", ephemeral=True)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 679,
+          "line": "FURBY_ASSETS_DIR = os.path.join(os.path.dirname(__file__), \"assets\", \"furbys\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 683,
+          "line": "    files = [os.path.join(FURBY_ASSETS_DIR, f) for f in os.listdir(FURBY_ASSETS_DIR) if f.lower().endswith((\".png\", \".jpg\", \".jpeg\", \".gif\"))]"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 689,
+          "line": "TEDDY_ASSETS_DIR = os.path.join(os.path.dirname(__file__), \"teddy wars\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 693,
+          "line": "    files = [os.path.join(TEDDY_ASSETS_DIR, f) for f in os.listdir(TEDDY_ASSETS_DIR) if f.lower().endswith((\".png\", \".jpg\", \".jpeg\", \".gif\"))]"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 747,
+          "line": "                out_path = os.path.join(TEDDY_ASSETS_DIR, f\"teddy_user_{uid}.png\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 804,
+          "line": "                out_path = os.path.join(FURBY_ASSETS_DIR, f\"furby_user_{uid}.png\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2362,
+          "line": "        preview = \"\\n\".join([f\"<@{uid}>\" for uid in list(participants)[:20]])"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2389,
+          "line": "        preview = \"\\n\".join([f\"<@{uid}>\" for uid in list(participants)[:20]])"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 2745,
+          "line": "    await interaction.response.send_message(\"\\n\".join(lines), ephemeral=True)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3151,
+          "line": "    await interaction.response.send_message(\"\\n\".join(lines), ephemeral=True)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3224,
+          "line": "        participants_text = \"\\n\".join(part_lines)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3579,
+          "line": "            img_dir = os.path.join(os.path.dirname(__file__), \".temp\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3581,
+          "line": "            img_path = os.path.join(img_dir, f\"wheel_{int(time.time())}.gif\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3595,
+          "line": "            names_mention = \" | \".join([f\"<@{uid}>\" for uid in chosen_participants])"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3821,
+          "line": "            items_text = \", \".join(items) if items else \"none\""
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3829,
+          "line": "            return f\"You explore the room ({x+1},{y+1}): {room.get('desc', 'An empty room.')}{extra}. Items: {items_text}. You can move: {', '.join(moves) if moves else 'nowhere'}.\", False"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3842,
+          "line": "        return f\"Cannot move {direction}. Valid moves: {', '.join(moves) if moves else 'none'}.\", False"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4026,
+          "line": "        inv_text = \", \".join(inv) if inv else \"(empty)\""
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4311,
+          "line": "    players_list = ', '.join([f'<@{u}>' for u in accepted])"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4322,
+          "line": "        await ch.send(\"\\n\".join(intro_lines))"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4405,
+          "line": "    players = \"\\n\".join([f\"<@{uid}> \u2014 HP: {meta['hp']} \u2014 Accepted: {meta['accepted']} \u2014 Pos: { (meta['position'][0]+1, meta['position'][1]+1) if meta.get('position') else 'N/A'}\" for uid, meta in game.players.items()])"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4487,
+          "line": "            moves_text = \", \".join(moves) if moves else \"none\""
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4649,
+          "line": "            entry_text = \", \".join(parts)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4658,
+          "line": "        description=\"\\n\".join(desc_lines),"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5064,
+          "line": "    await interaction.response.send_message(\"\\n\".join(lines), ephemeral=True)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5086,
+          "line": "    embed.description = \"\\n\".join(desc_lines)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5336,
+          "line": "#     embed.description = \"\\n\".join(lines)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5699,
+          "line": "        equip_text = \", \".join(duck.equipment) if duck.equipment else \"sin equipo\""
+        },
+        {
+          "file": "bot.py",
+          "lineno": 5896,
+          "line": "            env_path = os.path.join(os.path.dirname(__file__), \".env\")"
+        },
+        {
+          "file": "teddy_war_sim.py",
+          "lineno": 12,
+          "line": "TEDDY_ASSETS_DIR = os.path.join(BASE_DIR, \"teddy wars\")"
+        },
+        {
+          "file": "teddy_war_sim.py",
+          "lineno": 19,
+          "line": "    return [os.path.join(TEDDY_ASSETS_DIR, f) for f in files]"
+        },
+        {
+          "file": "duck_game.py",
+          "lineno": 164,
+          "line": "    return \"\\n\".join(log_lines)"
+        },
+        {
+          "file": "assets/generate_duck_assets.py",
+          "lineno": 59,
+          "line": "        path = os.path.join(folder, name)"
+        }
+      ],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "leave",
+      "lineno": 306,
+      "has_await": true,
+      "decorators": [
+        "discord.ui.button(label='Leave', style=discord.ButtonStyle.danger)"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "start",
+      "lineno": 326,
+      "has_await": true,
+      "decorators": [
+        "discord.ui.button(label='Start', style=discord.ButtonStyle.primary)"
+      ],
+      "has_decorator": true,
+      "callsites": [
+        {
+          "file": "tools/analyze_async.py",
+          "lineno": 61,
+          "line": "            lineno = src.count('\\n', 0, m.start()) + 1"
+        }
+      ],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "_balance_callback",
+      "lineno": 1315,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": true
+    },
+    {
+      "file": "bot.py",
+      "name": "interaction_check",
+      "lineno": 2333,
+      "has_await": false,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 3884,
+          "line": "                    if not await self.interaction_check(interaction):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3891,
+          "line": "            if not await self.interaction_check(interaction):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3899,
+          "line": "            if not await self.interaction_check(interaction):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3908,
+          "line": "            if not await self.interaction_check(interaction):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3952,
+          "line": "            if not await self.interaction_check(interaction):"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 3884,
+          "line": "                    if not await self.interaction_check(interaction):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3891,
+          "line": "            if not await self.interaction_check(interaction):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3899,
+          "line": "            if not await self.interaction_check(interaction):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3908,
+          "line": "            if not await self.interaction_check(interaction):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3952,
+          "line": "            if not await self.interaction_check(interaction):"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "join_button",
+      "lineno": 2337,
+      "has_await": true,
+      "decorators": [
+        "discord.ui.button(label='Join Tournament', style=discord.ButtonStyle.success, emoji='\ud83e\uddf8')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "leave_button",
+      "lineno": 2370,
+      "has_await": true,
+      "decorators": [
+        "discord.ui.button(label='Leave Tournament', style=discord.ButtonStyle.danger, emoji='\ud83d\udeaa')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "start_button",
+      "lineno": 2397,
+      "has_await": true,
+      "decorators": [
+        "discord.ui.button(label='Start Tournament', style=discord.ButtonStyle.primary, emoji='\u25b6\ufe0f')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "cancel_button",
+      "lineno": 2617,
+      "has_await": true,
+      "decorators": [
+        "discord.ui.button(label='Cancel Tournament', style=discord.ButtonStyle.secondary, emoji='\u274c')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "on_submit",
+      "lineno": 2839,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "_guard",
+      "lineno": 2905,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 2928,
+          "line": "        if not await self._guard(interaction):"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 2928,
+          "line": "        if not await self._guard(interaction):"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "select_settings",
+      "lineno": 2927,
+      "has_await": true,
+      "decorators": [
+        "discord.ui.select(placeholder='\u00bfQu\u00e9 quieres configurar?', min_values=1, max_values=1, options=[discord.SelectOption(label='Moneda (Snuggles)', value='currency', description='Cambiar nombre y emoji (solo UI)', emoji=TURKEY_EMOJI)])"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "interaction_check",
+      "lineno": 3959,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 3884,
+          "line": "                    if not await self.interaction_check(interaction):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3891,
+          "line": "            if not await self.interaction_check(interaction):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3899,
+          "line": "            if not await self.interaction_check(interaction):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3908,
+          "line": "            if not await self.interaction_check(interaction):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3952,
+          "line": "            if not await self.interaction_check(interaction):"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 3884,
+          "line": "                    if not await self.interaction_check(interaction):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3891,
+          "line": "            if not await self.interaction_check(interaction):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3899,
+          "line": "            if not await self.interaction_check(interaction):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3908,
+          "line": "            if not await self.interaction_check(interaction):"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3952,
+          "line": "            if not await self.interaction_check(interaction):"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "on_error",
+      "lineno": 3969,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "disable_and_advance",
+      "lineno": 3977,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 3927,
+          "line": "                    await self.view.parent_view.disable_and_advance(inter, narration=narration)  # type: ignore"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3954,
+          "line": "            await self.disable_and_advance(interaction, narration=\"You skip your turn, the house creaks ominously.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4037,
+          "line": "                await self.disable_and_advance(interaction, narration=narration)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4049,
+          "line": "        await self.disable_and_advance(interaction, narration=narration)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 3927,
+          "line": "                    await self.view.parent_view.disable_and_advance(inter, narration=narration)  # type: ignore"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3954,
+          "line": "            await self.disable_and_advance(interaction, narration=\"You skip your turn, the house creaks ominously.\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4037,
+          "line": "                await self.disable_and_advance(interaction, narration=narration)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 4049,
+          "line": "        await self.disable_and_advance(interaction, narration=narration)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "inventory_button",
+      "lineno": 4024,
+      "has_await": true,
+      "decorators": [
+        "discord.ui.button(label='Inventory', style=discord.ButtonStyle.success, custom_id='house_inventory')"
+      ],
+      "has_decorator": true,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "_handle_action",
+      "lineno": 4032,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 3886,
+          "line": "                    await self._handle_action(interaction, \"move\", direction)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3893,
+          "line": "            await self._handle_action(interaction, \"explore\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3901,
+          "line": "            await self._handle_action(interaction, \"search\")"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 3886,
+          "line": "                    await self._handle_action(interaction, \"move\", direction)"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3893,
+          "line": "            await self._handle_action(interaction, \"explore\")"
+        },
+        {
+          "file": "bot.py",
+          "lineno": 3901,
+          "line": "            await self._handle_action(interaction, \"search\")"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "on_timeout",
+      "lineno": 4051,
+      "has_await": false,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "send_invite_dm",
+      "lineno": 4208,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 4226,
+          "line": "        sent_dm = await send_invite_dm(target_member)"
+        }
+      ],
+      "awaited_calls": [
+        {
+          "file": "bot.py",
+          "lineno": 4226,
+          "line": "        sent_dm = await send_invite_dm(target_member)"
+        }
+      ],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "_on_select",
+      "lineno": 5843,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "explore_cb",
+      "lineno": 3890,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": true
+    },
+    {
+      "file": "bot.py",
+      "name": "search_cb",
+      "lineno": 3898,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": true
+    },
+    {
+      "file": "bot.py",
+      "name": "use_cb",
+      "lineno": 3907,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": true
+    },
+    {
+      "file": "bot.py",
+      "name": "skip_cb",
+      "lineno": 3951,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": true
+    },
+    {
+      "file": "bot.py",
+      "name": "cb",
+      "lineno": 3883,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": true
+    },
+    {
+      "file": "bot.py",
+      "name": "callback",
+      "lineno": 3920,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    },
+    {
+      "file": "bot.py",
+      "name": "_apply_muted_overwrites",
+      "lineno": 2040,
+      "has_await": true,
+      "decorators": [],
+      "has_decorator": false,
+      "callsites": [
+        {
+          "file": "bot.py",
+          "lineno": 2049,
+          "line": "                        asyncio.create_task(run_coro_safe(_apply_muted_overwrites(), name=f\"apply-muted-{interaction.guild.id}\"))"
+        }
+      ],
+      "awaited_calls": [],
+      "registered_as_callback": false
+    }
+  ],
+  "candidates": []
+}
