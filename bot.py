@@ -4628,14 +4628,35 @@ async def show_schedule(interaction: discord.Interaction):
                 guild_id, utc_date_start, utc_date_end,
             )
 
+    logging.info("show_schedule: fetched %d rows for guild %s", len(rows), guild_id)
     # Re-bucket UTC rows into viewer-local slots for the viewer's local day.
+    # Accept stored slot values in either 0-23 (current) or 1-24 (older/alternate) formats,
+    # and treat 24 as midnight of the *next* day.
     slots = {i: [] for i in range(24)}
     for row_date, utc_slot, user_id, game, local_tz, local_slot in rows:
         try:
-            slot_utc = datetime.strptime(f"{row_date} {utc_slot:02d}:00:00", "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            # Normalize utc_slot to a UTC datetime `slot_utc`.
+            if isinstance(utc_slot, int):
+                slot_val = utc_slot
+            else:
+                slot_val = int(utc_slot)
+
+            if slot_val == 24:
+                # 24:00 on `row_date` is equivalent to 00:00 on the next day
+                next_day = datetime.strptime(row_date, "%Y-%m-%d").date() + timedelta(days=1)
+                slot_utc = datetime(next_day.year, next_day.month, next_day.day, 0, 0, 0, tzinfo=timezone.utc)
+            elif 1 <= slot_val <= 24:
+                # Treat 1-24 as 1-based hours (1 -> 00:00, 24 -> next day's 00:00 handled above)
+                hour = (slot_val - 1) % 24
+                slot_utc = datetime.strptime(f"{row_date} {hour:02d}:00:00", "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            else:
+                # 0-23
+                slot_utc = datetime.strptime(f"{row_date} {slot_val:02d}:00:00", "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
         except Exception:
             continue
+
         slot_local_for_viewer = slot_utc.astimezone(user_tz)
+        logging.info("show_schedule: row=%s utc_slot=%s slot_utc=%s slot_local=%s local_today=%s", row_date, utc_slot, slot_utc.isoformat(), slot_local_for_viewer.isoformat(), local_today)
         if slot_local_for_viewer.date() != local_today:
             continue
         slots[slot_local_for_viewer.hour].append((user_id, game, local_tz, slot_utc))
