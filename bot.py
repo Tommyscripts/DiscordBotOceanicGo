@@ -4877,8 +4877,6 @@ async def show_schedule(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed)
 
 
-@schedule_group.command(name="add", description="Add yourself to a numbered slot (1-24)")
-@app_commands.describe(slot="Slot number 1-24", game="Game or note to add")
 async def _perform_add_schedule(interaction: discord.Interaction, slot: int, game: str):
     """Helper: perform conversion, DB insert and reply. Assumes `interaction.response.defer()` was called."""
     user_tz_name = await get_user_timezone(interaction.user.id) or "Etc/UTC"
@@ -4951,20 +4949,30 @@ async def _perform_add_schedule(interaction: discord.Interaction, slot: int, gam
             msg = (
                 f"Added you to **{time_label}** ({user_tz_name} {local_dt.strftime('%Y-%m-%d %H:%M')}) — stored as UTC **{utc_slot+1}** (<t:{slot_ts}:t>) for '{game}'. Use `/schedule show` to view."
             )
-        await interaction.followup.send(msg)
+        try:
+            await safe_reply(interaction, msg, ephemeral=False)
+        except Exception:
+            # As a last resort, try to send a channel message
+            try:
+                if interaction.channel:
+                    await interaction.channel.send(msg)
+            except Exception:
+                pass
     except Exception:
         logging.exception("Unhandled error in add_schedule")
         try:
-            await interaction.followup.send("Ocurrió un error al añadir el horario. El error ha sido registrado.", ephemeral=True)
+            await safe_reply(interaction, "Ocurrió un error al añadir el horario. El error ha sido registrado.", ephemeral=True)
         except Exception:
-            # If followup/send fails, attempt to send a simple response (may already be responded)
             try:
-                await interaction.response.send_message("Ocurrió un error al añadir el horario.", ephemeral=True)
+                if interaction.channel:
+                    await interaction.channel.send("Ocurrió un error al añadir el horario.")
             except Exception:
                 pass
 
 
-async def add_schedule(interaction: discord.Interaction, slot: int | None, game: str):
+@schedule_group.command(name="add", description="Add yourself to a numbered slot (1-24) or choose a time interactively")
+@app_commands.describe(slot="Slot number 1-24 (optional)", game="Game or note to add")
+async def add_schedule(interaction: discord.Interaction, game: str, slot: int | None = None):
     """Add schedule: if `slot` is omitted, present an interactive hour selector localized to the user."""
     # Interactive selection path: present a localized Select of hours
     if slot is None:
