@@ -609,6 +609,7 @@ async def init_db_async():
             CREATE TABLE IF NOT EXISTS settings (
                 guild_id BIGINT PRIMARY KEY,
                 staff_role_id BIGINT,
+                staff_role_ids TEXT NOT NULL DEFAULT '',
                 mod_ban_role_id BIGINT,
                 mod_kick_role_id BIGINT,
                 mod_mute_role_id BIGINT,
@@ -620,6 +621,12 @@ async def init_db_async():
             )
             """
         )
+        # Migration: ensure settings has a staff_role_ids column for multiple roles
+        try:
+            await conn.execute("ALTER TABLE settings ADD COLUMN IF NOT EXISTS staff_role_ids TEXT NOT NULL DEFAULT ''")
+            await conn.execute("UPDATE settings SET staff_role_ids = staff_role_id::text WHERE staff_role_id IS NOT NULL AND (staff_role_ids IS NULL OR staff_role_ids = '')")
+        except Exception:
+            pass
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS official_links (
@@ -871,7 +878,9 @@ COMMAND_DESCRIPTIONS: dict[str, dict[str, str]] = {
         "shop.remove": "(Admin) Remove a shop item by id",
         "settings.menu": "Open an interactive settings menu",
         "settings.currency": "Configure the display name, emoji and balance command name for the currency (UI only)",
-        "settings.set_staff_role": "(Owner) Configure the staff role for this server",
+        "settings.set_staff_role": "(Owner) Configure the staff roles for this server (comma-separated mentions/IDs)",
+        "settings.add_staff_role": "(Owner) Add a role to the staff roles list",
+        "settings.remove_staff_role": "(Owner) Remove a role from the staff roles list",
         "settings.get_staff_role": "Show the configured staff role for this server",
         "settings.show": "Show key server settings (currency, staff role, mod roles)",
         "settings.mod_role": "(Owner/Admin) Configure which role can use ban/kick/mute",
@@ -933,7 +942,9 @@ COMMAND_DESCRIPTIONS: dict[str, dict[str, str]] = {
         "shop.remove": "(Admin) Elimina un objeto de la tienda por id",
         "settings.menu": "Abre un menú interactivo de configuración",
         "settings.currency": "Configura el nombre, emoji y comando de saldo de la moneda (solo UI)",
-        "settings.set_staff_role": "(Propietario) Configura el rol de staff de este servidor",
+        "settings.set_staff_role": "(Propietario) Configura los roles de staff del servidor (menciones/IDs separadas por comas)",
+        "settings.add_staff_role": "(Propietario) Añade un rol a la lista de roles de staff",
+        "settings.remove_staff_role": "(Propietario) Elimina un rol de la lista de roles de staff",
         "settings.get_staff_role": "Muestra el rol de staff configurado para este servidor",
         "settings.show": "Muestra los ajustes principales del servidor (moneda, rol staff, roles mod)",
         "settings.mod_role": "(Propietario/Admin) Configura qué rol puede usar ban/kick/mute",
@@ -1111,18 +1122,18 @@ async def is_staff_in_guild(guild: discord.Guild | None, user_id: int) -> bool:
     if not guild:
         return False
     gid = guild.id
-    # check configured staff role first
+    # check configured staff roles first
     try:
-        staff_role_id = await get_staff_role(gid)
-        if staff_role_id:
-            # if the member has the role, they're staff
+        staff_role_ids = await get_staff_roles(gid)
+        if staff_role_ids:
+            # if the member has any of the roles, they're staff
             member = guild.get_member(user_id)
             if member is None:
                 try:
                     member = await guild.fetch_member(user_id)
                 except Exception:
                     member = None
-            if member and any(r.id == staff_role_id for r in member.roles):
+            if member and any(r.id in staff_role_ids for r in member.roles):
                 return True
     except Exception:
         pass
@@ -1147,16 +1158,74 @@ async def set_staff_role(guild_id: int, role_id: int | None):
     await _ensure_db_pool()
     async with db_pool.acquire() as conn:
         if role_id is None:
-            await conn.execute("INSERT INTO settings(guild_id, staff_role_id) VALUES ($1, NULL) ON CONFLICT (guild_id) DO UPDATE SET staff_role_id = NULL", guild_id)
+            await conn.execute(
+                "INSERT INTO settings(guild_id, staff_role_id, staff_role_ids) VALUES ($1, NULL, '') ON CONFLICT (guild_id) DO UPDATE SET staff_role_id = NULL, staff_role_ids = ''",
+                guild_id,
+            )
         else:
-            await conn.execute("INSERT INTO settings(guild_id, staff_role_id) VALUES ($1, $2) ON CONFLICT (guild_id) DO UPDATE SET staff_role_id = $2", guild_id, role_id)
+            await conn.execute(
+                "INSERT INTO settings(guild_id, staff_role_id, staff_role_ids) VALUES ($1, $2, $3) ON CONFLICT (guild_id) DO UPDATE SET staff_role_id = $2, staff_role_ids = $3",
+                guild_id,
+                role_id,
+                str(role_id),
+            )
 
 
 async def get_staff_role(guild_id: int) -> int | None:
+    # Return first configured staff role for compatibility (or None).
+    roles = await get_staff_roles(guild_id)
+    return roles[0] if roles else None
+
+
+async def get_staff_roles(guild_id: int) -> list[int]:
+    """Return configured staff role ids as a list (may be empty)."""
     await _ensure_db_pool()
     async with db_pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT staff_role_id FROM settings WHERE guild_id = $1", guild_id)
-    return row["staff_role_id"] if row and row["staff_role_id"] is not None else None
+        row = await conn.fetchrow("SELECT staff_role_ids, staff_role_id FROM settings WHERE guild_id = $1", guild_id)
+    if not row:
+        return []
+    s = row.get("staff_role_ids") or ""
+    out: list[int] = []
+    if s:
+        try:
+            out = [int(x) for x in s.split(',') if x and x.strip()]
+        except Exception:
+            out = []
+    # fallback to single-column value for older installations
+    if not out and row.get("staff_role_id") is not None:
+        try:
+            out = [int(row.get("staff_role_id"))]
+        except Exception:
+            out = []
+    return out
+
+
+async def set_staff_roles(guild_id: int, role_ids: list[int]):
+    """Store the list of staff role ids (comma-separated) for a guild."""
+    await _ensure_db_pool()
+    s = ",".join(str(int(r)) for r in role_ids) if role_ids else ""
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO settings(guild_id, staff_role_ids) VALUES ($1, $2) ON CONFLICT (guild_id) DO UPDATE SET staff_role_ids = $2",
+            guild_id,
+            s,
+        )
+
+
+async def add_staff_role(guild_id: int, role_id: int):
+    roles = await get_staff_roles(guild_id)
+    if role_id in roles:
+        return
+    roles.append(role_id)
+    await set_staff_roles(guild_id, roles)
+
+
+async def remove_staff_role(guild_id: int, role_id: int):
+    roles = await get_staff_roles(guild_id)
+    if role_id not in roles:
+        return
+    roles = [r for r in roles if r != role_id]
+    await set_staff_roles(guild_id, roles)
 
 
 async def set_mod_role(guild_id: int, command: str, role_id: int | None):
@@ -1361,7 +1430,7 @@ _TRANSLATABLE_GROUPS: list[tuple[str, str, list[str]]] = [
     ("house",    "__house__",    ["create", "howto", "invite", "accept", "start",
                                   "action", "move", "explore", "status", "leave", "end"]),
     ("schedule", "__schedule__", ["show", "add", "delete"]),
-    ("settings", "__settings__", ["menu", "currency", "set_staff_role", "get_staff_role",
+    ("settings", "__settings__", ["menu", "currency", "set_staff_role", "add_staff_role", "remove_staff_role", "get_staff_role",
                                   "show", "mod_role", "language"]),
 ]
 
@@ -1550,7 +1619,7 @@ async def _gather_original_overwrites(ch: discord.TextChannel) -> dict:
         return out
 
 
-async def apply_lock_channel(ch: discord.TextChannel, guild: discord.Guild, staff_role_id: int | None = None):
+async def apply_lock_channel(ch: discord.TextChannel, guild: discord.Guild, staff_role_ids: list[int] | None = None):
     """Apply a minimal lock on `ch`: deny @everyone sending, allow staff and bot,
     and deny send for any role that previously had an explicit allow but is not staff/admin.
     Stores original overwrites in `locked_channels` for later restore.
@@ -1575,17 +1644,21 @@ async def apply_lock_channel(ch: discord.TextChannel, guild: discord.Guild, staf
     except Exception:
         pass
 
-    # allow staff role if provided
+    # allow staff roles if provided
     try:
-        if staff_role_id:
-            staff_role = guild.get_role(staff_role_id)
-            if staff_role:
-                prev = new_overwrites.get(staff_role)
-                ow = discord.PermissionOverwrite()
-                ow.send_messages = True
-                if prev and getattr(prev, 'view_channel', None) is not None:
-                    ow.view_channel = prev.view_channel
-                new_overwrites[staff_role] = ow
+        if staff_role_ids:
+            for rid in staff_role_ids:
+                try:
+                    staff_role = guild.get_role(rid)
+                except Exception:
+                    staff_role = None
+                if staff_role:
+                    prev = new_overwrites.get(staff_role)
+                    ow = discord.PermissionOverwrite()
+                    ow.send_messages = True
+                    if prev and getattr(prev, 'view_channel', None) is not None:
+                        ow.view_channel = prev.view_channel
+                    new_overwrites[staff_role] = ow
     except Exception:
         pass
 
@@ -1616,7 +1689,7 @@ async def apply_lock_channel(ch: discord.TextChannel, guild: discord.Guild, staf
                 if prev_allow:
                     is_staff = False
                     try:
-                        if staff_role_id and target.id == staff_role_id:
+                        if staff_role_ids and target.id in staff_role_ids:
                             is_staff = True
                         if target.permissions.administrator or target.permissions.manage_guild:
                             is_staff = True
@@ -1779,7 +1852,7 @@ async def on_message(message: discord.Message):
         # an explicit overwrite allowing send_messages and is not staff/admin,
         # flip it to deny so non-staff can't send.
         new_overwrites = dict(original_overwrites)  # start from original
-        staff_role_id = await get_staff_role(guild.id)
+        staff_role_ids = await get_staff_roles(guild.id)
 
         # Ensure @everyone is denied send_messages (preserve view_channel)
         try:
@@ -1793,17 +1866,21 @@ async def on_message(message: discord.Message):
         except Exception:
             pass
 
-        # Ensure staff role (if configured) can send
+        # Ensure staff roles (if configured) can send
         try:
-            if staff_role_id:
-                staff_role = guild.get_role(staff_role_id)
-                if staff_role:
-                    prev = new_overwrites.get(staff_role)
-                    ow = discord.PermissionOverwrite()
-                    ow.send_messages = True
-                    if prev and getattr(prev, 'view_channel', None) is not None:
-                        ow.view_channel = prev.view_channel
-                    new_overwrites[staff_role] = ow
+            if staff_role_ids:
+                for rid in staff_role_ids:
+                    try:
+                        staff_role = guild.get_role(rid)
+                    except Exception:
+                        staff_role = None
+                    if staff_role:
+                        prev = new_overwrites.get(staff_role)
+                        ow = discord.PermissionOverwrite()
+                        ow.send_messages = True
+                        if prev and getattr(prev, 'view_channel', None) is not None:
+                            ow.view_channel = prev.view_channel
+                        new_overwrites[staff_role] = ow
         except Exception:
             pass
 
@@ -1832,7 +1909,7 @@ async def on_message(message: discord.Message):
                         # check staff/admin
                         is_staff = False
                         try:
-                            if staff_role_id and target.id == staff_role_id:
+                            if staff_role_ids and target.id in staff_role_ids:
                                 is_staff = True
                             if target.permissions.administrator or target.permissions.manage_guild:
                                 is_staff = True
@@ -2982,9 +3059,9 @@ async def slash_m_lock(interaction: discord.Interaction):
         await safe_reply(interaction, "You do not have permission to use this command.")
         return
 
-    staff_role_id = await get_staff_role(interaction.guild.id)
+    staff_role_ids = await get_staff_roles(interaction.guild.id)
     try:
-        await apply_lock_channel(interaction.channel, interaction.guild, staff_role_id=staff_role_id)
+        await apply_lock_channel(interaction.channel, interaction.guild, staff_role_ids=staff_role_ids)
         await safe_reply(interaction, "Channel locked: only staff can send messages. Viewing permissions were not changed.", ephemeral=False)
     except Exception as e:
         await safe_reply(interaction, f"Failed to lock channel: {e}")
@@ -3087,9 +3164,9 @@ async def settings_currency(
         await safe_reply(interaction, f"Failed to update currency settings: {e}")
 
 
-@settings_group.command(name="set_staff_role", description="(Owner) Configure the staff role for this server")
-@app_commands.describe(role="Role to be considered staff. Omit to clear.")
-async def settings_set_staff_role(interaction: discord.Interaction, role: discord.Role | None = None):
+@settings_group.command(name="set_staff_role", description="(Owner) Configure the staff roles for this server (one or more roles)")
+@app_commands.describe(roles="One or more roles (mention, ID or name). Use commas or spaces to separate. Omit to clear.")
+async def settings_set_staff_role(interaction: discord.Interaction, roles: str | None = None):
     if not interaction.guild:
         await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
         return
@@ -3098,14 +3175,94 @@ async def settings_set_staff_role(interaction: discord.Interaction, role: discor
         await interaction.response.send_message("Only the server owner can set the staff role.", ephemeral=True)
         return
     try:
-        role_id = role.id if role else None
-        await set_staff_role(interaction.guild.id, role_id)
-        if role:
-            await interaction.response.send_message(f"Staff role set to {role.mention}.", ephemeral=True)
+        # If no roles provided, clear configured staff roles
+        if roles is None or (isinstance(roles, str) and roles.strip() == ""):
+            await set_staff_roles(interaction.guild.id, [])
+            await interaction.response.send_message("Staff roles cleared.", ephemeral=True)
+            return
+
+        # Parse tokens: accept comma-separated or space-separated mentions/IDs/names.
+        if ',' in roles:
+            tokens = [t.strip() for t in roles.split(',') if t and t.strip()]
         else:
-            await interaction.response.send_message("Staff role cleared.", ephemeral=True)
+            tokens = [t.strip() for t in roles.split() if t and t.strip()]
+        gid = interaction.guild.id
+        found_ids: list[int] = []
+        mentions_parts: list[str] = []
+        not_found: list[str] = []
+        for tok in tokens:
+            rid = None
+            try:
+                # mention format <@&123>
+                if tok.startswith('<@&') and tok.endswith('>'):
+                    num = tok[3:-1]
+                    rid = int(num)
+                elif tok.isdigit():
+                    rid = int(tok)
+                else:
+                    # search by exact name first, then case-insensitive
+                    matches = [r for r in interaction.guild.roles if r.name == tok]
+                    if not matches:
+                        matches = [r for r in interaction.guild.roles if r.name.lower() == tok.lower()]
+                    if matches:
+                        rid = matches[0].id
+            except Exception:
+                rid = None
+
+            if rid is not None:
+                if rid not in found_ids:
+                    found_ids.append(rid)
+                # try to get role mention for feedback
+                robj = interaction.guild.get_role(rid)
+                mentions_parts.append(robj.mention if robj else str(rid))
+            else:
+                not_found.append(tok)
+
+        if not found_ids:
+            await interaction.response.send_message("No valid roles found in input. Provide mentions, IDs or exact role names (comma- or space-separated).", ephemeral=True)
+            return
+
+        await set_staff_roles(interaction.guild.id, found_ids)
+        resp_parts: list[str] = []
+        if mentions_parts:
+            resp_parts.append(f"Staff roles set to: {', '.join(mentions_parts)} (replaced any previous roles).")
+        if not_found:
+            resp_parts.append(f"Tokens not found: {', '.join(not_found)}")
+        await interaction.response.send_message(" ".join(resp_parts), ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"Failed to set staff role: {e}", ephemeral=True)
+
+
+@settings_group.command(name="add_staff_role", description="(Owner) Add a role to the staff roles list")
+@app_commands.describe(role="Role to add to staff roles")
+async def settings_add_staff_role(interaction: discord.Interaction, role: discord.Role):
+    if not interaction.guild:
+        await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
+        return
+    if interaction.user.id != interaction.guild.owner_id:
+        await interaction.response.send_message("Only the server owner can add staff roles.", ephemeral=True)
+        return
+    try:
+        await add_staff_role(interaction.guild.id, role.id)
+        await interaction.response.send_message(f"Added {role.mention} to staff roles.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"Failed to add staff role: {e}", ephemeral=True)
+
+
+@settings_group.command(name="remove_staff_role", description="(Owner) Remove a role from the staff roles list")
+@app_commands.describe(role="Role to remove from staff roles")
+async def settings_remove_staff_role(interaction: discord.Interaction, role: discord.Role):
+    if not interaction.guild:
+        await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
+        return
+    if interaction.user.id != interaction.guild.owner_id:
+        await interaction.response.send_message("Only the server owner can remove staff roles.", ephemeral=True)
+        return
+    try:
+        await remove_staff_role(interaction.guild.id, role.id)
+        await interaction.response.send_message(f"Removed {role.mention} from staff roles.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"Failed to remove staff role: {e}", ephemeral=True)
 
 
 @settings_group.command(name="get_staff_role", description="Show the configured staff role for this server")
@@ -3114,15 +3271,20 @@ async def settings_get_staff_role(interaction: discord.Interaction):
         await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
         return
     try:
-        role_id = await get_staff_role(interaction.guild.id)
-        if role_id:
-            role = interaction.guild.get_role(role_id)
-            if role:
-                await interaction.response.send_message(f"Configured staff role: {role.mention}", ephemeral=True)
-                return
-            else:
-                await interaction.response.send_message(f"Configured staff role id: {role_id} (role not found on server)", ephemeral=True)
-                return
+        role_ids = await get_staff_roles(interaction.guild.id)
+        if role_ids:
+            parts = []
+            for rid in role_ids:
+                try:
+                    r = interaction.guild.get_role(rid)
+                except Exception:
+                    r = None
+                if r:
+                    parts.append(r.mention)
+                else:
+                    parts.append(str(rid))
+            await interaction.response.send_message(f"Configured staff roles: {', '.join(parts)}", ephemeral=True)
+            return
         await interaction.response.send_message("No staff role configured.", ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"Failed to read staff role: {e}", ephemeral=True)
@@ -3139,9 +3301,9 @@ async def settings_show(interaction: discord.Interaction):
     except Exception:
         emoji, cname = DEFAULT_CURRENCY_EMOJI, DEFAULT_CURRENCY_NAME
     try:
-        staff_role_id = await get_staff_role(gid)
+        staff_role_ids = await get_staff_roles(gid)
     except Exception:
-        staff_role_id = None
+        staff_role_ids = []
 
     try:
         ban_role_id = await get_mod_role(gid, 'ban')
@@ -3150,10 +3312,21 @@ async def settings_show(interaction: discord.Interaction):
     except Exception:
         ban_role_id = kick_role_id = mute_role_id = None
 
-    staff_txt = f"<@&{staff_role_id}>" if staff_role_id else "(not set)"
+    if staff_role_ids:
+        staff_parts = []
+        for rid in staff_role_ids:
+            try:
+                r = interaction.guild.get_role(rid)
+            except Exception:
+                r = None
+            staff_parts.append(r.mention if r else str(rid))
+        staff_txt = ", ".join(staff_parts)
+    else:
+        staff_txt = "(not set)"
+
     lines = [
         f"Currency: {emoji} {cname} (UI only)",
-        f"Staff role: {staff_txt}",
+        f"Staff role(s): {staff_txt}",
         f"Mod role (ban): {f'<@&{ban_role_id}>' if ban_role_id else '(not set)'}",
         f"Mod role (kick): {f'<@&{kick_role_id}>' if kick_role_id else '(not set)'}",
         f"Mod role (mute): {f'<@&{mute_role_id}>' if mute_role_id else '(not set)'}",
