@@ -5403,7 +5403,7 @@ async def set_user_time_format(user_id: int, fmt: str) -> None:
         )
 
 
-def timezone_autocomplete(
+async def timezone_autocomplete(
     interaction: discord.Interaction, current: str
 ) -> list[app_commands.Choice[str]]:
     current_lower = current.lower().strip()
