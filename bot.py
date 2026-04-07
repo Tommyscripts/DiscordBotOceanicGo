@@ -4970,64 +4970,54 @@ async def _perform_add_schedule(interaction: discord.Interaction, slot: int, gam
                 pass
 
 
-@schedule_group.command(name="add", description="Add yourself to a numbered slot (1-24) or choose a time interactively")
-@app_commands.describe(slot="Slot number 1-24 (optional)", game="Game or note to add")
-async def add_schedule(interaction: discord.Interaction, game: str, slot: int | None = None):
-    """Add schedule: if `slot` is omitted, present an interactive hour selector localized to the user."""
-    # Interactive selection path: present a localized Select of hours
-    if slot is None:
-        if not interaction.guild:
-            await safe_reply(interaction, "This command must be used in a server (guild).")
-            return
-        guild_id = getattr(interaction.guild, "id", None)
-        is_es = (await get_guild_language(guild_id)) == "es" if guild_id else False
-        user_tz_name = await get_user_timezone(interaction.user.id) or "Etc/UTC"
-        user_fmt = await get_user_time_format(interaction.user.id)
-
-        # Build and send a view with a Select of 24 hourly options in the user's timezone
-        class HourSelect(discord.ui.Select):
-            def __init__(self, options):
-                placeholder = "Hora:" if is_es else "Time:"
-                super().__init__(placeholder=placeholder, options=options, min_values=1, max_values=1)
-
-            async def callback(self, select_interaction: discord.Interaction):  # type: ignore
-                if select_interaction.user.id != interaction.user.id:
-                    await safe_reply(select_interaction, "Solo la persona que abrió este menú puede usarlo.")
-                    return
-                await select_interaction.response.defer(ephemeral=True)
-                try:
-                    chosen_hour = int(self.values[0])
-                except Exception:
-                    await select_interaction.followup.send("Selección inválida.", ephemeral=True)
-                    return
-                # convert chosen hour (0-23) to the command's 1-24 slot parameter expected by local_slot_to_utc
-                slot_val = chosen_hour + 1
-                await _perform_add_schedule(select_interaction, slot_val, game)
-
-        # prepare options for 24 hours in user's timezone
-        tz = ZoneInfo(user_tz_name)
-        local_today = datetime.now(tz).date()
-        options = []
-        for hour in range(24):
-            slot_local = datetime(local_today.year, local_today.month, local_today.day, hour, 0, 0, tzinfo=tz)
-            label = slot_local.strftime("%I:%M %p") if user_fmt == "12h" else slot_local.strftime("%H:%M")
-            desc = f"Slot {hour + 1}"
-            options.append(discord.SelectOption(label=label, value=str(hour), description=desc))
-
-        view = discord.ui.View(timeout=120)
-        view.add_item(HourSelect(options))
-        await interaction.response.send_message(("Elige una hora:" if is_es else "Choose a time:"), ephemeral=True, view=view)
-        return
-
-    # Legacy/non-interactive path: slot provided directly
-    if slot < 1 or slot > 24:
-        await interaction.response.send_message("Please provide a slot number between 1 and 24.", ephemeral=True)
-        return
+@schedule_group.command(name="add", description="Add yourself to a time via an interactive selector")
+@app_commands.describe(game="Game or note to add")
+async def add_schedule(interaction: discord.Interaction, game: str):
+    """Add schedule: always present an interactive hour selector localized to the user."""
     if not interaction.guild:
-        await interaction.response.send_message("This command must be used in a server (guild).", ephemeral=True)
+        await safe_reply(interaction, "This command must be used in a server (guild).")
         return
-    await interaction.response.defer(ephemeral=True)
-    await _perform_add_schedule(interaction, slot, game)
+    guild_id = getattr(interaction.guild, "id", None)
+    is_es = (await get_guild_language(guild_id)) == "es" if guild_id else False
+    user_tz_name = await get_user_timezone(interaction.user.id) or "Etc/UTC"
+    user_fmt = await get_user_time_format(interaction.user.id)
+
+    # Build and send a view with a Select of 24 hourly options in the user's timezone
+    class HourSelect(discord.ui.Select):
+        def __init__(self, options):
+            placeholder = "Hora:" if is_es else "Time:"
+            super().__init__(placeholder=placeholder, options=options, min_values=1, max_values=1)
+
+        async def callback(self, select_interaction: discord.Interaction):  # type: ignore
+            if select_interaction.user.id != interaction.user.id:
+                await safe_reply(select_interaction, "Solo la persona que abrió este menú puede usarlo.")
+                return
+            await select_interaction.response.defer(ephemeral=True)
+            try:
+                chosen_hour = int(self.values[0])
+            except Exception:
+                try:
+                    await select_interaction.followup.send("Selección inválida.", ephemeral=True)
+                except Exception:
+                    await safe_reply(select_interaction, "Selección inválida.")
+                return
+            # convert chosen hour (0-23) to the command's 1-24 slot parameter expected by local_slot_to_utc
+            slot_val = chosen_hour + 1
+            await _perform_add_schedule(select_interaction, slot_val, game)
+
+    # prepare options for 24 hours in user's timezone
+    tz = ZoneInfo(user_tz_name)
+    local_today = datetime.now(tz).date()
+    options = []
+    for hour in range(24):
+        slot_local = datetime(local_today.year, local_today.month, local_today.day, hour, 0, 0, tzinfo=tz)
+        label = slot_local.strftime("%I:%M %p") if user_fmt == "12h" else slot_local.strftime("%H:%M")
+        desc = f"Slot {hour + 1}"
+        options.append(discord.SelectOption(label=label, value=str(hour), description=desc))
+
+    view = discord.ui.View(timeout=120)
+    view.add_item(HourSelect(options))
+    await interaction.response.send_message(("Elige una hora:" if is_es else "Choose a time:"), ephemeral=True, view=view)
 
 
 # register the group with the bot's command tree
