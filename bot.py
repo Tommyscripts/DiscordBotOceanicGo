@@ -1204,12 +1204,22 @@ async def set_staff_roles(guild_id: int, role_ids: list[int]):
     """Store the list of staff role ids (comma-separated) for a guild."""
     await _ensure_db_pool()
     s = ",".join(str(int(r)) for r in role_ids) if role_ids else ""
+    # Keep staff_role_id in sync for compatibility: set to first id or NULL
+    first_id = int(role_ids[0]) if role_ids else None
     async with db_pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO settings(guild_id, staff_role_ids) VALUES ($1, $2) ON CONFLICT (guild_id) DO UPDATE SET staff_role_ids = $2",
-            guild_id,
-            s,
-        )
+        if first_id is None:
+            await conn.execute(
+                "INSERT INTO settings(guild_id, staff_role_ids, staff_role_id) VALUES ($1, $2, NULL) ON CONFLICT (guild_id) DO UPDATE SET staff_role_ids = $2, staff_role_id = NULL",
+                guild_id,
+                s,
+            )
+        else:
+            await conn.execute(
+                "INSERT INTO settings(guild_id, staff_role_ids, staff_role_id) VALUES ($1, $2, $3) ON CONFLICT (guild_id) DO UPDATE SET staff_role_ids = $2, staff_role_id = $3",
+                guild_id,
+                s,
+                first_id,
+            )
 
 
 async def add_staff_role(guild_id: int, role_id: int):
@@ -1218,6 +1228,7 @@ async def add_staff_role(guild_id: int, role_id: int):
         return
     roles.append(role_id)
     await set_staff_roles(guild_id, roles)
+    logging.info("add_staff_role: guild=%s added role=%s resulting=%s", guild_id, role_id, roles)
 
 
 async def remove_staff_role(guild_id: int, role_id: int):
@@ -1226,6 +1237,7 @@ async def remove_staff_role(guild_id: int, role_id: int):
         return
     roles = [r for r in roles if r != role_id]
     await set_staff_roles(guild_id, roles)
+    logging.info("remove_staff_role: guild=%s removed role=%s resulting=%s", guild_id, role_id, roles)
 
 
 async def set_mod_role(guild_id: int, command: str, role_id: int | None):
