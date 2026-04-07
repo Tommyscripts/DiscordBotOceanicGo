@@ -4687,23 +4687,34 @@ async def add_schedule(interaction: discord.Interaction, slot: int, game: str):
         except Exception:
             local_dt = now_utc
 
-    await _cleanup_old_schedule()
-    guild_id = getattr(interaction.guild, 'id', 0) or 0
-    await _ensure_db_pool()
-    async with db_pool.acquire() as conn:
-        try:
-            await conn.execute(
-                "INSERT INTO schedule_entries(date, slot, guild_id, user_id, game, local_tz, local_slot) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING",
-                utc_date, utc_slot, guild_id, interaction.user.id, game, user_tz_name, slot,
-            )
-        except Exception as e:
-            print("DB error adding schedule:", e)
+    try:
+        await _cleanup_old_schedule()
+        guild_id = getattr(interaction.guild, 'id', 0) or 0
+        await _ensure_db_pool()
+        async with db_pool.acquire() as conn:
+            try:
+                await conn.execute(
+                    "INSERT INTO schedule_entries(date, slot, guild_id, user_id, game, local_tz, local_slot) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING",
+                    utc_date, utc_slot, guild_id, interaction.user.id, game, user_tz_name, slot,
+                )
+            except Exception:
+                logging.exception("DB error adding schedule")
 
-    # Build a timestamp from the UTC datetime so Discord shows it localized for each viewer
-    slot_ts = int(utc_dt.timestamp())
-    await interaction.followup.send(
-        f"Added you to slot **{slot}** ({user_tz_name} {local_dt.strftime('%Y-%m-%d %H:%M')}) — stored as UTC **{utc_slot+1}** (<t:{slot_ts}:t>) for '{game}'. Use `/schedule show` to view."
-    )
+        # Build a timestamp from the UTC datetime so Discord shows it localized for each viewer
+        slot_ts = int(utc_dt.timestamp())
+        await interaction.followup.send(
+            f"Added you to slot **{slot}** ({user_tz_name} {local_dt.strftime('%Y-%m-%d %H:%M')}) — stored as UTC **{utc_slot+1}** (<t:{slot_ts}:t>) for '{game}'. Use `/schedule show` to view."
+        )
+    except Exception:
+        logging.exception("Unhandled error in add_schedule")
+        try:
+            await interaction.followup.send("Ocurrió un error al añadir el horario. El error ha sido registrado.", ephemeral=True)
+        except Exception:
+            # If followup/send fails, attempt to send a simple response (may already be responded)
+            try:
+                await interaction.response.send_message("Ocurrió un error al añadir el horario.", ephemeral=True)
+            except Exception:
+                pass
 
 
 # register the group with the bot's command tree
@@ -4752,8 +4763,8 @@ async def delete_schedule(interaction: discord.Interaction, slot: int):
                 deleted = 1
             else:
                 deleted = 0
-        except Exception as e:
-            print("DB error deleting schedule:", e)
+        except Exception:
+            logging.exception("DB error deleting schedule")
             deleted = 0
 
     if deleted:
