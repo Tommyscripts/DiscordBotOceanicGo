@@ -88,6 +88,16 @@ permission_op_lock = asyncio.Lock()
 
 # Basic logging so we can see exceptions in hosted environments (Railway etc.)
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [%(levelname)s] %(name)s: %(message)s')
+# Also add a file handler so logs are available even if stdout is not captured
+try:
+    log_path = Path(__file__).parent / "bot_debug.log"
+    fh = logging.FileHandler(log_path, encoding='utf-8')
+    fh.setLevel(logging.INFO)
+    fh.setFormatter(logging.Formatter('[%(asctime)s] [%(levelname)s] %(name)s: %(message)s'))
+    logging.getLogger().addHandler(fh)
+except Exception:
+    # Non-fatal if we can't create the log file
+    pass
 
 
 # helper to run tasks safely and log uncaught exceptions
@@ -4676,7 +4686,10 @@ async def add_schedule(interaction: discord.Interaction, slot: int, game: str):
     user_tz_name = await get_user_timezone(interaction.user.id) or "Etc/UTC"
     try:
         utc_date, utc_slot, utc_dt, local_dt = local_slot_to_utc(slot, user_tz_name)
+        logging.info("add_schedule: computed utc_date=%s utc_slot=%s utc_dt=%s local_dt=%s user_tz=%s slot=%s",
+                     utc_date, utc_slot, utc_dt, local_dt, user_tz_name, slot)
     except Exception:
+        logging.exception("add_schedule: local_slot_to_utc failed for slot=%s user_tz=%s", slot, user_tz_name)
         # fallback: interpret as same-hour UTC now
         now_utc = datetime.now(timezone.utc)
         utc_date = now_utc.strftime("%Y-%m-%d")
@@ -4686,6 +4699,7 @@ async def add_schedule(interaction: discord.Interaction, slot: int, game: str):
             local_dt = now_utc.astimezone(ZoneInfo(user_tz_name))
         except Exception:
             local_dt = now_utc
+        logging.info("add_schedule: fallback used for slot=%s user_tz=%s utc_date=%s utc_slot=%s", slot, user_tz_name, utc_date, utc_slot)
 
     try:
         await _cleanup_old_schedule()
@@ -4693,10 +4707,13 @@ async def add_schedule(interaction: discord.Interaction, slot: int, game: str):
         await _ensure_db_pool()
         async with db_pool.acquire() as conn:
             try:
+                logging.info("add_schedule: inserting schedule row date=%s slot=%s guild_id=%s user_id=%s game=%s local_tz=%s local_slot=%s",
+                             utc_date, utc_slot, guild_id, interaction.user.id, game, user_tz_name, slot)
                 await conn.execute(
                     "INSERT INTO schedule_entries(date, slot, guild_id, user_id, game, local_tz, local_slot) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING",
                     utc_date, utc_slot, guild_id, interaction.user.id, game, user_tz_name, slot,
                 )
+                logging.info("add_schedule: DB insert completed")
             except Exception:
                 logging.exception("DB error adding schedule")
 
@@ -4741,6 +4758,7 @@ async def delete_schedule(interaction: discord.Interaction, slot: int):
     try:
         utc_date, utc_slot, utc_dt, _local_dt = local_slot_to_utc(slot, user_tz_name)
     except Exception:
+        logging.exception("delete_schedule: local_slot_to_utc failed for slot=%s user_tz=%s", slot, user_tz_name)
         now_utc = datetime.now(timezone.utc)
         utc_date = now_utc.strftime("%Y-%m-%d")
         utc_slot = now_utc.hour
