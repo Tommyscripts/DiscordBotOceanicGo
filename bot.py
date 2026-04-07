@@ -4865,8 +4865,8 @@ async def show_schedule(interaction: discord.Interaction):
             entry_text = ", ".join(parts)
         else:
             entry_text = "(empty)"
-        slot_label = hour + 1
-        desc_lines.append(f"**{slot_label}** — {time_token} : {entry_text}")
+        # Show the time token as the line label (avoid exposing internal 'slot' numbers)
+        desc_lines.append(f"**{time_token}** : {entry_text}")
 
     fmt_label = "12h (AM/PM)" if user_fmt == "12h" else "24h"
     embed = discord.Embed(
@@ -4970,54 +4970,141 @@ async def _perform_add_schedule(interaction: discord.Interaction, slot: int, gam
                 pass
 
 
-@schedule_group.command(name="add", description="Add yourself to a time via an interactive selector")
-@app_commands.describe(game="Game or note to add")
-async def add_schedule(interaction: discord.Interaction, game: str):
-    """Add schedule: always present an interactive hour selector localized to the user."""
+@schedule_group.command(name="add", description="Open an interactive schedule view to add yourself to an hour")
+@app_commands.describe(game="Optional note or game to add (optional)")
+async def add_schedule(interaction: discord.Interaction, game: str | None = None):
+    """Show the schedule (viewer-local) and provide 24 buttons (one per hour) to add the user to that hour.
+
+    The UI does not expose internal slot numbering; the user's timezone is respected.
+    """
     if not interaction.guild:
         await safe_reply(interaction, "This command must be used in a server (guild).")
         return
+
     guild_id = getattr(interaction.guild, "id", None)
     is_es = (await get_guild_language(guild_id)) == "es" if guild_id else False
     user_tz_name = await get_user_timezone(interaction.user.id) or "Etc/UTC"
     user_fmt = await get_user_time_format(interaction.user.id)
+    user_tz = ZoneInfo(user_tz_name)
+    time_str_fmt = "%I:%M %p" if user_fmt == "12h" else "%H:%M"
 
-    # Build and send a view with a Select of 24 hourly options in the user's timezone
-    class HourSelect(discord.ui.Select):
-        def __init__(self, options):
-            placeholder = "Hora:" if is_es else "Time:"
-            super().__init__(placeholder=placeholder, options=options, min_values=1, max_values=1)
+    async def build_schedule_embed():
+        # Mirror the logic from `show_schedule` but return an Embed instead of sending it.
+        await _cleanup_old_schedule()
+        local_today = datetime.now(user_tz).date()
+        local_start = datetime(local_today.year, local_today.month, local_today.day, 0, 0, 0, tzinfo=user_tz)
+        local_end = local_start + timedelta(days=1)
+        utc_start = local_start.astimezone(timezone.utc)
+        utc_end = local_end.astimezone(timezone.utc)
+        utc_date_start = utc_start.strftime("%Y-%m-%d")
+        utc_date_end = (utc_end - timedelta(seconds=1)).strftime("%Y-%m-%d")
 
-        async def callback(self, select_interaction: discord.Interaction):  # type: ignore
-            if select_interaction.user.id != interaction.user.id:
-                await safe_reply(select_interaction, "Solo la persona que abrió este menú puede usarlo.")
-                return
-            await select_interaction.response.defer(ephemeral=True)
+        await _ensure_db_pool()
+        async with db_pool.acquire() as conn:
+            if utc_date_start == utc_date_end:
+                rows = await conn.fetch(
+                    "SELECT date, slot, user_id, game, local_tz, local_slot FROM schedule_entries WHERE guild_id = $1 AND date = $2 ORDER BY date, slot",
+                    guild_id, utc_date_start,
+                )
+            else:
+                rows = await conn.fetch(
+                    "SELECT date, slot, user_id, game, local_tz, local_slot FROM schedule_entries WHERE guild_id = $1 AND date IN ($2, $3) ORDER BY date, slot",
+                    guild_id, utc_date_start, utc_date_end,
+                )
+
+        slots = {i: [] for i in range(24)}
+        for row_date, utc_slot, user_id, game_row, local_tz, local_slot in rows:
             try:
-                chosen_hour = int(self.values[0])
-            except Exception:
-                try:
-                    await select_interaction.followup.send("Selección inválida.", ephemeral=True)
-                except Exception:
-                    await safe_reply(select_interaction, "Selección inválida.")
-                return
-            # convert chosen hour (0-23) to the command's 1-24 slot parameter expected by local_slot_to_utc
-            slot_val = chosen_hour + 1
-            await _perform_add_schedule(select_interaction, slot_val, game)
+                if isinstance(utc_slot, int):
+                    slot_val = utc_slot
+                else:
+                    slot_val = int(utc_slot)
 
-    # prepare options for 24 hours in user's timezone
-    tz = ZoneInfo(user_tz_name)
-    local_today = datetime.now(tz).date()
-    options = []
-    for hour in range(24):
-        slot_local = datetime(local_today.year, local_today.month, local_today.day, hour, 0, 0, tzinfo=tz)
-        label = slot_local.strftime("%I:%M %p") if user_fmt == "12h" else slot_local.strftime("%H:%M")
-        desc = f"Slot {hour + 1}"
-        options.append(discord.SelectOption(label=label, value=str(hour), description=desc))
+                if slot_val == 24:
+                    next_day = datetime.strptime(row_date, "%Y-%m-%d").date() + timedelta(days=1)
+                    slot_utc = datetime(next_day.year, next_day.month, next_day.day, 0, 0, 0, tzinfo=timezone.utc)
+                elif 1 <= slot_val <= 24:
+                    hour = (slot_val - 1) % 24
+                    slot_utc = datetime.strptime(f"{row_date} {hour:02d}:00:00", "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                else:
+                    slot_utc = datetime.strptime(f"{row_date} {slot_val:02d}:00:00", "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            except Exception:
+                continue
+
+            slot_local_for_viewer = slot_utc.astimezone(user_tz)
+            if slot_local_for_viewer.date() != local_today:
+                continue
+            slots[slot_local_for_viewer.hour].append((user_id, game_row, local_tz, slot_utc))
+
+        desc_lines = []
+        for hour in range(24):
+            slot_local = datetime(local_today.year, local_today.month, local_today.day, hour, 0, 0, tzinfo=user_tz)
+            time_token = slot_local.strftime(time_str_fmt)
+            entries = slots.get(hour) or []
+            if entries:
+                parts = []
+                for uid, game_row, entry_tz_name, slot_utc in entries:
+                    try:
+                        entry_tz = ZoneInfo(entry_tz_name or "Etc/UTC")
+                    except Exception:
+                        entry_tz = timezone.utc
+                    entry_local = slot_utc.astimezone(entry_tz)
+                    entry_time_token = entry_local.strftime(time_str_fmt)
+                    tz_display = entry_tz_name or "Etc/UTC"
+                    parts.append(f"<@{uid}> ({game_row}) — {entry_time_token} ({tz_display})")
+                entry_text = ", ".join(parts)
+            else:
+                entry_text = "(empty)"
+            desc_lines.append(f"**{time_token}** : {entry_text}")
+
+        fmt_label = "12h (AM/PM)" if user_fmt == "12h" else "24h"
+        embed = discord.Embed(
+            title=f"Schedule ({fmt_label}, {user_tz_name})",
+            description="\n".join(desc_lines),
+            color=0x00BFFF,
+        )
+        return embed
+
+    # Build embed and interactive buttons
+    await interaction.response.defer(ephemeral=True)
+    embed = await build_schedule_embed()
 
     view = discord.ui.View(timeout=120)
-    view.add_item(HourSelect(options))
-    await interaction.response.send_message(("Elige una hora:" if is_es else "Choose a time:"), ephemeral=True, view=view)
+    container: dict = {"msg": None}
+
+    # Add 24 buttons (arranged in rows of 5, last row 4 buttons)
+    for hour in range(24):
+        slot_local = datetime(datetime.now(user_tz).year, datetime.now(user_tz).month, datetime.now(user_tz).day, hour, 0, 0, tzinfo=user_tz)
+        label = slot_local.strftime(time_str_fmt)
+        row = hour // 5
+        btn = discord.ui.Button(label=label, style=discord.ButtonStyle.primary, row=row)
+
+        async def _make_cb(btn_interaction: discord.Interaction, _hour=hour):  # closure captures hour
+            if btn_interaction.user.id != interaction.user.id:
+                await safe_reply(btn_interaction, "Solo la persona que abrió este menú puede usarlo.")
+                return
+            await btn_interaction.response.defer(ephemeral=True)
+            slot_val = _hour + 1
+            # perform add (empty string if no game provided)
+            await _perform_add_schedule(btn_interaction, slot_val, game or "")
+            # rebuild embed and update message
+            try:
+                new_embed = await build_schedule_embed()
+                msg = container.get("msg")
+                if msg:
+                    try:
+                        await msg.edit(embed=new_embed, view=view)
+                    except Exception:
+                        # ignore failures to edit (ephemeral visibility etc.)
+                        pass
+            except Exception:
+                logging.exception("Failed to refresh schedule embed after add")
+
+        btn.callback = _make_cb  # type: ignore
+        view.add_item(btn)
+
+    sent_msg = await interaction.followup.send(embed=embed, ephemeral=True, view=view, wait=True)
+    container["msg"] = sent_msg
 
 
 # register the group with the bot's command tree
