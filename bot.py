@@ -1369,14 +1369,14 @@ async def on_connect():
         asyncio.create_task(schedule_unmute_check())
     except Exception:
         pass
+    # ensure DB and run migrations before starting background tasks
+    try:
+        await init_db_async()
+    except Exception:
+        pass
     # start Monopoly GO auto-poster
     try:
         asyncio.create_task(_monopoly_poster_loop())
-    except Exception:
-        pass
-    # ensure DB and run migrations asynchronously
-    try:
-        asyncio.create_task(init_db_async())
     except Exception:
         pass
 
