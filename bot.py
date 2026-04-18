@@ -664,8 +664,15 @@ async def init_db_async():
             """
             CREATE TABLE IF NOT EXISTS monopoly_go_config (
                 guild_id BIGINT PRIMARY KEY,
-                channel_id BIGINT NOT NULL
+                channel_id BIGINT NOT NULL,
+                role_id BIGINT
             )
+            """
+        )
+        await conn.execute(
+            """
+            ALTER TABLE monopoly_go_config
+                ADD COLUMN IF NOT EXISTS role_id BIGINT
             """
         )
         await conn.execute(
@@ -5395,12 +5402,12 @@ async def _fetch_monopoly_links_from_source(session, url: str) -> list[str]:
 
 
 
-async def _monopoly_get_channels_async() -> list[tuple[int, int]]:
-    """Async variant returning list of (guild_id, channel_id)."""
+async def _monopoly_get_channels_async() -> list[tuple[int, int, int | None]]:
+    """Async variant returning list of (guild_id, channel_id, role_id)."""
     await _ensure_db_pool()
     async with db_pool.acquire() as conn:
-        rows = await conn.fetch("SELECT guild_id, channel_id FROM monopoly_go_config")
-        return [(r["guild_id"], r["channel_id"]) for r in rows]
+        rows = await conn.fetch("SELECT guild_id, channel_id, role_id FROM monopoly_go_config")
+        return [(r["guild_id"], r["channel_id"], r["role_id"]) for r in rows]
 
 
 async def _monopoly_already_posted_async(url: str) -> bool:
@@ -5467,12 +5474,13 @@ async def _monopoly_poster_loop():
                                 url=link,
                             )
                             embed.set_footer(text="Tap the link to claim your free reward • Monopoly GO")
-                            for _guild_id, _channel_id in guild_channels:
+                            for _guild_id, _channel_id, _role_id in guild_channels:
                                 try:
                                     ch = bot.get_channel(_channel_id)
                                     if ch is None:
                                         ch = await bot.fetch_channel(_channel_id)
-                                    await ch.send(embed=embed)
+                                    role_mention = f"<@&{_role_id}>" if _role_id else None
+                                    await ch.send(content=role_mention, embed=embed)
                                     logging.info(f"[MonopolyGo] Posted {link} to channel {_channel_id}")
                                 except Exception as e:
                                     logging.warning(f"[MonopolyGo] Failed to post to channel {_channel_id}: {e}")
@@ -5482,23 +5490,27 @@ async def _monopoly_poster_loop():
 
 
 @bot.tree.command(name="setmonopolychannel", description="Set the channel where Monopoly GO free reward links will be posted")
-@app_commands.describe(channel="The text channel to post Monopoly GO reward links in")
+@app_commands.describe(
+    channel="The text channel to post Monopoly GO reward links in",
+    role="(Optional) Role to mention when a new link is posted",
+)
 @app_commands.checks.has_permissions(manage_guild=True)
-async def set_monopoly_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+async def set_monopoly_channel(interaction: discord.Interaction, channel: discord.TextChannel, role: discord.Role | None = None):
     if not interaction.guild:
         await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
         return
     await _ensure_db_pool()
     async with db_pool.acquire() as conn:
         await conn.execute(
-            """INSERT INTO monopoly_go_config (guild_id, channel_id)
-               VALUES ($1, $2)
-               ON CONFLICT (guild_id) DO UPDATE SET channel_id = EXCLUDED.channel_id""",
-            interaction.guild.id, channel.id
+            """INSERT INTO monopoly_go_config (guild_id, channel_id, role_id)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (guild_id) DO UPDATE SET channel_id = EXCLUDED.channel_id, role_id = EXCLUDED.role_id""",
+            interaction.guild.id, channel.id, role.id if role else None
         )
+    role_info = f" Mentioning {role.mention} on each post." if role else ""
     await interaction.response.send_message(
-        f"✅ Monopoly GO reward links will be auto-posted in {channel.mention}.\n"
-        "The bot checks official sources every 3 minutes and posts each link only once.",
+        f"✅ Monopoly GO reward links will be auto-posted in {channel.mention}.{role_info}\n"
+        "The bot checks official sources every hour and posts each link only once.",
         ephemeral=True
     )
 
@@ -5517,6 +5529,51 @@ async def unset_monopoly_channel(interaction: discord.Interaction):
             await interaction.response.send_message("✅ Monopoly GO auto-posting disabled for this server.", ephemeral=True)
         else:
             await interaction.response.send_message("No Monopoly GO channel was configured for this server.", ephemeral=True)
+
+
+@bot.tree.command(name="monopolyrecentlinks", description="Show Monopoly GO reward links posted in the last 48 hours")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def monopoly_recent_links(interaction: discord.Interaction):
+    if not interaction.guild:
+        await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
+        return
+
+    guild_id = interaction.guild.id
+    is_es = (await get_guild_language(guild_id)) == "es"
+
+    await interaction.response.defer(ephemeral=True)
+    await _ensure_db_pool()
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
+    cutoff_iso = cutoff.isoformat()
+
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT url, posted_at FROM monopoly_go_posted WHERE posted_at >= $1 ORDER BY posted_at DESC",
+            cutoff_iso,
+        )
+
+    if not rows:
+        msg = (
+            "No ha habido enlaces en las últimas 48 horas."
+            if is_es else
+            "No links have been posted in the last 48 hours."
+        )
+        await interaction.followup.send(msg, ephemeral=True)
+        return
+
+    title = "🎲 Monopoly GO — Últimos 48h" if is_es else "🎲 Monopoly GO — Last 48 hours"
+    lines = []
+    for r in rows:
+        try:
+            posted_dt = datetime.fromisoformat(r["posted_at"]).replace(tzinfo=timezone.utc)
+            ts = int(posted_dt.timestamp())
+            lines.append(f"<t:{ts}:R> — {r['url']}")
+        except Exception:
+            lines.append(r["url"])
+
+    embed = discord.Embed(title=title, description="\n".join(lines), color=0xE91E63)
+    await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 @bot.tree.command(name="custom", description="Crea un comando personalizado para este servidor")
