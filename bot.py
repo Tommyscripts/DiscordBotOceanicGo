@@ -4810,21 +4810,21 @@ async def show_schedule(interaction: discord.Interaction):
     utc_date_start = utc_start.strftime("%Y-%m-%d")
     utc_date_end = (utc_end - timedelta(seconds=1)).strftime("%Y-%m-%d")
 
+    # To handle all edge cases (timezones near midnight), expand search by 1 day on each side
+    utc_date_start_expanded = (utc_start - timedelta(days=1)).strftime("%Y-%m-%d")
+    utc_date_end_expanded = (utc_end + timedelta(days=1)).strftime("%Y-%m-%d")
+
     guild_id = getattr(interaction.guild, 'id', 0) or 0
     await _ensure_db_pool()
     async with db_pool.acquire() as conn:
-        if utc_date_start == utc_date_end:
-            rows = await conn.fetch(
-                "SELECT date, slot, user_id, game, local_tz, local_slot FROM schedule_entries WHERE guild_id = $1 AND date = $2 ORDER BY date, slot",
-                guild_id, utc_date_start,
-            )
-        else:
-            rows = await conn.fetch(
-                "SELECT date, slot, user_id, game, local_tz, local_slot FROM schedule_entries WHERE guild_id = $1 AND date IN ($2, $3) ORDER BY date, slot",
-                guild_id, utc_date_start, utc_date_end,
-            )
+        # Always search across all potentially relevant UTC dates
+        rows = await conn.fetch(
+            "SELECT date, slot, user_id, game, local_tz, local_slot FROM schedule_entries "
+            "WHERE guild_id = $1 AND date >= $2 AND date <= $3 ORDER BY date, slot",
+            guild_id, utc_date_start_expanded, utc_date_end_expanded,
+        )
 
-    logging.info("show_schedule: fetched %d rows for guild %s", len(rows), guild_id)
+    logging.info("show_schedule: fetched %d rows for guild %s (searching UTC dates %s to %s)", len(rows), guild_id, utc_date_start_expanded, utc_date_end_expanded)
     # Re-bucket UTC rows into viewer-local slots for the viewer's local day.
     # Accept stored slot values in either 0-23 (current) or 1-24 (older/alternate) formats,
     # and treat 24 as midnight of the *next* day.
@@ -5033,18 +5033,17 @@ async def add_schedule(interaction: discord.Interaction, game: str | None = None
         utc_date_start = utc_start.strftime("%Y-%m-%d")
         utc_date_end = (utc_end - timedelta(seconds=1)).strftime("%Y-%m-%d")
 
+        # Expand search by 1 day on each side to handle timezone edge cases
+        utc_date_start_expanded = (utc_start - timedelta(days=1)).strftime("%Y-%m-%d")
+        utc_date_end_expanded = (utc_end + timedelta(days=1)).strftime("%Y-%m-%d")
+
         await _ensure_db_pool()
         async with db_pool.acquire() as conn:
-            if utc_date_start == utc_date_end:
-                rows = await conn.fetch(
-                    "SELECT date, slot, user_id, game, local_tz, local_slot FROM schedule_entries WHERE guild_id = $1 AND date = $2 ORDER BY date, slot",
-                    guild_id, utc_date_start,
-                )
-            else:
-                rows = await conn.fetch(
-                    "SELECT date, slot, user_id, game, local_tz, local_slot FROM schedule_entries WHERE guild_id = $1 AND date IN ($2, $3) ORDER BY date, slot",
-                    guild_id, utc_date_start, utc_date_end,
-                )
+            rows = await conn.fetch(
+                "SELECT date, slot, user_id, game, local_tz, local_slot FROM schedule_entries "
+                "WHERE guild_id = $1 AND date >= $2 AND date <= $3 ORDER BY date, slot",
+                guild_id, utc_date_start_expanded, utc_date_end_expanded,
+            )
 
         slots = {i: [] for i in range(24)}
         for row_date, utc_slot, user_id, game_row, local_tz, local_slot in rows:
@@ -5173,18 +5172,17 @@ async def delete_schedule(interaction: discord.Interaction):
         utc_date_start = utc_start.strftime("%Y-%m-%d")
         utc_date_end = (utc_end - timedelta(seconds=1)).strftime("%Y-%m-%d")
 
+        # Expand search by 1 day on each side to handle timezone edge cases
+        utc_date_start_expanded = (utc_start - timedelta(days=1)).strftime("%Y-%m-%d")
+        utc_date_end_expanded = (utc_end + timedelta(days=1)).strftime("%Y-%m-%d")
+
         await _ensure_db_pool()
         async with db_pool.acquire() as conn:
-            if utc_date_start == utc_date_end:
-                rows = await conn.fetch(
-                    "SELECT date, slot, user_id, game, local_tz, local_slot FROM schedule_entries WHERE guild_id = $1 AND date = $2 ORDER BY date, slot",
-                    guild_id, utc_date_start,
-                )
-            else:
-                rows = await conn.fetch(
-                    "SELECT date, slot, user_id, game, local_tz, local_slot FROM schedule_entries WHERE guild_id = $1 AND date IN ($2, $3) ORDER BY date, slot",
-                    guild_id, utc_date_start, utc_date_end,
-                )
+            rows = await conn.fetch(
+                "SELECT date, slot, user_id, game, local_tz, local_slot FROM schedule_entries "
+                "WHERE guild_id = $1 AND date >= $2 AND date <= $3 ORDER BY date, slot",
+                guild_id, utc_date_start_expanded, utc_date_end_expanded,
+            )
 
         slots = {i: [] for i in range(24)}
         for row_date, utc_slot, user_id, game_row, local_tz, local_slot in rows:
