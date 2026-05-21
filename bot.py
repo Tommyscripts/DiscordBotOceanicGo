@@ -5004,13 +5004,10 @@ async def _perform_add_schedule(interaction: discord.Interaction, slot: int, gam
                 pass
 
 
-@schedule_group.command(name="add", description="Add yourself to a schedule slot - specify hour or use interactive buttons")
-@app_commands.describe(
-    slot="Hour to sign up (1-24 in your timezone) - optional, if not specified shows interactive view",
-    game="Optional note or game to add"
-)
-async def add_schedule(interaction: discord.Interaction, slot: int | None = None, game: str | None = None):
-    """Add to schedule either by specifying slot directly or via interactive buttons.
+@schedule_group.command(name="add", description="Open an interactive schedule view to add yourself to an hour")
+@app_commands.describe(game="Optional note or game to add")
+async def add_schedule(interaction: discord.Interaction, game: str | None = None):
+    """Show the schedule (viewer-local) and provide 24 buttons (one per hour) to add the user to that hour.
 
     The UI respects the user's timezone.
     """
@@ -5024,16 +5021,6 @@ async def add_schedule(interaction: discord.Interaction, slot: int | None = None
     user_fmt = await get_user_time_format(interaction.user.id)
     user_tz = ZoneInfo(user_tz_name)
     time_str_fmt = "%I:%M %p" if user_fmt == "12h" else "%H:%M"
-
-    # If user specified a slot directly, add immediately without showing interactive view
-    if slot is not None:
-        if slot < 1 or slot > 24:
-            msg = "El slot debe estar entre 1 y 24." if is_es else "Slot must be between 1 and 24."
-            await safe_reply(interaction, msg, ephemeral=True)
-            return
-        await interaction.response.defer()
-        await _perform_add_schedule(interaction, slot, game or "")
-        return
 
     async def build_schedule_embed():
         # Mirror the logic from `show_schedule` but return an Embed instead of sending it.
