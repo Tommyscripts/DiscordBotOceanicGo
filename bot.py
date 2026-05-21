@@ -1089,7 +1089,7 @@ async def add_turkeys(guild_id: int, user_id: int, amount: int):
     async with db_pool.acquire() as conn:
         await conn.execute(
             "INSERT INTO turkeys_balances(guild_id, user_id, turkeys) VALUES ($1, $2, $3) "
-            "ON CONFLICT (guild_id, user_id) DO UPDATE SET turkeys = turkeys + $3",
+            "ON CONFLICT (guild_id, user_id) DO UPDATE SET turkeys = turkeys_balances.turkeys + EXCLUDED.turkeys",
             guild_id, user_id, amount,
         )
 
