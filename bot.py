@@ -2649,12 +2649,12 @@ class TeddyTournamentView(discord.ui.View):
         await _ensure_db_pool()
         async with db_pool.acquire() as conn:
             await conn.execute(
-                "INSERT INTO wins_global(user_id, wins) VALUES ($1, 1) ON CONFLICT(user_id) DO UPDATE SET wins = wins_global.wins + 1",
+                "INSERT INTO wins_global(user_id, wins) VALUES ($1, 1) ON CONFLICT(user_id) DO UPDATE SET wins = wins_global.wins + EXCLUDED.wins",
                 winner_id,
             )
             if guild:
                 await conn.execute(
-                    "INSERT INTO wins_guild(guild_id, user_id, wins) VALUES ($1, $2, 1) ON CONFLICT(guild_id, user_id) DO UPDATE SET wins = wins_guild.wins + 1",
+                    "INSERT INTO wins_guild(guild_id, user_id, wins) VALUES ($1, $2, 1) ON CONFLICT(guild_id, user_id) DO UPDATE SET wins = wins_guild.wins + EXCLUDED.wins",
                     guild.id, winner_id,
                 )
             row = await conn.fetchrow("SELECT wins FROM wins_global WHERE user_id = $1", winner_id)
@@ -3819,7 +3819,7 @@ async def wheels_start(interaction: discord.Interaction):
         await _ensure_db_pool()
         async with db_pool.acquire() as conn:
             await conn.execute(
-                "INSERT INTO wins_global(user_id, wins) VALUES ($1, 1) ON CONFLICT(user_id) DO UPDATE SET wins = wins_global.wins + 1",
+                "INSERT INTO wins_global(user_id, wins) VALUES ($1, 1) ON CONFLICT(user_id) DO UPDATE SET wins = wins_global.wins + EXCLUDED.wins",
                 winner_id,
             )
     except Exception:
