@@ -1600,7 +1600,11 @@ async def on_ready():
     try:
         if GUILD_ID:
             gid = int(str(GUILD_ID).strip())
-            synced = await bot.tree.sync(guild=discord.Object(id=gid))
+            guild_obj = discord.Object(id=gid)
+            # Copy global commands (including cog-based ones like OceanDropCog) to
+            # the guild so they appear immediately instead of waiting Discord propagation
+            bot.tree.copy_global_to(guild=guild_obj)
+            synced = await bot.tree.sync(guild=guild_obj)
             logging.info(f"Synced {len(synced)} commands to guild {gid}")
             # Also sync globally so commands appear in DMs
             global_synced = await bot.tree.sync()
@@ -5081,19 +5085,40 @@ async def add_schedule(interaction: discord.Interaction, game: str | None = None
         slots = {i: [] for i in range(24)}
         for row_date, utc_slot, user_id, game_row, local_tz, local_slot in rows:
             try:
-                if isinstance(utc_slot, int):
-                    slot_val = utc_slot
-                else:
-                    slot_val = int(utc_slot)
+                slot_utc = None
+                try:
+                    parsed_row_date = datetime.strptime(row_date, "%Y-%m-%d").date()
+                except Exception:
+                    parsed_row_date = None
 
-                if slot_val == 24:
-                    next_day = datetime.strptime(row_date, "%Y-%m-%d").date() + timedelta(days=1)
-                    slot_utc = datetime(next_day.year, next_day.month, next_day.day, 0, 0, 0, tzinfo=timezone.utc)
-                elif 1 <= slot_val <= 24:
-                    hour = (slot_val - 1) % 24
-                    slot_utc = datetime.strptime(f"{row_date} {hour:02d}:00:00", "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-                else:
-                    slot_utc = datetime.strptime(f"{row_date} {slot_val:02d}:00:00", "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                if local_tz and isinstance(local_slot, int) and 1 <= local_slot <= 24 and parsed_row_date:
+                    for ddelta in (-1, 0, 1):
+                        try:
+                            candidate_local = parsed_row_date + timedelta(days=ddelta)
+                            utc_date_c, utc_slot_c, utc_dt_c, local_dt_c = local_slot_to_utc(local_slot, local_tz, candidate_local)
+                            if utc_date_c == row_date:
+                                slot_utc = utc_dt_c
+                                break
+                        except Exception:
+                            continue
+
+                if slot_utc is None:
+                    if isinstance(utc_slot, int):
+                        slot_val = utc_slot
+                    else:
+                        try:
+                            slot_val = int(utc_slot)
+                        except Exception:
+                            continue
+
+                    if slot_val == 24:
+                        next_day = datetime.strptime(row_date, "%Y-%m-%d").date() + timedelta(days=1)
+                        slot_utc = datetime(next_day.year, next_day.month, next_day.day, 0, 0, 0, tzinfo=timezone.utc)
+                    elif 0 <= slot_val <= 23:
+                        slot_utc = datetime.strptime(f"{row_date} {slot_val:02d}:00:00", "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                    else:
+                        hour = (slot_val - 1) % 24
+                        slot_utc = datetime.strptime(f"{row_date} {hour:02d}:00:00", "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
             except Exception:
                 continue
 
@@ -6342,11 +6367,40 @@ async def resync_commands(interaction: discord.Interaction):
         await interaction.response.send_message("This command must be used in a guild.", ephemeral=True)
         return
     try:
-        synced = await bot.tree.sync(guild=discord.Object(id=interaction.guild.id))
-        await interaction.response.send_message(f"Synced {len(synced)} commands in this guild.", ephemeral=True)
+        guild_obj = discord.Object(id=interaction.guild.id)
+        bot.tree.copy_global_to(guild=guild_obj)
+        synced = await bot.tree.sync(guild=guild_obj)
+        global_synced = await bot.tree.sync()
+        await interaction.response.send_message(
+            f"Synced {len(synced)} commands in this guild and {len(global_synced)} global commands.",
+            ephemeral=True,
+        )
         print(f"Manual resync in guild {interaction.guild.id}: {[c.name for c in synced]}")
     except Exception as e:
         await interaction.response.send_message(f"Resync failed: {e}", ephemeral=True)
+
+
+_INVITE_URL = "https://discord.com/oauth2/authorize?client_id=1424779352008298537&scope=bot%20applications.commands&permissions=3941734153713728"
+
+
+@bot.tree.command(name="invite", description="Obtén el enlace para invitar al bot a otro servidor")
+async def invite(interaction: discord.Interaction):
+    await interaction.response.send_message(
+        f"🔗 **Invita al bot a tu servidor:**\n{_INVITE_URL}",
+        ephemeral=True,
+    )
+
+
+@bot.tree.command(name="donate", description="Support the bot / Apoya el bot ❤️")
+async def donate(interaction: discord.Interaction):
+    await interaction.response.send_message(
+        "💙 If you wanna help me with the cost of keeping the bot on, you can send me on PayPal:\n"
+        "https://paypal.me/Javicez\n\n"
+        "💙 Si quieres ayudarme a pagar los costes del bot, puedes mandarme por PayPal:\n"
+        "https://paypal.me/Javicez",
+        ephemeral=True,
+    )
+
 
 # Duck commands: !pato (genera pato) y !duelo (simula duelo)
 
