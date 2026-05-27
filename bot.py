@@ -23,6 +23,9 @@ from io import BytesIO
 # Duck game module
 from duck_game import generate_duck, duck_to_bytes, random_duck, fight_ducks, Duck
 
+# Ocean Drop collectible game
+from ocean_drop_game import OceanDropCog, _init_ocean_tables
+
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 if TOKEN:
@@ -1374,6 +1377,13 @@ async def on_connect():
         await init_db_async()
     except Exception:
         pass
+    # load Ocean Drop collectible game cog
+    try:
+        if not bot.cogs.get("OceanDropCog"):
+            await _init_ocean_tables(db_pool)
+            await bot.add_cog(OceanDropCog(bot, db_pool))
+    except Exception:
+        logging.exception("[OceanDrop] Failed to load OceanDropCog")
     # start Monopoly GO auto-poster
     try:
         asyncio.create_task(_monopoly_poster_loop())
@@ -2712,6 +2722,29 @@ class TeddyTournamentView(discord.ui.View):
                     pass
         except Exception:
             pass
+        # 10% de probabilidad de ganar un coleccionable de Ocean Drop al ganar Teddy Wars
+        try:
+            if random.random() < 0.10:
+                ocean_cog = bot.cogs.get("OceanDropCog")
+                if ocean_cog and guild:
+                    from ocean_drop_game import SUMMER_COLLECTIBLES, COLLECTIBLE_NAMES
+                    won_item = random.choice(COLLECTIBLE_NAMES)
+                    won_emoji = SUMMER_COLLECTIBLES[won_item]
+                    await ocean_cog._add_item(guild.id, winner_id, won_item)
+                    drop_embed = discord.Embed(
+                        title=f"{won_emoji} ¡Drop sorpresa!",
+                        description=(
+                            f"{winner_mention} encontró un coleccionable al ganar el Teddy War:\n"
+                            f"**{won_item}** {won_emoji}"
+                        ),
+                        color=0x00BFFF,
+                    )
+                    await channel.send(embed=drop_embed)
+                    # Verificar si completó la colección con este item
+                    if guild and await ocean_cog._check_complete(guild.id, winner_id, guild):
+                        await ocean_cog._announce_complete_channel(channel, guild, winner_id)
+        except Exception:
+            logging.exception("[OceanDrop] Error en drop sorpresa de Teddy Wars")
         for child in self.children:
             child.disabled = True
         try:
