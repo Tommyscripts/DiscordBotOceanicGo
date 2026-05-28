@@ -518,7 +518,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
         # ------------------ Commands (registered as app commands) ------------------
     @app_commands.command(
         name="ocean_drop",
-        name_localizations={"es-ES": "lanzar_drop", "es-MX": "lanzar_drop"},
         description="🌊 Launch a manual drop (random or specific channel)",
         description_localizations={"es-ES": "🌊 Lanza un drop manual (random o canal específico)", "es-MX": "🌊 Lanza un drop manual (random o canal específico)"},
     )
@@ -568,7 +567,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
 
     @app_commands.command(
         name="ocean_active",
-        name_localizations={"es-ES": "activar_temporada", "es-MX": "activar_temporada"},
         description="🌊 Activa los drops automáticos aleatorios de la temporada",
         description_localizations={"en-US": "🌊 Enable automatic season drops (random).", "en-GB": "🌊 Enable automatic season drops (random)."},
     )
@@ -618,7 +616,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
 
     @app_commands.command(
         name="ocean_seasonends",
-        name_localizations={"es-ES": "terminar_temporada", "es-MX": "terminar_temporada"},
         description="🌊 Termina la temporada, detiene los drops y muestra el top 10",
         description_localizations={"en-US": "🌊 End the season, stop drops and show top 10.", "en-GB": "🌊 End the season, stop drops and show top 10."},
     )
@@ -657,7 +654,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
 
     @app_commands.command(
         name="give_collectible",
-        name_localizations={"es-ES": "dar_coleccionable", "es-MX": "dar_coleccionable"},
         description="(Staff) Dar un coleccionable a un miembro",
         description_localizations={"en-US": "(Staff) Give a collectible to a member."},
     )
@@ -675,7 +671,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
 
     @app_commands.command(
         name="remove_collectible",
-        name_localizations={"es-ES": "quitar_coleccionable", "es-MX": "quitar_coleccionable"},
         description="(Staff) Quitar un coleccionable a un miembro",
         description_localizations={"en-US": "(Staff) Remove a collectible from a member."},
     )
@@ -694,7 +689,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
 
     @app_commands.command(
         name="view_collection",
-        name_localizations={"es-ES": "ver_coleccion", "es-MX": "ver_coleccion"},
         description="Ver la colección de coleccionables de un miembro",
         description_localizations={"en-US": "View a member's collectibles collection."},
     )
@@ -720,7 +714,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
 
     @app_commands.command(
         name="collection",
-        name_localizations={"es-ES": "mi_coleccion", "es-MX": "mi_coleccion"},
         description="🌊 Ver tu propia colección de coleccionables",
         description_localizations={"en-US": "🌊 View your own collectibles collection."},
     )
@@ -745,7 +738,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
 
     @app_commands.command(
         name="trade",
-        name_localizations={"es-ES": "proponer_intercambio", "es-MX": "proponer_intercambio"},
         description="🤝 Proponer un intercambio de coleccionables con otro miembro",
         description_localizations={"en-US": "🤝 Propose a collectible trade with another member."},
     )
@@ -775,7 +767,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
 
     @app_commands.command(
         name="leaderboard",
-        name_localizations={"es-ES": "clasificacion", "es-MX": "clasificacion"},
         description="🌊 Ver el top 10 de coleccionistas de la temporada",
         description_localizations={"en-US": "🌊 View the season's top 10 collectors."},
     )

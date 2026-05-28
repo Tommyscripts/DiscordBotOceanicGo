@@ -1603,12 +1603,12 @@ async def on_ready():
             guild_obj = discord.Object(id=gid)
             # Copy global commands (including cog-based ones like OceanDropCog) to
             # the guild so they appear immediately instead of waiting Discord propagation
+            # NOTE: syncing both guild AND global here creates duplicate commands
+            # (the same command as a guild command and as a global command). To
+            # avoid duplicates, only sync to the guild when `GUILD_ID` is set.
             bot.tree.copy_global_to(guild=guild_obj)
             synced = await bot.tree.sync(guild=guild_obj)
             logging.info(f"Synced {len(synced)} commands to guild {gid}")
-            # Also sync globally so commands appear in DMs
-            global_synced = await bot.tree.sync()
-            logging.info(f"Synced {len(global_synced)} global commands (for DMs)")
         else:
             synced = await bot.tree.sync()
             logging.info(f"Synced {len(synced)} global commands")
