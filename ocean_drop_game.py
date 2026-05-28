@@ -519,7 +519,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
     @app_commands.command(
         name="ocean_drop",
         description="🌊 Launch a manual drop (random or specific channel)",
-        description_localizations={"es-ES": "🌊 Lanza un drop manual (random o canal específico)", "es-MX": "🌊 Lanza un drop manual (random o canal específico)"},
     )
     @app_commands.choices(modo=[app_commands.Choice(name="random", value="random"), app_commands.Choice(name="channel", value="channel")])
     @app_commands.describe(
@@ -568,7 +567,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
     @app_commands.command(
         name="ocean_active",
         description="🌊 Activa los drops automáticos aleatorios de la temporada",
-        description_localizations={"en-US": "🌊 Enable automatic season drops (random).", "en-GB": "🌊 Enable automatic season drops (random)."},
     )
     @app_commands.describe(
         rol="Rol que define los canales de drop y se otorga al completar la colección",
@@ -617,7 +615,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
     @app_commands.command(
         name="ocean_seasonends",
         description="🌊 Termina la temporada, detiene los drops y muestra el top 10",
-        description_localizations={"en-US": "🌊 End the season, stop drops and show top 10.", "en-GB": "🌊 End the season, stop drops and show top 10."},
     )
     @app_commands.checks.has_permissions(manage_guild=True)
     async def ocean_seasonends(self, interaction: discord.Interaction):
@@ -655,7 +652,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
     @app_commands.command(
         name="give_collectible",
         description="(Staff) Dar un coleccionable a un miembro",
-        description_localizations={"en-US": "(Staff) Give a collectible to a member."},
     )
     @app_commands.describe(miembro="Miembro que recibirá el item", item="Nombre del coleccionable")
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -672,7 +668,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
     @app_commands.command(
         name="remove_collectible",
         description="(Staff) Quitar un coleccionable a un miembro",
-        description_localizations={"en-US": "(Staff) Remove a collectible from a member."},
     )
     @app_commands.describe(miembro="Miembro al que se le quitará el item", item="Nombre del coleccionable")
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -690,7 +685,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
     @app_commands.command(
         name="view_collection",
         description="Ver la colección de coleccionables de un miembro",
-        description_localizations={"en-US": "View a member's collectibles collection."},
     )
     @app_commands.describe(miembro="Miembro cuya colección quieres ver")
     async def view_collection(self, interaction: discord.Interaction, miembro: discord.Member):
@@ -715,7 +709,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
     @app_commands.command(
         name="collection",
         description="🌊 Ver tu propia colección de coleccionables",
-        description_localizations={"en-US": "🌊 View your own collectibles collection."},
     )
     async def collection(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -739,7 +732,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
     @app_commands.command(
         name="trade",
         description="🤝 Proponer un intercambio de coleccionables con otro miembro",
-        description_localizations={"en-US": "🤝 Propose a collectible trade with another member."},
     )
     @app_commands.describe(miembro="Miembro con quien tradear", oferta="Coleccionable que ofreces", peticion="Coleccionable que pides a cambio")
     async def trade(self, interaction: discord.Interaction, miembro: discord.Member, oferta: str, peticion: str):
@@ -768,7 +760,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
     @app_commands.command(
         name="leaderboard",
         description="🌊 Ver el top 10 de coleccionistas de la temporada",
-        description_localizations={"en-US": "🌊 View the season's top 10 collectors."},
     )
     async def leaderboard(self, interaction: discord.Interaction):
         await interaction.response.defer()
