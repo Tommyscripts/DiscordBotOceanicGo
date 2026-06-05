@@ -16,13 +16,30 @@ from discord.ext import commands
 
 log = logging.getLogger(__name__)
 
-# Example collectible map (should exist elsewhere in your real code)
+# Ocean collectible map
 SUMMER_COLLECTIBLES = {
-    "conch": "🐚",
-    "starfish": "⭐",
-    "shell": "🐚",
+    "Ocean Shell": "🐚",
+    "Hibiscus Charm": "🌺",
+    "Golden Coconut": "🥥",
+    "Sunset Crystal": "☀️",
+    "Surf Token": "🏄",
+    "Wave Fragment": "🌊",
 }
 COLLECTIBLE_NAMES = list(SUMMER_COLLECTIBLES.keys())
+
+# Map casefolded item name -> canonical item name (case-insensitive lookup)
+_ITEM_CANONICAL_MAP = {name.casefold(): name for name in SUMMER_COLLECTIBLES.keys()}
+
+
+def _resolve_item_name(item: Optional[str]) -> Optional[str]:
+    """Return canonical item name for a user-provided item string (case-insensitive).
+
+    Example: 'ocean shell', 'Ocean Shell', 'OCEAN SHELL' -> 'Ocean Shell'
+    """
+    if not item:
+        return None
+    key = str(item).strip().casefold()
+    return _ITEM_CANONICAL_MAP.get(key)
 
 
 # ─── Translations (simple i18n) ─────────────────────────────────────────────
@@ -535,12 +552,17 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
     ):
         await interaction.response.defer(ephemeral=True)
 
-        if item and item not in SUMMER_COLLECTIBLES:
-            await interaction.followup.send(
-                _t(interaction.guild, "invalid_item", options=", ".join(COLLECTIBLE_NAMES)),
-                ephemeral=True,
-            )
-            return
+        # Normalize provided item name (case-insensitive)
+        if item:
+            item_canon = _resolve_item_name(item)
+            if not item_canon:
+                await interaction.followup.send(
+                    _t(interaction.guild, "invalid_item", options=", ".join(COLLECTIBLE_NAMES)),
+                    ephemeral=True,
+                )
+                return
+        else:
+            item_canon = None
 
         if modo.value == "random":
             cfg = await self._get_config(interaction.guild_id)
@@ -562,7 +584,7 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
         await interaction.followup.send(
             _t(interaction.guild, "launching_drop", target=target.mention), ephemeral=True
         )
-        await self._do_drop(target, item)
+        await self._do_drop(target, item_canon)
 
     @app_commands.command(
         name="ocean_active",
@@ -656,12 +678,13 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
     @app_commands.describe(miembro="Miembro que recibirá el item", item="Nombre del coleccionable")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def give_collectible(self, interaction: discord.Interaction, miembro: discord.Member, item: str):
-        if item not in SUMMER_COLLECTIBLES:
+        item_canon = _resolve_item_name(item)
+        if not item_canon:
             await interaction.response.send_message(_t(interaction.guild, "invalid_item", options=", ".join(COLLECTIBLE_NAMES)), ephemeral=True)
             return
-        await self._add_item(interaction.guild_id, miembro.id, item)
-        emoji = SUMMER_COLLECTIBLES[item]
-        await interaction.response.send_message(_t(interaction.guild, "given_item", emoji=emoji, item=item, member=miembro.mention), ephemeral=True)
+        await self._add_item(interaction.guild_id, miembro.id, item_canon)
+        emoji = SUMMER_COLLECTIBLES[item_canon]
+        await interaction.response.send_message(_t(interaction.guild, "given_item", emoji=emoji, item=item_canon, member=miembro.mention), ephemeral=True)
         if await self._check_complete(interaction.guild_id, miembro.id, interaction.guild):
             await self._announce_complete(interaction, miembro)
 
@@ -672,15 +695,16 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
     @app_commands.describe(miembro="Miembro al que se le quitará el item", item="Nombre del coleccionable")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def remove_collectible(self, interaction: discord.Interaction, miembro: discord.Member, item: str):
-        if item not in SUMMER_COLLECTIBLES:
+        item_canon = _resolve_item_name(item)
+        if not item_canon:
             await interaction.response.send_message(_t(interaction.guild, "invalid_item", options=", ".join(COLLECTIBLE_NAMES)), ephemeral=True)
             return
-        if not await self._has_item(interaction.guild_id, miembro.id, item):
-            await interaction.response.send_message(_t(interaction.guild, "does_not_have_item", member=miembro.display_name, item=item), ephemeral=True)
+        if not await self._has_item(interaction.guild_id, miembro.id, item_canon):
+            await interaction.response.send_message(_t(interaction.guild, "does_not_have_item", member=miembro.display_name, item=item_canon), ephemeral=True)
             return
-        await self._remove_item(interaction.guild_id, miembro.id, item)
-        emoji = SUMMER_COLLECTIBLES[item]
-        await interaction.response.send_message(_t(interaction.guild, "removed_item", emoji=emoji, item=item, member=miembro.mention), ephemeral=True)
+        await self._remove_item(interaction.guild_id, miembro.id, item_canon)
+        emoji = SUMMER_COLLECTIBLES[item_canon]
+        await interaction.response.send_message(_t(interaction.guild, "removed_item", emoji=emoji, item=item_canon, member=miembro.mention), ephemeral=True)
 
     @app_commands.command(
         name="view_collection",
@@ -735,26 +759,28 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
     )
     @app_commands.describe(miembro="Miembro con quien tradear", oferta="Coleccionable que ofreces", peticion="Coleccionable que pides a cambio")
     async def trade(self, interaction: discord.Interaction, miembro: discord.Member, oferta: str, peticion: str):
-        if oferta not in SUMMER_COLLECTIBLES:
+        oferta_canon = _resolve_item_name(oferta)
+        if not oferta_canon:
             await interaction.response.send_message(_t(interaction.guild, "invalid_item", options=", ".join(COLLECTIBLE_NAMES)), ephemeral=True)
             return
-        if peticion not in SUMMER_COLLECTIBLES:
+        peticion_canon = _resolve_item_name(peticion)
+        if not peticion_canon:
             await interaction.response.send_message(_t(interaction.guild, "invalid_item", options=", ".join(COLLECTIBLE_NAMES)), ephemeral=True)
             return
         if miembro.id == interaction.user.id:
             await interaction.response.send_message(_t(interaction.guild, "trade_cannot_self"), ephemeral=True)
             return
-        if not await self._has_item(interaction.guild_id, interaction.user.id, oferta):
-            await interaction.response.send_message(_t(interaction.guild, "does_not_have_item", member=interaction.user.display_name, item=oferta), ephemeral=True)
+        if not await self._has_item(interaction.guild_id, interaction.user.id, oferta_canon):
+            await interaction.response.send_message(_t(interaction.guild, "does_not_have_item", member=interaction.user.display_name, item=oferta_canon), ephemeral=True)
             return
-        if not await self._has_item(interaction.guild_id, miembro.id, peticion):
-            await interaction.response.send_message(_t(interaction.guild, "does_not_have_item", member=miembro.display_name, item=peticion), ephemeral=True)
+        if not await self._has_item(interaction.guild_id, miembro.id, peticion_canon):
+            await interaction.response.send_message(_t(interaction.guild, "does_not_have_item", member=miembro.display_name, item=peticion_canon), ephemeral=True)
             return
 
-        offer_emoji = SUMMER_COLLECTIBLES[oferta]
-        request_emoji = SUMMER_COLLECTIBLES[peticion]
-        embed = discord.Embed(title=_t(interaction.guild, "trade_proposal_title"), description=_t(interaction.guild, "trade_proposal_desc", proposer=interaction.user.mention, offer=oferta, offer_emoji=offer_emoji, request=peticion, request_emoji=request_emoji, target=miembro.mention), color=0xFFA500)
-        view = TradeView(interaction.user, miembro, oferta, peticion, self, interaction.guild)
+        offer_emoji = SUMMER_COLLECTIBLES[oferta_canon]
+        request_emoji = SUMMER_COLLECTIBLES[peticion_canon]
+        embed = discord.Embed(title=_t(interaction.guild, "trade_proposal_title"), description=_t(interaction.guild, "trade_proposal_desc", proposer=interaction.user.mention, offer=oferta_canon, offer_emoji=offer_emoji, request=peticion_canon, request_emoji=request_emoji, target=miembro.mention), color=0xFFA500)
+        view = TradeView(interaction.user, miembro, oferta_canon, peticion_canon, self, interaction.guild)
         await interaction.response.send_message(embed=embed, view=view)
 
     @app_commands.command(
@@ -781,6 +807,60 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
 
         embed = discord.Embed(title=f"🌊 Leaderboard — {season_name}", description="\n".join(lines) if lines else _t(interaction.guild, "leaderboard_empty"), color=0x00BFFF)
         await interaction.followup.send(embed=embed)
+
+    @app_commands.command(
+        name="collection_overview",
+        description="(Staff) Mostrar estado de colección de todos los miembros (tienen/faltan).",
+    )
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def collection_overview(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        async with self.db_pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT user_id, item_name, SUM(quantity) AS qty
+                FROM ocean_inventory
+                WHERE guild_id = $1
+                GROUP BY user_id, item_name
+                ORDER BY user_id
+                """,
+                interaction.guild_id,
+            )
+
+        from collections import defaultdict
+
+        users: dict[int, dict[str, int]] = defaultdict(dict)
+        for r in rows:
+            users[r["user_id"]][r["item_name"]] = r["qty"]
+
+        if not users:
+            await interaction.followup.send(_t(interaction.guild, "leaderboard_empty"), ephemeral=True)
+            return
+
+        lines: list[str] = []
+        for user_id, items in users.items():
+            try:
+                member = interaction.guild.get_member(user_id) or await interaction.guild.fetch_member(user_id)
+                name = member.display_name
+            except Exception:
+                name = _t(interaction.guild, "leaderboard_user_fallback", id=user_id)
+
+            owned = [f"{SUMMER_COLLECTIBLES.get(n,'')} {n}" for n in SUMMER_COLLECTIBLES.keys() if items.get(n, 0) > 0]
+            missing = [f"{SUMMER_COLLECTIBLES.get(n,'')} {n}" for n in SUMMER_COLLECTIBLES.keys() if items.get(n, 0) == 0]
+            owned_str = ", ".join(owned) if owned else "-"
+            missing_str = ", ".join(missing) if missing else "-"
+            lines.append(f"{name} — ✅ {owned_str} — ❌ {missing_str}")
+
+        # Send in chunks to avoid exceeding Discord message length limits
+        chunk = ""
+        for l in lines:
+            if len(chunk) + len(l) + 1 > 1900:
+                await interaction.followup.send(chunk)
+                chunk = l + "\n"
+            else:
+                chunk += l + "\n"
+        if chunk:
+            await interaction.followup.send(chunk)
 
 
 # ─── Función de setup (llamada desde bot.py) ─────────────────────────────────
