@@ -109,8 +109,34 @@ async def run_coro_safe(coro, name: str | None = None):
         await coro
     except Exception:
         logging.exception(f"Uncaught exception in background task {name}")
-
-
+ 
+async def _auto_resync_loop(interval: int = 300):
+    """Background loop that periodically calls `bot.tree.sync()` to keep
+    Discord application commands in sync. Enable by setting env `AUTO_RESYNC` to 1/true.
+    """
+    while True:
+        try:
+            if GUILD_ID:
+                try:
+                    gid = int(str(GUILD_ID).strip())
+                    guild_obj = discord.Object(id=gid)
+                    bot.tree.copy_global_to(guild=guild_obj)
+                    synced = await bot.tree.sync(guild=guild_obj)
+                    logging.info(f"Auto-synced {len(synced)} commands to guild {gid}")
+                except Exception:
+                    logging.exception("Auto resync to guild failed")
+            else:
+                synced = await bot.tree.sync()
+                logging.info(f"Auto-synced {len(synced)} global commands")
+        except Exception:
+            logging.exception("Auto-resync failed")
+        try:
+            await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            logging.info("Auto-resync loop cancelled")
+            break
+        except Exception:
+            await asyncio.sleep(60)
 
 async def end_game(game: "HouseGame", announce: bool = True, delete_channel: bool = False):
     """Cleanly end a House game: announce, revoke permissions, optionally delete channel and remove game from memory.
@@ -1630,6 +1656,16 @@ async def on_ready():
             logging.info(f"Restored language '{_lang}' for guild {_gid}")
         except Exception as _e:
             logging.warning(f"Could not restore language for guild {_gid}: {_e}")
+
+    # Optionally start automatic resync loop (controlled by AUTO_RESYNC env var)
+    try:
+        if os.getenv("AUTO_RESYNC", "false").lower() in ("1", "true", "yes"):
+            interval = int(os.getenv("AUTO_RESYNC_INTERVAL", "300"))
+            if not getattr(bot, "_auto_resync_task", None):
+                bot._auto_resync_task = asyncio.create_task(_auto_resync_loop(interval))
+                logging.info(f"Started automatic resync loop every {interval}s")
+    except Exception:
+        logging.exception("Failed to start auto resync loop")
 
 
 async def _gather_original_overwrites(ch: discord.TextChannel) -> dict:
