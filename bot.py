@@ -6581,20 +6581,53 @@ async def cmd_time(interaction: discord.Interaction, timezone: str | None = None
 async def resync_commands(interaction: discord.Interaction):
     # Only works in a guild context
     if not interaction.guild:
-        await interaction.response.send_message("This command must be used in a guild.", ephemeral=True)
+        try:
+            await interaction.response.send_message("This command must be used in a guild.", ephemeral=True)
+        except Exception:
+            try:
+                if interaction.channel:
+                    await interaction.channel.send("This command must be used in a guild.")
+            except Exception:
+                pass
         return
+
+    # Acknowledge quickly to avoid 'Unknown interaction' during long operations
+    try:
+        await interaction.response.defer(ephemeral=True)
+    except Exception:
+        # if deferring fails, we'll still try to use followup or channel messages
+        pass
+
     try:
         guild_obj = discord.Object(id=interaction.guild.id)
         bot.tree.copy_global_to(guild=guild_obj)
         synced = await bot.tree.sync(guild=guild_obj)
         global_synced = await bot.tree.sync()
-        await interaction.response.send_message(
-            f"Synced {len(synced)} commands in this guild and {len(global_synced)} global commands.",
-            ephemeral=True,
-        )
+        # Prefer followup since we've already deferred
+        try:
+            await interaction.followup.send(
+                f"Synced {len(synced)} commands in this guild and {len(global_synced)} global commands.",
+                ephemeral=True,
+            )
+        except Exception:
+            # Fallback to channel message if followup fails
+            try:
+                if interaction.channel:
+                    await interaction.channel.send(
+                        f"Synced {len(synced)} commands in this guild and {len(global_synced)} global commands."
+                    )
+            except Exception:
+                pass
         print(f"Manual resync in guild {interaction.guild.id}: {[c.name for c in synced]}")
     except Exception as e:
-        await interaction.response.send_message(f"Resync failed: {e}", ephemeral=True)
+        try:
+            await interaction.followup.send(f"Resync failed: {e}", ephemeral=True)
+        except Exception:
+            try:
+                if interaction.channel:
+                    await interaction.channel.send(f"Resync failed: {e}")
+            except Exception:
+                pass
 
 
 _INVITE_URL = "https://discord.com/oauth2/authorize?client_id=1424779352008298537&scope=bot%20applications.commands&permissions=3941734153713728"
