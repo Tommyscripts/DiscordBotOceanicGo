@@ -19,6 +19,7 @@ import calendar
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones as _all_tz_fn
 from io import BytesIO
+import subprocess
 
 # Duck game module
 from duck_game import generate_duck, duck_to_bytes, random_duck, fight_ducks, Duck
@@ -1621,6 +1622,22 @@ async def on_ready():
 
     try:
         logging.info(f"Logged in as {bot.user} (id={getattr(bot.user, 'id', None)})")
+    except Exception:
+        pass
+
+    # Log the current git commit hash (helpful to verify which version Railway is running)
+    try:
+        commit_hash = None
+        try:
+            commit_hash = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
+        except Exception:
+            commit_hash = None
+        if commit_hash:
+            logging.info(f"Running commit {commit_hash}")
+        else:
+            env_commit = os.getenv("DEPLOY_COMMIT") or os.getenv("GIT_COMMIT") or os.getenv("RAILWAY_GIT_COMMIT") or os.getenv("HEROKU_RELEASE_VERSION")
+            if env_commit:
+                logging.info(f"Running commit (env) {env_commit}")
     except Exception:
         pass
 
