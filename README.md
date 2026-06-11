@@ -124,6 +124,9 @@ Notas:
 - **Economy & Shop:**
    - ` /turkeys [user]` : Check your currency balance (display name/emoji configurable; defaults to Snuggles).
    - ` /give_turkeys <user> <amount>` : (Staff) Give or remove currency from a user (UI only; balances remain stored as "turkeys").
+ - **Economy & Shop:**
+   - ` /snuggles [user]` : Check your currency balance (display name/emoji configurable; defaults to Snuggles).
+   - ` /give_snuggles <user> <amount>` : (Staff) Give or remove currency from a user (UI only; balances remain stored as "turkeys").
    - ` /shop list` : List available shop items for this server or global items.
    - ` /shop buy <item_id>` : Buy a shop item using the currency.
    - ` /shop add <name> <price> [role] [global]` : (Admin) Add a shop item to this server or globally.
@@ -133,24 +136,23 @@ Notas:
    - ` /settings currency [name] [emoji]` : Set currency display (UI only). Use `-` to reset a field to default.
 
 - **Scheduling:**
-- **Scheduling:**
-   - ` /schedule show` : Show today's schedule (24 slots UTC).
-   - ` /schedule add <slot> <game>` : Add yourself to a numbered slot (1-24).
-   - ` /schedule delete <slot>` : Remove your signup from a numbered slot (1-24).
+   - `/schedule show` : Show today's schedule (48 half-hour slots) — displays viewer-local times and user-selected local times.
+   - `/schedule add [game]` : Open an interactive view to add yourself to a half-hour slot (choose hour → :00/:30). Optionally include a short note or game name.
+   - `/schedule delete` : Open an interactive view to remove your signup for a chosen half-hour slot.
 
 Notes on timezones:
 
-- Slots are stored in UTC (date + hour) to represent an absolute instant.
-- When you add a signup with ` /schedule add <slot>`, the bot interprets the slot number as the hour in your own timezone and saves both the UTC slot and the local time/zone you selected.
-- When someone runs ` /schedule show`, each slot line shows the slot number and the time converted to the viewer's local timezone, and each signup also shows the time the user selected along with their timezone. This avoids ambiguity when members are in different zones.
+- Slots are stored in UTC with 30-minute granularity (date + half-hour index) to represent an absolute instant.
+ - When you add a signup with `/schedule add`, the bot asks you to pick an hour and then :00 or :30; it saves the UTC instant and the user's local selection so viewers see both viewer-local and user-local times.
+ - When someone runs `/schedule show`, each line shows a time label (hour:minute) in the viewer's timezone and any signups include the time the user selected plus their timezone.
 
 Example line shown by `/schedule show`:
 
 ```
-**10** — 11:00 : @Alice (Chess) — 10:00 (Europe/London)
+**10:30** — @Alice (Chess) — 10:30 (Europe/London)
 ```
 
-In the example, the viewer sees the slot as `11:00` in their timezone, while Alice originally selected `10:00` in `Europe/London`.
+In the example, the viewer sees the slot as `10:30` in their timezone, while Alice originally selected `10:30` in `Europe/London`.
 
 - **Utilities & Admin:**
    - ` /resync_commands` : Force re-sync of application commands in this guild (admins only).
