@@ -95,14 +95,6 @@ Dependencias principales
 - `asyncpg` (Postgres opcional)
 
 
-
-Contribuir
----------
-
-- Haz fork → crea una rama → PR.
-- Añade tests si cambias lógica compleja (ver `tools/`).
-- Si aportas assets, mantén tamaños razonables y transparencia en PNG.
-
 Soporte y donaciones
 ---------------------
 
