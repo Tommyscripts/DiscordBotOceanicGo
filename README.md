@@ -94,16 +94,7 @@ Dependencias principales
 - `Pillow` (composición de imágenes)
 - `asyncpg` (Postgres opcional)
 
-Arquitectura (rápido)
---------------------
 
-```mermaid
-graph LR
-  Discord[Discord] -->|Interactions| Bot[bot.py]
-  Bot -->|DB (asyncpg)| Postgres[(Postgres)]
-  Bot -->|Assets| Assets[assets/ , teddy_wars/]
-  Bot -->|Image gen| Pillow
-```
 
 Contribuir
 ---------
