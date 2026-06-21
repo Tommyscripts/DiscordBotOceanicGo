@@ -21,11 +21,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones as _al
 from io import BytesIO
 import subprocess
 
-# Duck game module
-from duck_game import generate_duck, duck_to_bytes, random_duck, fight_ducks, Duck
+# Duck game module (moved into package)
+from oceanic_bot.games.duck import generate_duck, duck_to_bytes, random_duck, fight_ducks, Duck
 
-# Ocean Drop collectible game
-from ocean_drop_game import OceanDropCog, _init_ocean_tables
+# Ocean Drop collectible game (moved into package)
+from oceanic_bot.games.ocean_drop import OceanDropCog, _init_ocean_tables
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -740,7 +740,7 @@ def load_furby_images():
 furby_image_files = load_furby_images()
 
 # Teddy assets (separate set)
-TEDDY_ASSETS_DIR = os.path.join(os.path.dirname(__file__), "teddy wars")
+TEDDY_ASSETS_DIR = os.path.join(os.path.dirname(__file__), "teddy_wars")
 def load_teddy_images():
     if not os.path.isdir(TEDDY_ASSETS_DIR):
         return []
@@ -1533,6 +1533,11 @@ async def _apply_guild_language(guild_id: int, lang: str):
             continue
         desc = descs.get(cmd_name, global_cmd.description)
         try:
+            # Ensure no pre-existing command with same name remains in the guild
+            try:
+                bot.tree.remove_command(cmd_name, guild=guild_obj)
+            except Exception:
+                pass
             new_cmd = app_commands.Command(
                 name=cmd_name,
                 description=desc,
@@ -1563,6 +1568,11 @@ async def _apply_guild_language(guild_id: int, lang: str):
         if global_group is None:
             continue
         group_desc = descs.get(group_key, global_group.description)
+        # Remove any pre-existing group in this guild to avoid duplicate group entries
+        try:
+            bot.tree.remove_command(group_name, guild=guild_obj)
+        except Exception:
+            pass
         new_group = app_commands.Group(name=group_name, description=group_desc)
         for sub_name in sub_names:
             global_sub = global_group.get_command(sub_name)
@@ -2793,7 +2803,7 @@ class TeddyTournamentView(discord.ui.View):
             if random.random() < 0.10:
                 ocean_cog = bot.cogs.get("OceanDropCog")
                 if ocean_cog and guild:
-                    from ocean_drop_game import SUMMER_COLLECTIBLES, COLLECTIBLE_NAMES
+                    from oceanic_bot.games.ocean_drop import SUMMER_COLLECTIBLES, COLLECTIBLE_NAMES
                     won_item = random.choice(COLLECTIBLE_NAMES)
                     won_emoji = SUMMER_COLLECTIBLES[won_item]
                     await ocean_cog._add_item(guild.id, winner_id, won_item)
@@ -6704,7 +6714,7 @@ async def howtoplay(ctx: commands.Context):
         "- Action relationships: `attack` beats `dodge`, `dodge` beats `defend`, `defend` beats `attack`.\n"
         "- Damage is calculated as `max(1, attacker.attack - defender.defense)`.\n\n"
         "Images are composed locally using Pillow by overlaying equipment PNGs on a base duck image.\n"
-        "To customize, add assets in the `assets/` folder and update `duck_game.py`."
+        "To customize, add assets in the `assets/` folder and update `oceanic_bot/games/duck.py`."
     )
     await ctx.send(text)
 

@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 ROOT = Path('.')
-EXCLUDE_DIRS = {'.venv', 'venv', '__pycache__', '.git', 'teddy wars'}
+EXCLUDE_DIRS = {'.venv', 'venv', '__pycache__', '.git', 'teddy_wars'}
 
 py_files = [p for p in ROOT.rglob('*.py') if not any(part in EXCLUDE_DIRS for part in p.parts)]
 

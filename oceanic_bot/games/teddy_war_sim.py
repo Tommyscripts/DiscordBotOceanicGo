@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Local simulator for the Teddy War messages (no Discord / no DB required).
 
-Run: python3 teddy_war_sim.py -n 6
+Run: python3 -m oceanic_bot.games.teddy_war_sim -n 6
 """
 import os
 import random
@@ -9,7 +9,9 @@ import time
 import argparse
 
 BASE_DIR = os.path.dirname(__file__)
-TEDDY_ASSETS_DIR = os.path.join(BASE_DIR, "teddy wars")
+# Project root (two levels up from this games/ package)
+REPO_ROOT = os.path.abspath(os.path.join(BASE_DIR, '..', '..'))
+TEDDY_ASSETS_DIR = os.path.join(REPO_ROOT, "teddy_wars")
 
 def load_teddy_images():
     if not os.path.isdir(TEDDY_ASSETS_DIR):

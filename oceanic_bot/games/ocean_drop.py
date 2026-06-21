@@ -1,10 +1,7 @@
 """
-ocean_drop_game.py — 🌊 Ocean Drop Collectible Game
-
-Comandos:
-  /ocean_drop      – Lanza un drop manual (random o canal específico)
+Reubicación de ocean_drop_game dentro del paquete `oceanic_bot.games`.
+El contenido original se mantiene para compatibilidad.
 """
-
 from __future__ import annotations
 from typing import Optional
 import random
@@ -32,17 +29,13 @@ _ITEM_CANONICAL_MAP = {name.casefold(): name for name in SUMMER_COLLECTIBLES.key
 
 
 def _resolve_item_name(item: Optional[str]) -> Optional[str]:
-    """Return canonical item name for a user-provided item string (case-insensitive).
-
-    Example: 'ocean shell', 'Ocean Shell', 'OCEAN SHELL' -> 'Ocean Shell'
-    """
     if not item:
         return None
     key = str(item).strip().casefold()
     return _ITEM_CANONICAL_MAP.get(key)
 
 
-# ─── Translations (simple i18n) ─────────────────────────────────────────────
+# Translations (simple i18n)
 TRANSLATIONS: dict[str, dict[str, str]] = {
     "claim_button": {"es": "¡Reclamar!", "en": "Claim!"},
     "claim_already": {"es": "¡Ya fue reclamado!", "en": "Already claimed!"},
@@ -112,9 +105,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 }
 
 
-# ─── i18n helpers ───────────────────────────────────────────────────────────
 def _lang_for_guild(guild: Optional[discord.Guild]) -> str:
-    """Return 'es' or 'en' based on guild.preferred_locale. Defaults to 'en'."""
     if not guild:
         return "en"
     loc = getattr(guild, "preferred_locale", "") or ""
@@ -122,7 +113,6 @@ def _lang_for_guild(guild: Optional[discord.Guild]) -> str:
 
 
 def _t(guild: Optional[discord.Guild], key: str, **kwargs) -> str:
-    """Translate a key for a guild (simple lookup with fallback)."""
     lang = _lang_for_guild(guild)
     mapping = TRANSLATIONS.get(key, {})
     text = mapping.get(lang) or mapping.get("en") or mapping.get("es") or key
@@ -132,9 +122,7 @@ def _t(guild: Optional[discord.Guild], key: str, **kwargs) -> str:
         return text
 
 
-# ─── DB helpers (tablas propias del módulo) ───────────────────────────────────
 async def _init_ocean_tables(pool) -> None:
-    """Crea las tablas necesarias si no existen."""
     async with pool.acquire() as conn:
         await conn.execute(
             """
@@ -162,7 +150,6 @@ async def _init_ocean_tables(pool) -> None:
         )
 
 
-# ─── Vista: botón de reclamación del Drop ────────────────────────────────────
 class OceanDropView(discord.ui.View):
     def __init__(
         self,
@@ -178,7 +165,6 @@ class OceanDropView(discord.ui.View):
         self.claimed = False
         self.guild = guild
 
-        # Create localized claim button
         label = _t(self.guild, "claim_button")
         btn = discord.ui.Button(label=label, emoji=self.item_emoji, style=discord.ButtonStyle.primary)
 
@@ -192,7 +178,6 @@ class OceanDropView(discord.ui.View):
             btn.label = _t(self.guild, "claimed_by", name=interaction.user.display_name)
             await interaction.response.edit_message(view=self)
 
-            # Add item to inventory
             await self.cog._add_item(interaction.guild_id, interaction.user.id, self.item_name)
 
             embed = discord.Embed(
@@ -208,7 +193,6 @@ class OceanDropView(discord.ui.View):
             )
             await interaction.followup.send(embed=embed)
 
-            # Check completion
             if await self.cog._check_complete(
                 interaction.guild_id, interaction.user.id, interaction.guild
             ):
@@ -220,7 +204,6 @@ class OceanDropView(discord.ui.View):
         self.add_item(btn)
 
 
-# ─── Vista: botón de aceptar/rechazar Trade ──────────────────────────────────
 class TradeView(discord.ui.View):
     def __init__(
         self,
@@ -312,16 +295,12 @@ class TradeView(discord.ui.View):
         self.add_item(btn_reject)
 
 
-# ─── Cog principal ────────────────────────────────────────────────────────────
 class OceanDropCog(commands.Cog, name="OceanDropCog"):
-    """Juego de coleccionables: Ocean Drop."""
-
     def __init__(self, bot: commands.Bot, db_pool):
         self.bot = bot
         self.db_pool = db_pool
         self._auto_drop_tasks: dict[int, asyncio.Task] = {}
 
-    # ── Helpers de BD ─────────────────────────────────────────────────────────
     async def _get_config(self, guild_id: int) -> dict:
         async with self.db_pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -420,13 +399,11 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
             )
         return [dict(r) for r in rows]
 
-    # ── Helpers internos ──────────────────────────────────────────────────────
     async def _announce_complete(
         self,
         interaction: discord.Interaction,
         member: discord.Member,
     ) -> None:
-        """Publica el embed de colección completa y asigna el rol del drop al miembro."""
         cfg = await self._get_config(interaction.guild_id)
         season_name = cfg.get("season_name", "Summer Splash")
         drop_role_id = cfg.get("drop_role_id")
@@ -456,7 +433,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
         guild: discord.Guild,
         user_id: int,
     ) -> None:
-        """Versión de _announce_complete para usarse sin Interaction (ej: desde Teddy Wars)."""
         cfg = await self._get_config(guild.id)
         season_name = cfg.get("season_name", "Summer Splash")
         drop_role_id = cfg.get("drop_role_id")
@@ -493,7 +469,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
         channel: discord.TextChannel,
         item_name: Optional[str] = None,
     ) -> None:
-        """Envía el embed de drop con botón de reclamación."""
         if item_name is None:
             item_name = random.choice(COLLECTIBLE_NAMES)
         emoji = SUMMER_COLLECTIBLES.get(item_name, "🐚")
@@ -509,7 +484,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
         await channel.send(embed=embed, view=view)
 
     async def _auto_drop_loop(self, guild_id: int) -> None:
-        """Bucle en segundo plano que lanza drops automáticos aleatorios."""
         while True:
             cfg = await self._get_config(guild_id)
             if not cfg.get("active", False):
@@ -519,7 +493,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
             max_m = cfg.get("max_minutes", 120)
             await asyncio.sleep(random.randint(min_m * 60, max_m * 60))
 
-            # Re-verificar después de esperar
             cfg = await self._get_config(guild_id)
             if not cfg.get("active", False):
                 break
@@ -532,7 +505,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
             if not role_id:
                 continue
 
-        # ------------------ Commands (registered as app commands) ------------------
     @app_commands.command(
         name="ocean_drop",
         description="🌊 Launch a manual drop (random or specific channel)",
@@ -552,7 +524,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
     ):
         await interaction.response.defer(ephemeral=True)
 
-        # Normalize provided item name (case-insensitive)
         if item:
             item_canon = _resolve_item_name(item)
             if not item_canon:
@@ -851,7 +822,6 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
             missing_str = ", ".join(missing) if missing else "-"
             lines.append(f"{name} — ✅ {owned_str} — ❌ {missing_str}")
 
-        # Send in chunks to avoid exceeding Discord message length limits
         chunk = ""
         for l in lines:
             if len(chunk) + len(l) + 1 > 1900:
@@ -863,20 +833,7 @@ class OceanDropCog(commands.Cog, name="OceanDropCog"):
             await interaction.followup.send(chunk)
 
 
-# ─── Función de setup (llamada desde bot.py) ─────────────────────────────────
 async def setup_ocean_drop(bot: commands.Bot, db_pool) -> OceanDropCog:
-    """
-    Inicializa las tablas de BD y registra el Cog en el bot.
-
-    Uso en bot.py (dentro de on_connect, después de init_db_async()):
-
-        from ocean_drop_game import setup_ocean_drop, _init_ocean_tables
-
-        # En on_connect:
-        if not bot.cogs.get("OceanDropCog"):
-            await _init_ocean_tables(db_pool)
-            cog = await setup_ocean_drop(bot, db_pool)
-    """
     await _init_ocean_tables(db_pool)
     cog = OceanDropCog(bot, db_pool)
     await bot.add_cog(cog)

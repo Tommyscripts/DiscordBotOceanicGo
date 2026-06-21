@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 repo_root = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, repo_root)
 
-from bot_time_utils import local_slot_to_utc
+from oceanic_bot.utils import local_slot_to_utc
 
 
 def main():
