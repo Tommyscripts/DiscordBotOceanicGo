@@ -2935,66 +2935,49 @@ async def teddy_war(interaction: discord.Interaction, title: str = "Teddy War"):
 # ============================================================
 
 def _build_team_table(teams: dict[int, list[int]], lang: str = "en") -> str:
-    """Build a visual table showing all 10 teams and their members."""
+    """Build a visual table showing all 16 teams in a 4x4 grid."""
     empty_text = "Empty" if lang == "en" else "Vacío"
     team_label = "Team" if lang == "en" else "Equipo"
-    header_text = "TEDDY TEAMS" if lang == "en" else "EQUIPOS DE OSITOS"
-    player_text = "Player" if lang == "en" else "Jugador"
     
     lines = []
     
-    # Create a clean, wide table using Discord-friendly characters
-    lines.append("```ansi")
-    lines.append("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓")
-    lines.append(f"┃                    🧸  {header_text:^30}  🧸                    ┃")
-    lines.append("┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫")
-    
-    # Build all teams in order (1-10)
-    for team_num in range(1, 11):
-        members = teams.get(team_num, [])
+    # Build 4 rows with 4 teams each
+    for row in range(4):
+        row_teams = []
+        for col in range(4):
+            team_num = row * 4 + col + 1
+            members = teams.get(team_num, [])
+            
+            # Status icon
+            if len(members) == 2:
+                icon = "🟢"
+            elif len(members) == 1:
+                icon = "🟡"
+            else:
+                icon = "⚪"
+            
+            # Member display
+            if len(members) == 0:
+                member_display = f"`{empty_text}`\n`{empty_text}`"
+            elif len(members) == 1:
+                member_display = f"<@{members[0]}>\n`{empty_text}`"
+            else:
+                member_display = f"<@{members[0]}>\n<@{members[1]}>"
+            
+            row_teams.append(f"{icon} **{team_label} {team_num}**\n{member_display}")
         
-        if len(members) == 0:
-            status = f"[ {empty_text} ]  ⚔  [ {empty_text} ]"
-        elif len(members) == 1:
-            status = f"[ {player_text} 1 ]  ⚔  [ {empty_text} ]"
-        else:
-            status = f"[ {player_text} 1 ]  ⚔  [ {player_text} 2 ]"
+        # Join teams in this row with spacing
+        lines.append(" │ ".join(row_teams))
         
-        lines.append(f"┃   {team_label} {team_num:>2}  →  {status:<55}┃")
-        
-        # Add separator between teams (but not after the last one)
-        if team_num < 10:
-            lines.append("┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫")
-    
-    # Table footer
-    lines.append("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛")
-    lines.append("```")
-    lines.append("")
-    
-    # Now add the actual member mentions in a clean format
-    for team_num in range(1, 11):
-        members = teams.get(team_num, [])
-        
-        # Create visual indicators for team status
-        if len(members) == 2:
-            status_icon = "✅"
-        elif len(members) == 1:
-            status_icon = "⚠️"
-        else:
-            status_icon = "⭕"
-        
-        if len(members) == 0:
-            lines.append(f"{status_icon} **{team_label} {team_num}:** `{empty_text}` ⚔ `{empty_text}`")
-        elif len(members) == 1:
-            lines.append(f"{status_icon} **{team_label} {team_num}:** <@{members[0]}> ⚔ `{empty_text}`")
-        else:
-            lines.append(f"{status_icon} **{team_label} {team_num}:** <@{members[0]}> ⚔ <@{members[1]}>")
+        # Add separator between rows (but not after the last one)
+        if row < 3:
+            lines.append("―" * 75)
     
     return "\n".join(lines)
 
 
 class TeamSelectView(discord.ui.View):
-    """Dynamic button view for selecting teams 1-10 (only shows available teams)."""
+    """Dynamic button view for selecting teams 1-16 (only shows available teams)."""
     def __init__(self, msg_id: int, author_id: int, lang: str = "en"):
         super().__init__(timeout=180)
         self.msg_id = msg_id
@@ -3007,8 +2990,8 @@ class TeamSelectView(discord.ui.View):
         self.clear_items()
         teams = team_teddy_tournaments.get(self.msg_id, {})
         
-        # Show buttons for teams 1-10, but only if they're not full (have less than 2 members)
-        for team_num in range(1, 11):
+        # Show buttons for teams 1-16, but only if they're not full (have less than 2 members)
+        for team_num in range(1, 17):
             team_members = teams.get(team_num, [])
             if len(team_members) < 2:  # Team not full
                 button = discord.ui.Button(
