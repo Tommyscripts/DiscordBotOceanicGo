@@ -27,6 +27,9 @@ from oceanic_bot.games.duck import generate_duck, duck_to_bytes, random_duck, fi
 # Ocean Drop collectible game (moved into package)
 from oceanic_bot.games.ocean_drop import OceanDropCog, _init_ocean_tables
 
+# Custom Wheels game (per-server customizable roulettes)
+from oceanic_bot.games.custom_wheels import setup_custom_wheels
+
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 if TOKEN:
@@ -909,6 +912,9 @@ COMMAND_DESCRIPTIONS: dict[str, dict[str, str]] = {
         "__house__": "Haunted House: solo or co-op private text adventures",
         "__schedule__": "Show or add schedule signups",
         # Subcommands
+        "customwheels-settings": "Configure your server's custom wheel with personalized options",
+        "customwheels-spin": "Spin your server's custom wheel and get a random result",
+        "customwheels-view": "View your server's current custom wheel configuration",
         "shop.list": "List available shop items for this server or global ones",
         "shop.buy": "Buy a shop item using Snuggles",
         "shop.add": "(Admin) Add a shop item to this server or global",
@@ -973,6 +979,9 @@ COMMAND_DESCRIPTIONS: dict[str, dict[str, str]] = {
         "__house__": "Casa Embrujada: aventuras de texto privadas en solitario o cooperativo",
         "__schedule__": "Ver o añadir inscripciones a horarios",
         # Subcomandos
+        "customwheels-settings": "Configura la ruleta personalizada de tu servidor con opciones personalizadas",
+        "customwheels-spin": "Gira la ruleta personalizada de tu servidor y obtén un resultado aleatorio",
+        "customwheels-view": "Ve la configuración actual de la ruleta personalizada de tu servidor",
         "shop.list": "Lista los objetos disponibles en la tienda de este servidor o globales",
         "shop.buy": "Compra un objeto de la tienda usando Snuggles",
         "shop.add": "(Admin) Añade un objeto a la tienda de este servidor o global",
@@ -1411,6 +1420,12 @@ async def on_connect():
             await bot.add_cog(OceanDropCog(bot, db_pool))
     except Exception:
         logging.exception("[OceanDrop] Failed to load OceanDropCog")
+    # load Custom Wheels game cog
+    try:
+        if not bot.cogs.get("CustomWheelsCog"):
+            await setup_custom_wheels(bot, db_pool)
+    except Exception:
+        logging.exception("[CustomWheels] Failed to load CustomWheelsCog")
     # start Monopoly GO auto-poster
     try:
         asyncio.create_task(_monopoly_poster_loop())
