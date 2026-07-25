@@ -54,6 +54,16 @@ TEAM_BATTLE_TEXTS = {
             "🔚 Team {team_d} has been cuddled into retirement! Game over for {member_d1} & {member_d2}!",
             "💤 Team {team_a} tucks Team {team_d} into bed... permanently! Sweet dreams!",
         ],
+        "solo_eliminations": [
+            "💫 {eliminated} of Team {team_d} is knocked out, but {survivor} fights on alone!",
+            "🩹 Team {team_a} downs {eliminated}! Team {team_d} is at half strength — {survivor} isn't giving up!",
+            "⚡ {eliminated} gets sent to the pillow pit, but {survivor} of Team {team_d} still stands!",
+            "🧸 Half of Team {team_d} bites the stuffing! {eliminated} is out — {survivor} keeps fighting solo!",
+            "💥 {member_a1} blasts {eliminated} into the fluff zone! {survivor} of Team {team_d} fights on alone!",
+            "🎯 Team {team_a} scores a hit — {eliminated} is down! {survivor} from Team {team_d} is now a solo warrior!",
+            "⚔️ {eliminated} collapses dramatically, but {survivor} of Team {team_d} picks up the teddy torch!",
+            "🌪️ One down for Team {team_d}! {eliminated} naps while {survivor} vows revenge!",
+        ],
         "victory": [
             "🏆 VICTORY! Team {team_winner} ({member_1} & {member_2}) are the last teddies standing!",
             "👑 All hail Team {team_winner}! {member_1} and {member_2} have conquered the cuddle battlefield!",
@@ -101,6 +111,16 @@ TEAM_BATTLE_TEXTS = {
             "🎭 ¡Cae el telón sobre el Equipo {team_d} — salida dramática cortesía del Equipo {team_a}!",
             "🔚 ¡El Equipo {team_d} ha sido acurrucado hasta la jubilación! ¡Fin del juego para {member_d1} y {member_d2}!",
             "💤 ¡El Equipo {team_a} arropa al Equipo {team_d}... ¡permanentemente! ¡Dulces sueños!",
+        ],
+        "solo_eliminations": [
+            "💫 ¡{eliminated} del Equipo {team_d} ha caído, pero {survivor} sigue luchando solo!",
+            "🩹 ¡El Equipo {team_a} elimina a {eliminated}! ¡El Equipo {team_d} está a medio gas — {survivor} no se rinde!",
+            "⚡ ¡{eliminated} va al foso de almohadas, pero {survivor} del Equipo {team_d} aún sigue en pie!",
+            "🧸 ¡La mitad del Equipo {team_d} muerde el relleno! ¡{eliminated} está fuera — {survivor} sigue luchando solo!",
+            "💥 ¡{member_a1} manda a {eliminated} a la zona esponjosa! ¡{survivor} del Equipo {team_d} lucha en solitario!",
+            "🎯 ¡El Equipo {team_a} anota un golpe — {eliminated} está fuera! ¡{survivor} del Equipo {team_d} es ahora un guerrero solitario!",
+            "⚔️ ¡{eliminated} colapsa dramáticamente, pero {survivor} del Equipo {team_d} recoge la antorcha de peluche!",
+            "🌪️ ¡Uno menos para el Equipo {team_d}! ¡{eliminated} echa una siesta mientras {survivor} jura venganza!",
         ],
         "victory": [
             "🏆 ¡VICTORIA! ¡El Equipo {team_winner} ({member_1} y {member_2}) son los últimos ositos en pie!",

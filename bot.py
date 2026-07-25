@@ -559,6 +559,7 @@ tournaments_meta: dict[int, dict] = {}
 # Team Teddy Wars: msg_id -> {team_number -> [user_id, user_id]}
 team_teddy_tournaments: dict[int, dict[int, list[int]]] = {}
 team_teddy_meta: dict[int, dict] = {}
+team_teddy_channel: dict[int, int] = {}  # channel_id -> msg_id for quick lookup
 
 # In-memory storage for wheels (reaction-based roulette)
 wheels: dict[int, Set[int]] = {}
@@ -3137,6 +3138,8 @@ class TeamTeddyTournamentView(discord.ui.View):
         msg_id = interaction.message.id
         team_teddy_tournaments.pop(msg_id, None)
         team_teddy_meta.pop(msg_id, None)
+        if interaction.channel:
+            team_teddy_channel.pop(interaction.channel.id, None)
         
         for child in self.children:
             child.disabled = True
@@ -3153,108 +3156,136 @@ class TeamTeddyTournamentView(discord.ui.View):
     async def run_team_battle(self, interaction: discord.Interaction, teams: dict[int, list[int]]):
         """Run the team battle simulation."""
         channel = interaction.channel
-        alive_teams = list(teams.keys())  # List of team numbers still alive
-        
+
+        # Remove channel from active tournaments so new ones can be created
+        if channel:
+            team_teddy_channel.pop(channel.id, None)
+
+        # Keep original rosters for rewards; alive_members tracks who is still fighting
+        original_teams = {num: list(members) for num, members in teams.items()}
+        alive_members = {num: list(members) for num, members in teams.items()}
+
         # Assign images to all players
         image_map = ensure_team_teddy_images(teams)
         last_posted_image = None
-        
+
         if self.lang == "es":
             await channel.send("🧸 ¡Que comience la batalla de peluches! ¡Solo un equipo sobrevivirá! 🧸")
         else:
             await channel.send("🧸 Let the plush battle begin! Only one team will survive! 🧸")
-        
+
         await asyncio.sleep(2)
-        
-        # Battle loop
-        while len(alive_teams) > 1:
-            # Pick two random teams to battle
-            team_a_num, team_d_num = random.sample(alive_teams, 2)
-            team_a_members = teams[team_a_num]
-            team_d_members = teams[team_d_num]
-            
+
+        # Battle loop — teams fight until only one has living members
+        while True:
+            alive_team_list = [t for t, m in alive_members.items() if m]
+            if len(alive_team_list) <= 1:
+                break
+
+            # Pick two random alive teams to battle
+            team_a_num, team_d_num = random.sample(alive_team_list, 2)
+            team_a_alive = alive_members[team_a_num]
+            team_d_alive = alive_members[team_d_num]
+
+            # Resolve member slots (duplicate the lone member for templates that need two)
+            a1 = f"<@{team_a_alive[0]}>"
+            a2 = f"<@{team_a_alive[1]}>" if len(team_a_alive) > 1 else a1
+            d1 = f"<@{team_d_alive[0]}>"
+            d2 = f"<@{team_d_alive[1]}>" if len(team_d_alive) > 1 else d1
+
             # Attack message
             attack_texts = get_team_text(self.lang, "attacks")
             attack_msg = random.choice(attack_texts).format(
-                team_a=team_a_num,
-                team_d=team_d_num,
-                member_a1=f"<@{team_a_members[0]}>",
-                member_a2=f"<@{team_a_members[1]}>",
-                member_d1=f"<@{team_d_members[0]}>",
-                member_d2=f"<@{team_d_members[1]}>",
+                team_a=team_a_num, team_d=team_d_num,
+                member_a1=a1, member_a2=a2,
+                member_d1=d1, member_d2=d2,
             )
-            
-            # Pick image from attacking team
-            post_img = pick_random_team_image(team_a_members, image_map, last_posted_image)
+
+            post_img = pick_random_team_image(team_a_alive, image_map, last_posted_image)
             await self.send_battle_message(channel, attack_msg, post_img)
             last_posted_image = post_img
-            
+
             await asyncio.sleep(random.uniform(3, 6))
-            
-            # Determine loser (60% attacker wins, 40% defender wins)
+
+            # Determine which team takes the hit (60% defender loses, 40% attacker)
             loser_team_num = team_d_num if random.random() < 0.6 else team_a_num
             winner_team_num = team_a_num if loser_team_num == team_d_num else team_d_num
-            
-            loser_members = teams[loser_team_num]
-            winner_members = teams[winner_team_num]
-            
-            # Elimination message
-            elim_texts = get_team_text(self.lang, "eliminations")
-            elim_msg = random.choice(elim_texts).format(
-                team_a=winner_team_num,
-                team_d=loser_team_num,
-                member_d1=f"<@{loser_members[0]}>",
-                member_d2=f"<@{loser_members[1]}>",
-            )
-            
-            # Pick image from winning team
-            post_img = pick_random_team_image(winner_members, image_map, last_posted_image)
+
+            loser_alive = alive_members[loser_team_num]
+            winner_alive = alive_members[winner_team_num]
+
+            wm1 = f"<@{winner_alive[0]}>"
+            wm2 = f"<@{winner_alive[1]}>" if len(winner_alive) > 1 else wm1
+
+            # Eliminate ONE random member from the losing team
+            eliminated = random.choice(loser_alive)
+            alive_members[loser_team_num].remove(eliminated)
+
+            orig_loser = original_teams[loser_team_num]
+            od1 = f"<@{orig_loser[0]}>"
+            od2 = f"<@{orig_loser[1]}>" if len(orig_loser) > 1 else od1
+
+            if not alive_members[loser_team_num]:
+                # Whole team is out — full elimination message
+                elim_texts = get_team_text(self.lang, "eliminations")
+                elim_msg = random.choice(elim_texts).format(
+                    team_a=winner_team_num, team_d=loser_team_num,
+                    member_d1=od1, member_d2=od2,
+                )
+            else:
+                # One member down, partner fights on — solo elimination message
+                survivor = alive_members[loser_team_num][0]
+                solo_texts = get_team_text(self.lang, "solo_eliminations")
+                elim_msg = random.choice(solo_texts).format(
+                    team_a=winner_team_num, team_d=loser_team_num,
+                    eliminated=f"<@{eliminated}>",
+                    survivor=f"<@{survivor}>",
+                    member_a1=wm1, member_a2=wm2,
+                )
+
+            post_img = pick_random_team_image(winner_alive, image_map, last_posted_image)
             await self.send_battle_message(channel, elim_msg, post_img)
             last_posted_image = post_img
-            
-            # Remove losing team
-            alive_teams.remove(loser_team_num)
-            
-            # Random taunt (30% chance)
-            if random.random() < 0.3 and len(alive_teams) > 1:
+
+            # Random taunt (30% chance) only on full-team eliminations with survivors
+            if not alive_members[loser_team_num] and random.random() < 0.3 and len(alive_team_list) > 2:
                 await asyncio.sleep(random.uniform(2, 4))
                 taunt_texts = get_team_text(self.lang, "taunts")
                 taunt_msg = random.choice(taunt_texts).format(
-                    team_a=winner_team_num,
-                    team_d=loser_team_num,
-                    member_a1=f"<@{winner_members[0]}>",
-                    member_a2=f"<@{winner_members[1]}>",
-                    member_d1=f"<@{loser_members[0]}>",
-                    member_d2=f"<@{loser_members[1]}>",
+                    team_a=winner_team_num, team_d=loser_team_num,
+                    member_a1=wm1, member_a2=wm2,
+                    member_d1=od1, member_d2=od2,
                 )
                 await channel.send(taunt_msg)
-            
+
             await asyncio.sleep(random.uniform(3, 6))
-        
+
         # Victory!
-        winner_team_num = alive_teams[0]
-        winner_members = teams[winner_team_num]
-        
+        alive_team_list = [t for t, m in alive_members.items() if m]
+        winner_team_num = alive_team_list[0] if alive_team_list else list(teams.keys())[0]
+        # Reward ALL original members of the winning team (including any eliminated partner)
+        winner_original = original_teams[winner_team_num]
+
         victory_texts = get_team_text(self.lang, "victory")
         victory_msg = random.choice(victory_texts).format(
             team_winner=winner_team_num,
-            member_1=f"<@{winner_members[0]}>",
-            member_2=f"<@{winner_members[1]}>",
+            member_1=f"<@{winner_original[0]}>",
+            member_2=f"<@{winner_original[1]}>" if len(winner_original) > 1 else f"<@{winner_original[0]}>",
         )
-        
+
         # Use victory.png for the winner
         victory_img = get_victory_image()
         await self.send_battle_message(channel, victory_msg, victory_img)
-        
-        # Award currency to both winners
+
+        # Award currency to ALL original members of the winning team
         try:
             guild = interaction.guild
             if guild:
                 # Calculate reward based on total participants
                 total_participants = sum(len(members) for members in teams.values())
                 reward_per_winner = 3 * total_participants  # 3x per participant
-                
-                for winner_id in winner_members:
+
+                for winner_id in winner_original:
                     try:
                         if await is_staff_in_guild(guild, winner_id):
                             _emoji, _cname = await get_currency_display(guild.id)
@@ -3264,11 +3295,11 @@ class TeamTeddyTournamentView(discord.ui.View):
                             await channel.send(f"{await fmt_currency(guild.id, reward_per_winner)} awarded to <@{winner_id}>! 🎉")
                     except Exception as e:
                         print(f"Error awarding currency to {winner_id}: {e}")
-                
-                # Record wins
+
+                # Record wins for ALL original members of the winning team
                 await _ensure_db_pool()
                 async with db_pool.acquire() as conn:
-                    for winner_id in winner_members:
+                    for winner_id in winner_original:
                         try:
                             await conn.execute(
                                 "INSERT INTO wins_global(user_id, wins) VALUES ($1, 1) ON CONFLICT(user_id) DO UPDATE SET wins = wins_global.wins + EXCLUDED.wins",
@@ -3350,6 +3381,8 @@ async def team_teddy_war(interaction: discord.Interaction, title: str = "Team Te
         "start": int(time.time()),
         "main_message_id": sent.id,
     }
+    if interaction.channel:
+        team_teddy_channel[interaction.channel.id] = sent.id
 
 
 @bot.tree.command(name="jointeamteddy", description="Join a Team Teddy War tournament")
@@ -3358,18 +3391,15 @@ async def join_team_teddy(interaction: discord.Interaction):
     guild_id = interaction.guild.id if interaction.guild else 0
     lang = await get_guild_language(guild_id) if interaction.guild else "en"
     
-    # Find the most recent team teddy tournament in this channel
     channel = interaction.channel
-    msg_id = None
     
-    # Look through recent messages to find an active tournament
-    try:
-        async for message in channel.history(limit=50):
-            if message.id in team_teddy_tournaments:
-                msg_id = message.id
-                break
-    except Exception:
-        pass
+    # Find active tournament in this channel via the fast channel index
+    msg_id = team_teddy_channel.get(channel.id) if channel else None
+    
+    # Validate that the tournament still exists in memory
+    if msg_id and msg_id not in team_teddy_tournaments:
+        team_teddy_channel.pop(channel.id, None)
+        msg_id = None
     
     if not msg_id:
         if lang == "es":
@@ -7124,11 +7154,10 @@ async def resync_commands(interaction: discord.Interaction):
         guild_obj = discord.Object(id=interaction.guild.id)
         bot.tree.copy_global_to(guild=guild_obj)
         synced = await bot.tree.sync(guild=guild_obj)
-        global_synced = await bot.tree.sync()
         # Prefer followup since we've already deferred
         try:
             await interaction.followup.send(
-                f"Synced {len(synced)} commands in this guild and {len(global_synced)} global commands.",
+                f"Synced {len(synced)} commands in this guild.",
                 ephemeral=True,
             )
         except Exception:
