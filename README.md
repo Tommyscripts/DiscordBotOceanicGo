@@ -14,6 +14,7 @@ Bienvenido al santuario marino donde los patos son héroes, los peluches asedian
 - Juegos: generador de patos épicos, duelos, Teddy Wars y House (escape).
 - Drops estacionales con coleccionables, comercio y leaderboard.
 - Economía ligera y tienda social (Snuggles / turkeys).
+- Ruletas personalizables: cada servidor puede crear su propia ruleta con opciones personalizadas.
 - Herramientas de moderación, programación de partidas y vistas interactivas.
 
 Características principales
@@ -23,6 +24,7 @@ Características principales
 - 🌊 Ocean Drops: temporadas con drops automáticos, `/trade` y `/leaderboard`.
 - 🧸 Teddy Wars: simulador local y comandos para publicar eventos con assets.
 - 🏚️ Haunted House: escape-room cooperativo con canales privados y botones.
+- 🎡 Custom Wheels: ruletas personalizables por servidor con 2-50 opciones y animación GIF.
 - ⏲️ `/schedule`: sistema de horarios con visualización por zona horaria del espectador.
 - 🖼️ Generación de imágenes local usando Pillow (assets en `assets/` y `teddy_wars/`).
 
@@ -42,6 +44,9 @@ Comandos de barra (/):
 - `/leaderboard` — Top collectors de la temporada.
 - `/house` — Grupo de comandos para la Haunted House (create, invite, start, action...)
 - `/schedule show|add|delete` — Gestión de horarios y reservas.
+- `/customwheels-settings` — Configura tu ruleta personalizada (requiere Manage Server).
+- `/customwheels-spin` — Gira la ruleta y obtén un resultado aleatorio con animación.
+- `/customwheels-view` — Muestra las opciones configuradas de tu ruleta.
 - `/resync_commands` — Forzar re-sync de comandos (admins).
 - `/m lock` / `/m unlock` — Bloquear/desbloquear canal rápidamente.
 
@@ -75,6 +80,14 @@ Ejecutar localmente
 python3 bot.py
 ```
 
+**Nota sobre sincronización de comandos:**
+El bot ahora sincroniza automáticamente los comandos slash en cada inicio/redeploy a todos los servidores donde está presente. Esto significa que:
+- ✅ Los comandos estarán disponibles inmediatamente después de cada redeploy en Railway
+- ✅ No necesitas ejecutar `/resync_commands` manualmente después de actualizaciones
+- ✅ Los comandos se sincronizan automáticamente al unirse a nuevos servidores
+
+Si quieres usar el modo de desarrollo (sync solo a un servidor específico), define `GUILD_ID` en tu `.env`.
+
 Simulador Teddy Wars (no necesita Discord):
 
 ```bash
@@ -93,6 +106,53 @@ Dependencias principales
 - `python-dotenv` (para `.env`)
 - `Pillow` (composición de imágenes)
 - `asyncpg` (Postgres opcional)
+
+
+🎡 Custom Wheels — Ruletas Personalizadas
+----------------------------------------
+
+Cada servidor puede crear su propia ruleta con opciones completamente personalizadas.
+
+### ¿Cómo funciona?
+
+1. **Configurar** (solo administradores):
+   ```
+   /customwheels-settings
+   ```
+   - Click en "Set Number of Options" → Elige cuántas opciones (2-50)
+   - Click en "Configure Options" → Nombra cada opción
+   - Click en "💾 Save Wheel" → Guarda tu configuración
+
+2. **Usar** (cualquier miembro):
+   ```
+   /customwheels-spin
+   ```
+   - Gira la ruleta y obtén un resultado aleatorio
+   - Se genera un GIF animado mostrando la ruleta girando
+   - El resultado se muestra en un embed elegante
+
+3. **Ver configuración**:
+   ```
+   /customwheels-view
+   ```
+   - Muestra todas las opciones configuradas
+   - Fecha de creación y última actualización
+
+### Ejemplos de uso:
+- 🎮 Decidir qué juego jugar (Minecraft, Valorant, LOL, etc.)
+- 🎥 Elegir tipo de stream (Horror, Speedrun, Chill, etc.)
+- 🎁 Sorteos de premios (Nitro, Gift cards, Roles, etc.)
+- 🎯 Retos del servidor (Meme, Fact, Joke, Pet pic, etc.)
+
+### Características técnicas:
+- ✅ Una ruleta personalizada por servidor
+- ✅ 2-50 opciones configurables
+- ✅ Persistencia en base de datos (no se pierde al reiniciar)
+- ✅ Animación GIF con colores distintos por opción
+- ✅ Interfaz intuitiva con botones interactivos
+- ✅ Disponible para todos los miembros una vez configurada
+
+Para más detalles, consulta `docs/custom_wheels_guide.md`.
 
 
 Soporte y donaciones

@@ -130,8 +130,14 @@ async def _auto_resync_loop(interval: int = 300):
                 except Exception:
                     logging.exception("Auto resync to guild failed")
             else:
-                synced = await bot.tree.sync()
-                logging.info(f"Auto-synced {len(synced)} global commands")
+                # Sync to each guild individually (faster than global sync)
+                for guild in bot.guilds:
+                    try:
+                        bot.tree.copy_global_to(guild=guild)
+                        synced = await bot.tree.sync(guild=guild)
+                        logging.info(f"Auto-synced {len(synced)} commands to guild {guild.id} ({guild.name})")
+                    except Exception:
+                        logging.exception(f"Auto resync to guild {guild.id} failed")
         except Exception:
             logging.exception("Auto-resync failed")
         try:
@@ -1639,7 +1645,7 @@ async def on_ready():
     """Sync application (slash) commands so `/m lock`, `/m unlock` and `/settings ...` appear.
 
     If `GUILD_ID` is set, sync only to that guild (fast, dev-friendly).
-    Otherwise do a global sync (may take longer to propagate across Discord).
+    Otherwise sync to all guilds individually (faster than global sync).
     """
     if getattr(bot, "_did_initial_sync", False):
         return
@@ -1687,8 +1693,18 @@ async def on_ready():
             synced = await bot.tree.sync(guild=guild_obj)
             logging.info(f"Synced {len(synced)} commands to guild {gid}")
         else:
-            synced = await bot.tree.sync()
-            logging.info(f"Synced {len(synced)} global commands")
+            # Sync to each guild individually (much faster than global sync)
+            # This ensures commands are available immediately after deploy/restart
+            synced_count = 0
+            for guild in bot.guilds:
+                try:
+                    bot.tree.copy_global_to(guild=guild)
+                    synced = await bot.tree.sync(guild=guild)
+                    synced_count += 1
+                    logging.info(f"Synced {len(synced)} commands to guild {guild.id} ({guild.name})")
+                except Exception as e:
+                    logging.error(f"Failed to sync commands to guild {guild.id}: {e}")
+            logging.info(f"Successfully synced commands to {synced_count}/{len(bot.guilds)} guilds")
     except Exception:
         logging.exception("Failed to sync application commands")
 
@@ -1717,6 +1733,19 @@ async def on_ready():
                 logging.info(f"Started automatic resync loop every {interval}s")
     except Exception:
         logging.exception("Failed to start auto resync loop")
+
+
+@bot.event
+async def on_guild_join(guild: discord.Guild):
+    """Automatically sync commands when the bot joins a new server."""
+    try:
+        logging.info(f"Joined new guild: {guild.name} (id={guild.id})")
+        # Sync commands to this new guild
+        bot.tree.copy_global_to(guild=guild)
+        synced = await bot.tree.sync(guild=guild)
+        logging.info(f"Auto-synced {len(synced)} commands to new guild {guild.id} ({guild.name})")
+    except Exception:
+        logging.exception(f"Failed to auto-sync commands to new guild {guild.id}")
 
 
 async def _gather_original_overwrites(ch: discord.TextChannel) -> dict:
