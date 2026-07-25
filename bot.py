@@ -2934,6 +2934,42 @@ async def teddy_war(interaction: discord.Interaction, title: str = "Teddy War"):
 # TEAM TEDDY WAR - Battle royale with teams of 2
 # ============================================================
 
+def _build_team_table(teams: dict[int, list[int]], lang: str = "en") -> str:
+    """Build a visual table showing all 10 teams and their members."""
+    empty_text = "Empty" if lang == "en" else "Vacío"
+    lines = []
+    
+    # Build table in 2 columns (teams 1-5 on left, teams 6-10 on right)
+    for row in range(5):
+        left_team = row + 1
+        right_team = row + 6
+        
+        # Left team
+        left_members = teams.get(left_team, [])
+        left_line = f"**Team {left_team}:** " if lang == "en" else f"**Equipo {left_team}:** "
+        if len(left_members) == 0:
+            left_line += f"{empty_text} / {empty_text}"
+        elif len(left_members) == 1:
+            left_line += f"<@{left_members[0]}> / {empty_text}"
+        else:
+            left_line += f"<@{left_members[0]}> / <@{left_members[1]}>"
+        
+        # Right team
+        right_members = teams.get(right_team, [])
+        right_line = f"**Team {right_team}:** " if lang == "en" else f"**Equipo {right_team}:** "
+        if len(right_members) == 0:
+            right_line += f"{empty_text} / {empty_text}"
+        elif len(right_members) == 1:
+            right_line += f"<@{right_members[0]}> / {empty_text}"
+        else:
+            right_line += f"<@{right_members[0]}> / <@{right_members[1]}>"
+        
+        # Combine left and right
+        lines.append(f"{left_line}\n{right_line}")
+    
+    return "\n\n".join(lines)
+
+
 class TeamSelectView(discord.ui.View):
     """Dynamic button view for selecting teams 1-10 (only shows available teams)."""
     def __init__(self, msg_id: int, author_id: int, lang: str = "en"):
@@ -3014,40 +3050,30 @@ class TeamSelectView(discord.ui.View):
                     main_msg = await channel.fetch_message(main_msg_id)
                     teams = team_teddy_tournaments.get(self.msg_id, {})
                     
-                    # Build teams description
-                    teams_text = ""
-                    total_players = 0
-                    for team_num in sorted(teams.keys()):
-                        members = teams[team_num]
-                        if members:
-                            total_players += len(members)
-                            member_mentions = " & ".join([f"<@{uid}>" for uid in members])
-                            if self.lang == "es":
-                                teams_text += f"**Equipo {team_num}:** {member_mentions}\n"
-                            else:
-                                teams_text += f"**Team {team_num}:** {member_mentions}\n"
+                    # Build teams table
+                    teams_table = _build_team_table(teams, self.lang)
                     
-                    if not teams_text:
-                        if self.lang == "es":
-                            teams_text = "*No hay equipos aún. ¡Únete ahora!*"
-                        else:
-                            teams_text = "*No teams yet. Join now!*"
+                    # Count total players and complete teams
+                    total_players = sum(len(members) for members in teams.values())
+                    complete_teams = sum(1 for members in teams.values() if len(members) == 2)
                     
                     embed = main_msg.embeds[0] if main_msg.embeds else discord.Embed(title="Team Teddy War", color=0xFF1493)
                     
                     if self.lang == "es":
                         description = (
                             f"🧸 **Batalla por Equipos de Ositos** 🧸\n\n"
-                            f"**Equipos actuales ({total_players} jugadores):**\n{teams_text}\n"
+                            f"**Estado:** {total_players} jugadores | {complete_teams} equipos completos\n\n"
+                            f"{teams_table}\n\n"
                             f"Usa `/jointeamteddy` para unirte a un equipo.\n"
-                            f"El anfitrión puede iniciar cuando esté listo."
+                            f"El anfitrión puede iniciar cuando haya mínimo 2 equipos completos."
                         )
                     else:
                         description = (
                             f"🧸 **Team Teddy Battle Royale** 🧸\n\n"
-                            f"**Current Teams ({total_players} players):**\n{teams_text}\n"
+                            f"**Status:** {total_players} players | {complete_teams} complete teams\n\n"
+                            f"{teams_table}\n\n"
                             f"Use `/jointeamteddy` to join a team.\n"
-                            f"Host can start when ready."
+                            f"Host can start when there are at least 2 complete teams."
                         )
                     
                     embed.description = description
@@ -3286,27 +3312,35 @@ async def team_teddy_war(interaction: discord.Interaction, title: str = "Team Te
     guild_id = interaction.guild.id if interaction.guild else 0
     lang = await get_guild_language(guild_id) if interaction.guild else "en"
     
+    # Initialize empty teams
+    teams = {}
+    
+    # Build teams table (all empty initially)
+    teams_table = _build_team_table(teams, lang)
+    
     # Create embed
     embed = discord.Embed(title=title, color=0xFF1493)
     
     if lang == "es":
         description = (
             "🧸 **¡Guerra de Ositos por Equipos!** 🧸\n\n"
+            "**Estado:** 0 jugadores | 0 equipos completos\n\n"
+            f"{teams_table}\n\n"
             "**Instrucciones:**\n"
-            "• Usa `/jointeamteddy` para unirte a un equipo (1-10)\n"
+            "• Usa `/jointeamteddy` para unirte a un equipo\n"
             "• Cada equipo necesita exactamente 2 jugadores\n"
-            "• Mínimo 2 equipos completos para iniciar\n"
-            "• El equipo ganador se lleva todo (ambos jugadores ganan)\n\n"
+            "• Mínimo 2 equipos completos para iniciar\n\n"
             "¡Los equipos lucharán hasta que solo quede uno! 🔥"
         )
     else:
         description = (
             "🧸 **Team Teddy War!** 🧸\n\n"
+            "**Status:** 0 players | 0 complete teams\n\n"
+            f"{teams_table}\n\n"
             "**Instructions:**\n"
-            "• Use `/jointeamteddy` to join a team (1-10)\n"
+            "• Use `/jointeamteddy` to join a team\n"
             "• Each team needs exactly 2 players\n"
-            "• Minimum 2 complete teams to start\n"
-            "• Winning team takes all (both players win)\n\n"
+            "• Minimum 2 complete teams to start\n\n"
             "Teams will battle until only one remains! 🔥"
         )
     
