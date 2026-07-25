@@ -2952,7 +2952,7 @@ def _build_team_table(teams: dict[int, list[int]], lang: str = "en") -> str:
         for col in range(4):
             team_num = row * 4 + col + 1
             team_headers.append(f"**{team_label} {team_num:02d}**")
-        lines.append("     ".join(team_headers))
+        lines.append("          ".join(team_headers))
         
         # Row 2: Player 1
         player1_line = []
