@@ -2939,39 +2939,50 @@ def _build_team_table(teams: dict[int, list[int]], lang: str = "en") -> str:
     empty_text = "Empty" if lang == "en" else "Vacío"
     team_label = "Team" if lang == "en" else "Equipo"
     
+    # Color palette for teams (different color per team)
+    colors = ["🔴", "🔵", "🟢", "🟡", "🟣", "🟠", "🟤", "⚫", 
+              "🔴", "🔵", "🟢", "🟡", "🟣", "🟠", "🟤", "⚫"]
+    
     lines = []
     
     # Build 4 rows with 4 teams each
     for row in range(4):
-        row_teams = []
+        # Row 1: Team headers
+        team_headers = []
+        for col in range(4):
+            team_num = row * 4 + col + 1
+            team_headers.append(f"**{team_label} {team_num:02d}**")
+        lines.append("     ".join(team_headers))
+        
+        # Row 2: Player 1
+        player1_line = []
         for col in range(4):
             team_num = row * 4 + col + 1
             members = teams.get(team_num, [])
+            color = colors[team_num - 1]
             
-            # Status icon
-            if len(members) == 2:
-                icon = "🟢"
-            elif len(members) == 1:
-                icon = "🟡"
+            if len(members) >= 1:
+                player1_line.append(f"{color} <@{members[0]}>")
             else:
-                icon = "⚪"
+                player1_line.append(f"{color} `{empty_text}`")
+        lines.append("     ".join(player1_line))
+        
+        # Row 3: Player 2
+        player2_line = []
+        for col in range(4):
+            team_num = row * 4 + col + 1
+            members = teams.get(team_num, [])
+            color = colors[team_num - 1]
             
-            # Member display
-            if len(members) == 0:
-                member_display = f"`{empty_text}`\n`{empty_text}`"
-            elif len(members) == 1:
-                member_display = f"<@{members[0]}>\n`{empty_text}`"
+            if len(members) >= 2:
+                player2_line.append(f"{color} <@{members[1]}>")
             else:
-                member_display = f"<@{members[0]}>\n<@{members[1]}>"
-            
-            row_teams.append(f"{icon} **{team_label} {team_num}**\n{member_display}")
+                player2_line.append(f"{color} `{empty_text}`")
+        lines.append("     ".join(player2_line))
         
-        # Join teams in this row with spacing
-        lines.append(" │ ".join(row_teams))
-        
-        # Add separator between rows (but not after the last one)
+        # Add blank line between rows (but not after the last one)
         if row < 3:
-            lines.append("―" * 75)
+            lines.append("")
     
     return "\n".join(lines)
 
