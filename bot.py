@@ -2937,37 +2937,55 @@ async def teddy_war(interaction: discord.Interaction, title: str = "Teddy War"):
 def _build_team_table(teams: dict[int, list[int]], lang: str = "en") -> str:
     """Build a visual table showing all 10 teams and their members."""
     empty_text = "Empty" if lang == "en" else "Vacío"
+    team_label = "Team" if lang == "en" else "Equipo"
+    
     lines = []
     
-    # Build table in 2 columns (teams 1-5 on left, teams 6-10 on right)
-    for row in range(5):
-        left_team = row + 1
-        right_team = row + 6
-        
-        # Left team
-        left_members = teams.get(left_team, [])
-        left_line = f"**Team {left_team}:** " if lang == "en" else f"**Equipo {left_team}:** "
-        if len(left_members) == 0:
-            left_line += f"{empty_text} / {empty_text}"
-        elif len(left_members) == 1:
-            left_line += f"<@{left_members[0]}> / {empty_text}"
-        else:
-            left_line += f"<@{left_members[0]}> / <@{left_members[1]}>"
-        
-        # Right team
-        right_members = teams.get(right_team, [])
-        right_line = f"**Team {right_team}:** " if lang == "en" else f"**Equipo {right_team}:** "
-        if len(right_members) == 0:
-            right_line += f"{empty_text} / {empty_text}"
-        elif len(right_members) == 1:
-            right_line += f"<@{right_members[0]}> / {empty_text}"
-        else:
-            right_line += f"<@{right_members[0]}> / <@{right_members[1]}>"
-        
-        # Combine left and right
-        lines.append(f"{left_line}\n{right_line}")
+    # Table header
+    lines.append("```")
+    lines.append("╔════════════════════════════════════════════════════════════════════╗")
+    lines.append("║                      🧸  EQUIPOS DE OSITOS  🧸                     ║")
+    lines.append("╠════════════════════════════════════════════════════════════════════╣")
     
-    return "\n\n".join(lines)
+    # Build all teams in order (1-10)
+    for team_num in range(1, 11):
+        members = teams.get(team_num, [])
+        
+        # Format team number with padding
+        team_header = f"  {team_label} {team_num:2d}  "
+        
+        if len(members) == 0:
+            member_text = f"[ {empty_text} ]  &  [ {empty_text} ]"
+        elif len(members) == 1:
+            # Get first member mention (we'll show it outside the code block)
+            member_text = f"[ Jugador 1 ]  &  [ {empty_text} ]"
+        else:
+            member_text = f"[ Jugador 1 ]  &  [ Jugador 2 ]"
+        
+        lines.append(f"║ {team_header}│ {member_text:<45} ║")
+        
+        # Add separator between teams (but not after the last one)
+        if team_num < 10:
+            lines.append("╟────────────┼────────────────────────────────────────────────────╢")
+    
+    # Table footer
+    lines.append("╚════════════════════════════════════════════════════════════════════╝")
+    lines.append("```")
+    
+    # Now add the actual member mentions outside the code block
+    member_lines = []
+    for team_num in range(1, 11):
+        members = teams.get(team_num, [])
+        
+        if len(members) == 0:
+            member_lines.append(f"**{team_label} {team_num}:** `{empty_text}` ╱ `{empty_text}`")
+        elif len(members) == 1:
+            member_lines.append(f"**{team_label} {team_num}:** <@{members[0]}> ╱ `{empty_text}`")
+        else:
+            member_lines.append(f"**{team_label} {team_num}:** <@{members[0]}> ╱ <@{members[1]}>")
+    
+    # Combine table structure with member mentions
+    return "\n".join(lines) + "\n\n" + "\n".join(member_lines)
 
 
 class TeamSelectView(discord.ui.View):
