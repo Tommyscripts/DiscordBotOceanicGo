@@ -7152,12 +7152,25 @@ async def resync_commands(interaction: discord.Interaction):
 
     try:
         guild_obj = discord.Object(id=interaction.guild.id)
+
+        # 1) Clear stale global commands from Discord (removes any previous duplicates)
+        global_cmds = bot.tree.get_commands(guild=None)
+        bot.tree.clear_commands(guild=None)
+        await bot.tree.sync()  # push empty list → Discord deletes global registrations
+
+        # 2) Restore commands to the in-memory tree and sync to this guild only
+        for cmd in global_cmds:
+            try:
+                bot.tree.add_command(cmd)
+            except Exception:
+                pass  # already present (some commands add themselves on import)
         bot.tree.copy_global_to(guild=guild_obj)
         synced = await bot.tree.sync(guild=guild_obj)
+
         # Prefer followup since we've already deferred
         try:
             await interaction.followup.send(
-                f"Synced {len(synced)} commands in this guild.",
+                f"Synced {len(synced)} commands in this guild (global commands cleared to avoid duplicates).",
                 ephemeral=True,
             )
         except Exception:
@@ -7165,7 +7178,7 @@ async def resync_commands(interaction: discord.Interaction):
             try:
                 if interaction.channel:
                     await interaction.channel.send(
-                        f"Synced {len(synced)} commands in this guild and {len(global_synced)} global commands."
+                        f"Synced {len(synced)} commands in this guild."
                     )
             except Exception:
                 pass
