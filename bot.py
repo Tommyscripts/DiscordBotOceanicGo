@@ -30,6 +30,12 @@ from oceanic_bot.games.ocean_drop import OceanDropCog, _init_ocean_tables
 # Custom Wheels game (per-server customizable roulettes)
 from oceanic_bot.games.custom_wheels import setup_custom_wheels
 
+# Team Teddy War game (team battles)
+from oceanic_bot.games.team_teddy_war import (
+    get_team_text, ensure_team_teddy_images, pick_random_team_image, 
+    get_victory_image, load_team_teddy_images
+)
+
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 if TOKEN:
@@ -549,6 +555,10 @@ if APPLICATION_ID:
 tournaments: dict[int, Set[int]] = {}
 # Additional metadata: map message_id -> dict with 'start' timestamp and 'host'
 tournaments_meta: dict[int, dict] = {}
+
+# Team Teddy Wars: msg_id -> {team_number -> [user_id, user_id]}
+team_teddy_tournaments: dict[int, dict[int, list[int]]] = {}
+team_teddy_meta: dict[int, dict] = {}
 
 # In-memory storage for wheels (reaction-based roulette)
 wheels: dict[int, Set[int]] = {}
@@ -2918,6 +2928,437 @@ async def teddy_war(interaction: discord.Interaction, title: str = "Teddy War"):
         "start": int(time.time()),
         "max_participants": 50,
     }
+
+
+# ============================================================
+# TEAM TEDDY WAR - Battle royale with teams of 2
+# ============================================================
+
+class TeamSelectView(discord.ui.View):
+    """Dynamic button view for selecting teams 1-10 (only shows available teams)."""
+    def __init__(self, msg_id: int, author_id: int, lang: str = "en"):
+        super().__init__(timeout=180)
+        self.msg_id = msg_id
+        self.author_id = author_id
+        self.lang = lang
+        self.update_buttons()
+    
+    def update_buttons(self):
+        """Update buttons to show only available teams."""
+        self.clear_items()
+        teams = team_teddy_tournaments.get(self.msg_id, {})
+        
+        # Show buttons for teams 1-10, but only if they're not full (have less than 2 members)
+        for team_num in range(1, 11):
+            team_members = teams.get(team_num, [])
+            if len(team_members) < 2:  # Team not full
+                button = discord.ui.Button(
+                    label=f"Team {team_num}" if self.lang == "en" else f"Equipo {team_num}",
+                    style=discord.ButtonStyle.primary if len(team_members) == 0 else discord.ButtonStyle.success,
+                    custom_id=f"team_{team_num}",
+                    emoji="🧸"
+                )
+                button.callback = self.make_team_callback(team_num)
+                self.add_item(button)
+    
+    def make_team_callback(self, team_num: int):
+        """Create a callback for a specific team button."""
+        async def callback(interaction: discord.Interaction):
+            if interaction.user.id != self.author_id:
+                if self.lang == "es":
+                    await interaction.response.send_message("¡Este menú es solo para quien lo abrió!", ephemeral=True)
+                else:
+                    await interaction.response.send_message("This menu is only for the person who opened it!", ephemeral=True)
+                return
+            
+            teams = team_teddy_tournaments.get(self.msg_id, {})
+            
+            # Check if user is already in a team
+            for t_num, members in teams.items():
+                if interaction.user.id in members:
+                    if self.lang == "es":
+                        await interaction.response.send_message(f"¡Ya estás en el Equipo {t_num}! No puedes unirte a otro equipo.", ephemeral=True)
+                    else:
+                        await interaction.response.send_message(f"You're already in Team {t_num}! You can't join another team.", ephemeral=True)
+                    return
+            
+            # Add user to selected team
+            if team_num not in teams:
+                teams[team_num] = []
+            
+            teams[team_num].append(interaction.user.id)
+            
+            # Update main message
+            await self.update_main_message(interaction)
+            
+            if self.lang == "es":
+                await interaction.response.send_message(f"¡Te uniste al Equipo {team_num}! 🧸", ephemeral=True)
+            else:
+                await interaction.response.send_message(f"Joined Team {team_num}! 🧸", ephemeral=True)
+            
+            # Update this view to hide button if team is now full
+            self.update_buttons()
+            await interaction.message.edit(view=self)
+        
+        return callback
+    
+    async def update_main_message(self, interaction: discord.Interaction):
+        """Update the main tournament message with current teams."""
+        try:
+            # Get the original tournament message
+            meta = team_teddy_meta.get(self.msg_id, {})
+            main_msg_id = meta.get("main_message_id")
+            if main_msg_id:
+                channel = interaction.channel
+                try:
+                    main_msg = await channel.fetch_message(main_msg_id)
+                    teams = team_teddy_tournaments.get(self.msg_id, {})
+                    
+                    # Build teams description
+                    teams_text = ""
+                    total_players = 0
+                    for team_num in sorted(teams.keys()):
+                        members = teams[team_num]
+                        if members:
+                            total_players += len(members)
+                            member_mentions = " & ".join([f"<@{uid}>" for uid in members])
+                            if self.lang == "es":
+                                teams_text += f"**Equipo {team_num}:** {member_mentions}\n"
+                            else:
+                                teams_text += f"**Team {team_num}:** {member_mentions}\n"
+                    
+                    if not teams_text:
+                        if self.lang == "es":
+                            teams_text = "*No hay equipos aún. ¡Únete ahora!*"
+                        else:
+                            teams_text = "*No teams yet. Join now!*"
+                    
+                    embed = main_msg.embeds[0] if main_msg.embeds else discord.Embed(title="Team Teddy War", color=0xFF1493)
+                    
+                    if self.lang == "es":
+                        description = (
+                            f"🧸 **Batalla por Equipos de Ositos** 🧸\n\n"
+                            f"**Equipos actuales ({total_players} jugadores):**\n{teams_text}\n"
+                            f"Usa `/jointeamteddy` para unirte a un equipo.\n"
+                            f"El anfitrión puede iniciar cuando esté listo."
+                        )
+                    else:
+                        description = (
+                            f"🧸 **Team Teddy Battle Royale** 🧸\n\n"
+                            f"**Current Teams ({total_players} players):**\n{teams_text}\n"
+                            f"Use `/jointeamteddy` to join a team.\n"
+                            f"Host can start when ready."
+                        )
+                    
+                    embed.description = description
+                    await main_msg.edit(embed=embed)
+                except Exception as e:
+                    print(f"Error updating main message: {e}")
+        except Exception as e:
+            print(f"Error in update_main_message: {e}")
+
+
+class TeamTeddyTournamentView(discord.ui.View):
+    """Main view for Team Teddy War tournament."""
+    def __init__(self, host: discord.Member | None = None, lang: str = "en", timeout: int | None = None):
+        super().__init__(timeout=timeout)
+        self.host = host
+        self.lang = lang
+    
+    @discord.ui.button(label="Start Battle", style=discord.ButtonStyle.danger, emoji="⚔️", custom_id="start_team_battle")
+    async def start_battle(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.host and interaction.user != self.host and not interaction.user.guild_permissions.manage_guild:
+            if self.lang == "es":
+                await interaction.response.send_message("Solo el anfitrión o un administrador puede iniciar la batalla.", ephemeral=True)
+            else:
+                await interaction.response.send_message("Only the host or an administrator can start the battle.", ephemeral=True)
+            return
+        
+        msg_id = interaction.message.id
+        teams = team_teddy_tournaments.get(msg_id, {})
+        
+        # Filter out incomplete teams and count valid teams
+        valid_teams = {num: members for num, members in teams.items() if len(members) == 2}
+        
+        if len(valid_teams) < 2:
+            if self.lang == "es":
+                await interaction.response.send_message("¡Necesitas al menos 2 equipos completos (2 jugadores cada uno) para iniciar!", ephemeral=True)
+            else:
+                await interaction.response.send_message("Need at least 2 complete teams (2 players each) to start!", ephemeral=True)
+            return
+        
+        # Disable buttons
+        for child in self.children:
+            child.disabled = True
+        try:
+            await interaction.message.edit(view=self)
+        except Exception:
+            pass
+        
+        # Start the battle!
+        if self.lang == "es":
+            await interaction.response.send_message("¡La Guerra de Ositos por Equipos comienza! ⚔️🧸", ephemeral=False)
+        else:
+            await interaction.response.send_message("Team Teddy War begins! ⚔️🧸", ephemeral=False)
+        
+        await self.run_team_battle(interaction, valid_teams)
+    
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="❌", custom_id="cancel_team_battle")
+    async def cancel_battle(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.host and interaction.user != self.host and not interaction.user.guild_permissions.manage_guild:
+            if self.lang == "es":
+                await interaction.response.send_message("Solo el anfitrión puede cancelar el torneo.", ephemeral=True)
+            else:
+                await interaction.response.send_message("Only the host can cancel the tournament.", ephemeral=True)
+            return
+        
+        msg_id = interaction.message.id
+        team_teddy_tournaments.pop(msg_id, None)
+        team_teddy_meta.pop(msg_id, None)
+        
+        for child in self.children:
+            child.disabled = True
+        try:
+            await interaction.message.edit(view=self)
+        except Exception:
+            pass
+        
+        if self.lang == "es":
+            await interaction.response.send_message("Torneo cancelado.", ephemeral=False)
+        else:
+            await interaction.response.send_message("Tournament cancelled.", ephemeral=False)
+    
+    async def run_team_battle(self, interaction: discord.Interaction, teams: dict[int, list[int]]):
+        """Run the team battle simulation."""
+        channel = interaction.channel
+        alive_teams = list(teams.keys())  # List of team numbers still alive
+        
+        # Assign images to all players
+        image_map = ensure_team_teddy_images(teams)
+        last_posted_image = None
+        
+        if self.lang == "es":
+            await channel.send("🧸 ¡Que comience la batalla de peluches! ¡Solo un equipo sobrevivirá! 🧸")
+        else:
+            await channel.send("🧸 Let the plush battle begin! Only one team will survive! 🧸")
+        
+        await asyncio.sleep(2)
+        
+        # Battle loop
+        while len(alive_teams) > 1:
+            # Pick two random teams to battle
+            team_a_num, team_d_num = random.sample(alive_teams, 2)
+            team_a_members = teams[team_a_num]
+            team_d_members = teams[team_d_num]
+            
+            # Attack message
+            attack_texts = get_team_text(self.lang, "attacks")
+            attack_msg = random.choice(attack_texts).format(
+                team_a=team_a_num,
+                team_d=team_d_num,
+                member_a1=f"<@{team_a_members[0]}>",
+                member_a2=f"<@{team_a_members[1]}>",
+                member_d1=f"<@{team_d_members[0]}>",
+                member_d2=f"<@{team_d_members[1]}>",
+            )
+            
+            # Pick image from attacking team
+            post_img = pick_random_team_image(team_a_members, image_map, last_posted_image)
+            await self.send_battle_message(channel, attack_msg, post_img)
+            last_posted_image = post_img
+            
+            await asyncio.sleep(random.uniform(3, 6))
+            
+            # Determine loser (60% attacker wins, 40% defender wins)
+            loser_team_num = team_d_num if random.random() < 0.6 else team_a_num
+            winner_team_num = team_a_num if loser_team_num == team_d_num else team_d_num
+            
+            loser_members = teams[loser_team_num]
+            winner_members = teams[winner_team_num]
+            
+            # Elimination message
+            elim_texts = get_team_text(self.lang, "eliminations")
+            elim_msg = random.choice(elim_texts).format(
+                team_a=winner_team_num,
+                team_d=loser_team_num,
+                member_d1=f"<@{loser_members[0]}>",
+                member_d2=f"<@{loser_members[1]}>",
+            )
+            
+            # Pick image from winning team
+            post_img = pick_random_team_image(winner_members, image_map, last_posted_image)
+            await self.send_battle_message(channel, elim_msg, post_img)
+            last_posted_image = post_img
+            
+            # Remove losing team
+            alive_teams.remove(loser_team_num)
+            
+            # Random taunt (30% chance)
+            if random.random() < 0.3 and len(alive_teams) > 1:
+                await asyncio.sleep(random.uniform(2, 4))
+                taunt_texts = get_team_text(self.lang, "taunts")
+                taunt_msg = random.choice(taunt_texts).format(
+                    team_a=winner_team_num,
+                    team_d=loser_team_num,
+                    member_a1=f"<@{winner_members[0]}>",
+                    member_a2=f"<@{winner_members[1]}>",
+                    member_d1=f"<@{loser_members[0]}>",
+                    member_d2=f"<@{loser_members[1]}>",
+                )
+                await channel.send(taunt_msg)
+            
+            await asyncio.sleep(random.uniform(3, 6))
+        
+        # Victory!
+        winner_team_num = alive_teams[0]
+        winner_members = teams[winner_team_num]
+        
+        victory_texts = get_team_text(self.lang, "victory")
+        victory_msg = random.choice(victory_texts).format(
+            team_winner=winner_team_num,
+            member_1=f"<@{winner_members[0]}>",
+            member_2=f"<@{winner_members[1]}>",
+        )
+        
+        # Use victory.png for the winner
+        victory_img = get_victory_image()
+        await self.send_battle_message(channel, victory_msg, victory_img)
+        
+        # Award currency to both winners
+        try:
+            guild = interaction.guild
+            if guild:
+                # Calculate reward based on total participants
+                total_participants = sum(len(members) for members in teams.values())
+                reward_per_winner = 3 * total_participants  # 3x per participant
+                
+                for winner_id in winner_members:
+                    try:
+                        if await is_staff_in_guild(guild, winner_id):
+                            _emoji, _cname = await get_currency_display(guild.id)
+                            await channel.send(f"{_emoji} <@{winner_id}> is staff and has unlimited {_cname}!")
+                        else:
+                            await add_turkeys(guild.id, winner_id, reward_per_winner)
+                            await channel.send(f"{await fmt_currency(guild.id, reward_per_winner)} awarded to <@{winner_id}>! 🎉")
+                    except Exception as e:
+                        print(f"Error awarding currency to {winner_id}: {e}")
+                
+                # Record wins
+                await _ensure_db_pool()
+                async with db_pool.acquire() as conn:
+                    for winner_id in winner_members:
+                        try:
+                            await conn.execute(
+                                "INSERT INTO wins_global(user_id, wins) VALUES ($1, 1) ON CONFLICT(user_id) DO UPDATE SET wins = wins_global.wins + EXCLUDED.wins",
+                                winner_id,
+                            )
+                            await conn.execute(
+                                "INSERT INTO wins_guild(guild_id, user_id, wins) VALUES ($1, $2, 1) ON CONFLICT(guild_id, user_id) DO UPDATE SET wins = wins_guild.wins + EXCLUDED.wins",
+                                guild.id, winner_id,
+                            )
+                        except Exception as e:
+                            print(f"Error recording win for {winner_id}: {e}")
+        except Exception as e:
+            print(f"Error in victory rewards: {e}")
+    
+    async def send_battle_message(self, channel, text: str, image_path: str | None):
+        """Send a battle message with optional image."""
+        try:
+            if image_path and os.path.isfile(image_path):
+                embed = discord.Embed(description=text, color=0xFF1493)
+                try:
+                    file = discord.File(image_path)
+                    embed.set_image(url=f"attachment://{os.path.basename(image_path)}")
+                    await channel.send(embed=embed, file=file)
+                except Exception:
+                    await channel.send(text)
+            else:
+                await channel.send(text)
+        except Exception as e:
+            print(f"Error sending battle message: {e}")
+
+
+@bot.tree.command(name="teamteddy", description="Create a Team Teddy War tournament (teams of 2)")
+@app_commands.describe(title="Title for the tournament")
+async def team_teddy_war(interaction: discord.Interaction, title: str = "Team Teddy War"):
+    """Create a new Team Teddy War tournament."""
+    host = interaction.user
+    guild_id = interaction.guild.id if interaction.guild else 0
+    lang = await get_guild_language(guild_id) if interaction.guild else "en"
+    
+    # Create embed
+    embed = discord.Embed(title=title, color=0xFF1493)
+    
+    if lang == "es":
+        description = (
+            "🧸 **¡Guerra de Ositos por Equipos!** 🧸\n\n"
+            "**Instrucciones:**\n"
+            "• Usa `/jointeamteddy` para unirte a un equipo (1-10)\n"
+            "• Cada equipo necesita exactamente 2 jugadores\n"
+            "• Mínimo 2 equipos completos para iniciar\n"
+            "• El equipo ganador se lleva todo (ambos jugadores ganan)\n\n"
+            "¡Los equipos lucharán hasta que solo quede uno! 🔥"
+        )
+    else:
+        description = (
+            "🧸 **Team Teddy War!** 🧸\n\n"
+            "**Instructions:**\n"
+            "• Use `/jointeamteddy` to join a team (1-10)\n"
+            "• Each team needs exactly 2 players\n"
+            "• Minimum 2 complete teams to start\n"
+            "• Winning team takes all (both players win)\n\n"
+            "Teams will battle until only one remains! 🔥"
+        )
+    
+    embed.description = description
+    embed.set_footer(text=f"Host: {host.display_name}")
+    
+    view = TeamTeddyTournamentView(host=host, lang=lang, timeout=None)
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=False)
+    
+    sent = await interaction.original_response()
+    team_teddy_tournaments[sent.id] = {}
+    team_teddy_meta[sent.id] = {
+        "host": host.id,
+        "start": int(time.time()),
+        "main_message_id": sent.id,
+    }
+
+
+@bot.tree.command(name="jointeamteddy", description="Join a Team Teddy War tournament")
+async def join_team_teddy(interaction: discord.Interaction):
+    """Show team selection buttons to join a team."""
+    guild_id = interaction.guild.id if interaction.guild else 0
+    lang = await get_guild_language(guild_id) if interaction.guild else "en"
+    
+    # Find the most recent team teddy tournament in this channel
+    channel = interaction.channel
+    msg_id = None
+    
+    # Look through recent messages to find an active tournament
+    try:
+        async for message in channel.history(limit=50):
+            if message.id in team_teddy_tournaments:
+                msg_id = message.id
+                break
+    except Exception:
+        pass
+    
+    if not msg_id:
+        if lang == "es":
+            await interaction.response.send_message("No se encontró ningún torneo activo de Team Teddy War en este canal.", ephemeral=True)
+        else:
+            await interaction.response.send_message("No active Team Teddy War tournament found in this channel.", ephemeral=True)
+        return
+    
+    # Create team selection view
+    view = TeamSelectView(msg_id=msg_id, author_id=interaction.user.id, lang=lang)
+    
+    if lang == "es":
+        await interaction.response.send_message("Selecciona tu equipo:", view=view, ephemeral=True)
+    else:
+        await interaction.response.send_message("Select your team:", view=view, ephemeral=True)
+
 
 
 # ---------------- Slash commands: Snuggles balance & shop ----------------
