@@ -2938,54 +2938,59 @@ def _build_team_table(teams: dict[int, list[int]], lang: str = "en") -> str:
     """Build a visual table showing all 10 teams and their members."""
     empty_text = "Empty" if lang == "en" else "Vacío"
     team_label = "Team" if lang == "en" else "Equipo"
+    header_text = "TEDDY TEAMS" if lang == "en" else "EQUIPOS DE OSITOS"
+    player_text = "Player" if lang == "en" else "Jugador"
     
     lines = []
     
-    # Table header
-    lines.append("```")
-    lines.append("╔════════════════════════════════════════════════════════════════════╗")
-    lines.append("║                      🧸  EQUIPOS DE OSITOS  🧸                     ║")
-    lines.append("╠════════════════════════════════════════════════════════════════════╣")
+    # Create a clean, wide table using Discord-friendly characters
+    lines.append("```ansi")
+    lines.append("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓")
+    lines.append(f"┃                    🧸  {header_text:^30}  🧸                    ┃")
+    lines.append("┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫")
     
     # Build all teams in order (1-10)
     for team_num in range(1, 11):
         members = teams.get(team_num, [])
         
-        # Format team number with padding
-        team_header = f"  {team_label} {team_num:2d}  "
-        
         if len(members) == 0:
-            member_text = f"[ {empty_text} ]  &  [ {empty_text} ]"
+            status = f"[ {empty_text} ]  ⚔  [ {empty_text} ]"
         elif len(members) == 1:
-            # Get first member mention (we'll show it outside the code block)
-            member_text = f"[ Jugador 1 ]  &  [ {empty_text} ]"
+            status = f"[ {player_text} 1 ]  ⚔  [ {empty_text} ]"
         else:
-            member_text = f"[ Jugador 1 ]  &  [ Jugador 2 ]"
+            status = f"[ {player_text} 1 ]  ⚔  [ {player_text} 2 ]"
         
-        lines.append(f"║ {team_header}│ {member_text:<45} ║")
+        lines.append(f"┃   {team_label} {team_num:>2}  →  {status:<55}┃")
         
         # Add separator between teams (but not after the last one)
         if team_num < 10:
-            lines.append("╟────────────┼────────────────────────────────────────────────────╢")
+            lines.append("┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫")
     
     # Table footer
-    lines.append("╚════════════════════════════════════════════════════════════════════╝")
+    lines.append("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛")
     lines.append("```")
+    lines.append("")
     
-    # Now add the actual member mentions outside the code block
-    member_lines = []
+    # Now add the actual member mentions in a clean format
     for team_num in range(1, 11):
         members = teams.get(team_num, [])
         
-        if len(members) == 0:
-            member_lines.append(f"**{team_label} {team_num}:** `{empty_text}` ╱ `{empty_text}`")
+        # Create visual indicators for team status
+        if len(members) == 2:
+            status_icon = "✅"
         elif len(members) == 1:
-            member_lines.append(f"**{team_label} {team_num}:** <@{members[0]}> ╱ `{empty_text}`")
+            status_icon = "⚠️"
         else:
-            member_lines.append(f"**{team_label} {team_num}:** <@{members[0]}> ╱ <@{members[1]}>")
+            status_icon = "⭕"
+        
+        if len(members) == 0:
+            lines.append(f"{status_icon} **{team_label} {team_num}:** `{empty_text}` ⚔ `{empty_text}`")
+        elif len(members) == 1:
+            lines.append(f"{status_icon} **{team_label} {team_num}:** <@{members[0]}> ⚔ `{empty_text}`")
+        else:
+            lines.append(f"{status_icon} **{team_label} {team_num}:** <@{members[0]}> ⚔ <@{members[1]}>")
     
-    # Combine table structure with member mentions
-    return "\n".join(lines) + "\n\n" + "\n".join(member_lines)
+    return "\n".join(lines)
 
 
 class TeamSelectView(discord.ui.View):
