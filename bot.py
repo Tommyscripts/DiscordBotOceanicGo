@@ -2934,57 +2934,33 @@ async def teddy_war(interaction: discord.Interaction, title: str = "Teddy War"):
 # TEAM TEDDY WAR - Battle royale with teams of 2
 # ============================================================
 
-def _build_team_table(teams: dict[int, list[int]], lang: str = "en") -> str:
-    """Build a visual table showing all 16 teams in a 4x4 grid."""
+def _build_team_fields(teams: dict[int, list[int]], lang: str = "en") -> list[tuple[str, str, bool]]:
+    """Build embed fields for all 16 teams. Discord renders inline fields 3 per row."""
     empty_text = "Empty" if lang == "en" else "Vacío"
     team_label = "Team" if lang == "en" else "Equipo"
     
-    # Color palette for teams (different color per team)
-    colors = ["🔴", "🔵", "🟢", "🟡", "🟣", "🟠", "🟤", "⚫", 
+    colors = ["🔴", "🔵", "🟢", "🟡", "🟣", "🟠", "🟤", "⚫",
               "🔴", "🔵", "🟢", "🟡", "🟣", "🟠", "🟤", "⚫"]
     
-    lines = []
+    fields: list[tuple[str, str, bool]] = []
+    for team_num in range(1, 17):
+        members = teams.get(team_num, [])
+        color = colors[team_num - 1]
+        
+        p1 = f"<@{members[0]}>" if len(members) >= 1 else f"`{empty_text}`"
+        p2 = f"<@{members[1]}>" if len(members) >= 2 else f"`{empty_text}`"
+        
+        field_name = f"{color} {team_label} {team_num:02d}"
+        field_value = f"{p1}\n{p2}"
+        fields.append((field_name, field_value, True))
     
-    # Build 4 rows with 4 teams each
-    for row in range(4):
-        # Row 1: Team headers
-        team_headers = []
-        for col in range(4):
-            team_num = row * 4 + col + 1
-            team_headers.append(f"**{team_label} {team_num:02d}**")
-        lines.append("          ".join(team_headers))
-        
-        # Row 2: Player 1
-        player1_line = []
-        for col in range(4):
-            team_num = row * 4 + col + 1
-            members = teams.get(team_num, [])
-            color = colors[team_num - 1]
-            
-            if len(members) >= 1:
-                player1_line.append(f"{color} <@{members[0]}>")
-            else:
-                player1_line.append(f"{color} `{empty_text}`")
-        lines.append("     ".join(player1_line))
-        
-        # Row 3: Player 2
-        player2_line = []
-        for col in range(4):
-            team_num = row * 4 + col + 1
-            members = teams.get(team_num, [])
-            color = colors[team_num - 1]
-            
-            if len(members) >= 2:
-                player2_line.append(f"{color} <@{members[1]}>")
-            else:
-                player2_line.append(f"{color} `{empty_text}`")
-        lines.append("     ".join(player2_line))
-        
-        # Add blank line between rows (but not after the last one)
-        if row < 3:
-            lines.append("")
+    # Pad to multiple of 3 so the last row is complete
+    remainder = len(fields) % 3
+    if remainder != 0:
+        for _ in range(3 - remainder):
+            fields.append(("\u200b", "\u200b", True))
     
-    return "\n".join(lines)
+    return fields
 
 
 class TeamSelectView(discord.ui.View):
@@ -3067,33 +3043,36 @@ class TeamSelectView(discord.ui.View):
                     main_msg = await channel.fetch_message(main_msg_id)
                     teams = team_teddy_tournaments.get(self.msg_id, {})
                     
-                    # Build teams table
-                    teams_table = _build_team_table(teams, self.lang)
-                    
                     # Count total players and complete teams
                     total_players = sum(len(members) for members in teams.values())
                     complete_teams = sum(1 for members in teams.values() if len(members) == 2)
                     
-                    embed = main_msg.embeds[0] if main_msg.embeds else discord.Embed(title="Team Teddy War", color=0xFF1493)
+                    old_embed = main_msg.embeds[0] if main_msg.embeds else None
+                    embed = discord.Embed(
+                        title=old_embed.title if old_embed else "Team Teddy War",
+                        color=0xFF1493
+                    )
+                    if old_embed and old_embed.footer:
+                        embed.set_footer(text=old_embed.footer.text)
                     
                     if self.lang == "es":
-                        description = (
-                            f"🧸 **Batalla por Equipos de Ositos** 🧸\n\n"
+                        embed.description = (
+                            f"🧸 **Batalla por Equipos de Ositos** 🧸\n"
                             f"**Estado:** {total_players} jugadores | {complete_teams} equipos completos\n\n"
-                            f"{teams_table}\n\n"
                             f"Usa `/jointeamteddy` para unirte a un equipo.\n"
                             f"El anfitrión puede iniciar cuando haya mínimo 2 equipos completos."
                         )
                     else:
-                        description = (
-                            f"🧸 **Team Teddy Battle Royale** 🧸\n\n"
+                        embed.description = (
+                            f"🧸 **Team Teddy Battle Royale** 🧸\n"
                             f"**Status:** {total_players} players | {complete_teams} complete teams\n\n"
-                            f"{teams_table}\n\n"
                             f"Use `/jointeamteddy` to join a team.\n"
                             f"Host can start when there are at least 2 complete teams."
                         )
                     
-                    embed.description = description
+                    for fname, fvalue, finline in _build_team_fields(teams, self.lang):
+                        embed.add_field(name=fname, value=fvalue, inline=finline)
+                    
                     await main_msg.edit(embed=embed)
                 except Exception as e:
                     print(f"Error updating main message: {e}")
@@ -3332,17 +3311,13 @@ async def team_teddy_war(interaction: discord.Interaction, title: str = "Team Te
     # Initialize empty teams
     teams = {}
     
-    # Build teams table (all empty initially)
-    teams_table = _build_team_table(teams, lang)
-    
     # Create embed
     embed = discord.Embed(title=title, color=0xFF1493)
     
     if lang == "es":
-        description = (
-            "🧸 **¡Guerra de Ositos por Equipos!** 🧸\n\n"
+        embed.description = (
+            "🧸 **¡Guerra de Ositos por Equipos!** 🧸\n"
             "**Estado:** 0 jugadores | 0 equipos completos\n\n"
-            f"{teams_table}\n\n"
             "**Instrucciones:**\n"
             "• Usa `/jointeamteddy` para unirte a un equipo\n"
             "• Cada equipo necesita exactamente 2 jugadores\n"
@@ -3350,10 +3325,9 @@ async def team_teddy_war(interaction: discord.Interaction, title: str = "Team Te
             "¡Los equipos lucharán hasta que solo quede uno! 🔥"
         )
     else:
-        description = (
-            "🧸 **Team Teddy War!** 🧸\n\n"
+        embed.description = (
+            "🧸 **Team Teddy War!** 🧸\n"
             "**Status:** 0 players | 0 complete teams\n\n"
-            f"{teams_table}\n\n"
             "**Instructions:**\n"
             "• Use `/jointeamteddy` to join a team\n"
             "• Each team needs exactly 2 players\n"
@@ -3361,7 +3335,9 @@ async def team_teddy_war(interaction: discord.Interaction, title: str = "Team Te
             "Teams will battle until only one remains! 🔥"
         )
     
-    embed.description = description
+    for fname, fvalue, finline in _build_team_fields(teams, lang):
+        embed.add_field(name=fname, value=fvalue, inline=finline)
+    
     embed.set_footer(text=f"Host: {host.display_name}")
     
     view = TeamTeddyTournamentView(host=host, lang=lang, timeout=None)
