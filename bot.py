@@ -7153,33 +7153,34 @@ async def resync_commands(interaction: discord.Interaction):
     try:
         guild_obj = discord.Object(id=interaction.guild.id)
 
-        # 1) Clear stale global commands from Discord (removes any previous duplicates)
-        global_cmds = bot.tree.get_commands(guild=None)
-        bot.tree.clear_commands(guild=None)
-        await bot.tree.sync()  # push empty list → Discord deletes global registrations
+        # Clear ALL global commands directly via Discord REST API.
+        # This is the most reliable way: it sends PUT /applications/{id}/commands with []
+        # which tells Discord to delete all global registrations immediately.
+        cleared_global = 0
+        try:
+            app_id = bot.application_id
+            await bot.http.bulk_upsert_global_commands(app_id, payload=[])
+            cleared_global = 1
+        except Exception as e:
+            print(f"Warning: could not clear global commands via API: {e}")
 
-        # 2) Restore commands to the in-memory tree and sync to this guild only
-        for cmd in global_cmds:
-            try:
-                bot.tree.add_command(cmd)
-            except Exception:
-                pass  # already present (some commands add themselves on import)
+        # Sync all commands to this guild only (no global registration)
         bot.tree.copy_global_to(guild=guild_obj)
         synced = await bot.tree.sync(guild=guild_obj)
 
-        # Prefer followup since we've already deferred
+        msg = (
+            f"✅ {len(synced)} comandos sincronizados en este servidor.\n"
+            f"Comandos globales eliminados — los duplicados desaparecerán en breve."
+            if cleared_global else
+            f"✅ {len(synced)} comandos sincronizados en este servidor.\n"
+            f"⚠️ No se pudieron eliminar los comandos globales automáticamente."
+        )
         try:
-            await interaction.followup.send(
-                f"Synced {len(synced)} commands in this guild (global commands cleared to avoid duplicates).",
-                ephemeral=True,
-            )
+            await interaction.followup.send(msg, ephemeral=True)
         except Exception:
-            # Fallback to channel message if followup fails
             try:
                 if interaction.channel:
-                    await interaction.channel.send(
-                        f"Synced {len(synced)} commands in this guild."
-                    )
+                    await interaction.channel.send(msg)
             except Exception:
                 pass
         print(f"Manual resync in guild {interaction.guild.id}: {[c.name for c in synced]}")
