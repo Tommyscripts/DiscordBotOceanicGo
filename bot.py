@@ -230,7 +230,7 @@ async def end_game(game: "HouseGame", announce: bool = True, delete_channel: boo
 
 # ---------------- WORD CHAIN GAME (in-memory) ----------------
 class WordChainGame:
-    def __init__(self, channel: discord.TextChannel, starter: str | None = None, turn_timeout: int = 15):
+    def __init__(self, channel: discord.TextChannel, starter: str | None = None, turn_timeout: int = 15, host_id: int | None = None):
         self.channel = channel
         self.players: list[int] = []  # join order
         self.lives: dict[int, int] = {}  # user_id -> lives
@@ -241,6 +241,7 @@ class WordChainGame:
         self.lock = asyncio.Lock()
         self.started = False
         self._turn_task: asyncio.Task | None = None
+        self.host_id: int | None = host_id
         # message id of the lobby message (so we can edit it to show current players)
         self.lobby_message_id: int | None = None
 
@@ -383,6 +384,9 @@ class WordChainView(discord.ui.View):
         if not game:
             await interaction.response.send_message("No active lobby.", ephemeral=True)
             return
+        if game.host_id and interaction.user.id != game.host_id and not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message("Only the host or a manager can start the game.", ephemeral=True)
+            return
         if game.started:
             await interaction.response.send_message("Game already started.", ephemeral=True)
             return
@@ -509,7 +513,7 @@ async def slash_wordchain(interaction: discord.Interaction, timeout: int = 15):
         await interaction.response.send_message("There is already a lobby or game active in this channel.", ephemeral=True)
         return
     timeout = max(5, min(30, timeout))
-    game = WordChainGame(channel=channel, starter=None, turn_timeout=timeout)
+    game = WordChainGame(channel=channel, starter=None, turn_timeout=timeout, host_id=interaction.user.id)
     wordchain_games[channel.id] = game
     view = WordChainView(channel_id=channel.id)
     # add host as first player automatically
@@ -2642,6 +2646,9 @@ class TeddyTournamentView(discord.ui.View):
 
     @discord.ui.button(label="Start Tournament", style=discord.ButtonStyle.primary, emoji="▶️")
     async def start_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.host and interaction.user != self.host and not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message("Only the host or a manager can start the tournament.", ephemeral=True)
+            return
         try:
             await interaction.response.send_message("Teddy war starting! 🔥", ephemeral=False)
         except Exception:
@@ -2649,12 +2656,6 @@ class TeddyTournamentView(discord.ui.View):
                 await interaction.followup.send("Teddy war starting! 🔥", ephemeral=False)
             except Exception:
                 pass
-        if self.host and interaction.user != self.host and not interaction.user.guild_permissions.manage_guild:
-            try:
-                await safe_reply(interaction, "Only the host or a manager can start the tournament.")
-            except Exception:
-                pass
-            return
         msg_id = interaction.message.id
         participants = tournaments.get(msg_id, set())
         if len(participants) < 2:
