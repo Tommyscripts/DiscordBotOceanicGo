@@ -761,8 +761,6 @@ def load_furby_images():
     files = [os.path.join(FURBY_ASSETS_DIR, f) for f in os.listdir(FURBY_ASSETS_DIR) if f.lower().endswith((".png", ".jpg", ".jpeg", ".gif"))]
     return files
 
-furby_image_files = load_furby_images()
-
 # Teddy assets (separate set)
 TEDDY_ASSETS_DIR = os.path.join(os.path.dirname(__file__), "teddy_wars")
 def load_teddy_images():
@@ -831,63 +829,6 @@ def ensure_teddy_images(msg_id: int, participants: list[int]):
                     chosen = None
         image_map[uid] = chosen
     meta["teddy_image_map"] = image_map
-    tournaments_meta[msg_id] = meta
-    return image_map
-
-def ensure_participant_images(msg_id: int, participants: list[int]):
-    """Ensure each participant has an assigned image file. Returns a dict user_id -> image_path."""
-    meta = tournaments_meta.setdefault(msg_id, {})
-    image_map = meta.get("image_map") or {}
-    # refresh available assets
-    assets = load_furby_images()
-    # assign for each participant if not already assigned
-    for uid in participants:
-        if uid in image_map and os.path.isfile(image_map[uid]):
-            continue
-        # prefer to reuse an asset if available
-        chosen = None
-        if assets:
-            chosen = random.choice(assets)
-        # else generate a placeholder image for this user
-        if not chosen:
-            # generate a simple placeholder image and save
-            try:
-                from PIL import Image, ImageDraw, ImageFont
-            except Exception:
-                chosen = None
-            else:
-                img = Image.new("RGBA", (400, 400), tuple([random.randint(100, 255) for _ in range(3)]))
-                draw = ImageDraw.Draw(img)
-                # draw simple eyes
-                draw.ellipse((100-30, 120-30, 100+30, 120+30), fill=(255,255,255))
-                draw.ellipse((300-30, 120-30, 300+30, 120+30), fill=(255,255,255))
-                draw.ellipse((115-15, 135-15, 115+15, 135+15), fill=(0,0,0))
-                draw.ellipse((315-15, 135-15, 315+15, 135+15), fill=(0,0,0))
-                try:
-                    font = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
-                except Exception:
-                    font = ImageFont.load_default()
-                label = f"F-{str(uid)[-4:]}"
-                # Compute text size robustly: prefer draw.textbbox, fall back to font.getsize
-                try:
-                    bbox = draw.textbbox((0, 0), label, font=font)
-                    w = bbox[2] - bbox[0]
-                    h = bbox[3] - bbox[1]
-                except Exception:
-                    try:
-                        w, h = font.getsize(label)
-                    except Exception:
-                        w, h = (0, 0)
-                draw.text(((400-w)/2, 320), label, fill=(0,0,0), font=font)
-                out_path = os.path.join(FURBY_ASSETS_DIR, f"furby_user_{uid}.png")
-                try:
-                    os.makedirs(FURBY_ASSETS_DIR, exist_ok=True)
-                    img.save(out_path)
-                    chosen = out_path
-                except Exception:
-                    chosen = None
-        image_map[uid] = chosen
-    meta["image_map"] = image_map
     tournaments_meta[msg_id] = meta
     return image_map
 
@@ -2000,123 +1941,8 @@ async def on_message(message: discord.Message):
 
     if cmd == 'lock':
         logging.info(f"Lock command invoked by {message.author} in {ch.id}")
-        # Save the full existing overwrites so we can restore them later
-        try:
-            original_overwrites = dict(ch.overwrites)
-        except Exception:
-            original_overwrites = {}
-
-        # Store original overwrites in-memory so unlock can restore them
-        if ch.id in locked_channels:
-            logging.warning(f"on_message .lock: Channel {ch.id} already locked; overwriting saved state.")
-        locked_channels[ch.id] = original_overwrites
-
-        # Strategy: minimize changed targets. Deny @everyone send_messages and
-        # explicitly allow staff and bot. Also, for any role that currently has
-        # an explicit overwrite allowing send_messages and is not staff/admin,
-        # flip it to deny so non-staff can't send.
-        new_overwrites = dict(original_overwrites)  # start from original
         staff_role_ids = await get_staff_roles(guild.id)
-
-        # Ensure @everyone is denied send_messages (preserve view_channel)
-        try:
-            everyone = guild.default_role
-            prev = new_overwrites.get(everyone)
-            ow = discord.PermissionOverwrite()
-            ow.send_messages = False
-            if prev and getattr(prev, 'view_channel', None) is not None:
-                ow.view_channel = prev.view_channel
-            new_overwrites[everyone] = ow
-        except Exception:
-            pass
-
-        # Ensure staff roles (if configured) can send
-        try:
-            if staff_role_ids:
-                for rid in staff_role_ids:
-                    try:
-                        staff_role = guild.get_role(rid)
-                    except Exception:
-                        staff_role = None
-                    if staff_role:
-                        prev = new_overwrites.get(staff_role)
-                        ow = discord.PermissionOverwrite()
-                        ow.send_messages = True
-                        if prev and getattr(prev, 'view_channel', None) is not None:
-                            ow.view_channel = prev.view_channel
-                        new_overwrites[staff_role] = ow
-        except Exception:
-            pass
-
-        # Ensure bot can still send
-        try:
-            me = guild.me
-            prev = new_overwrites.get(me)
-            ow = discord.PermissionOverwrite()
-            ow.send_messages = True
-            if prev and getattr(prev, 'view_channel', None) is not None:
-                ow.view_channel = prev.view_channel
-            new_overwrites[me] = ow
-        except Exception:
-            pass
-
-        # For any role that had explicit allow send_messages and is not staff/admin,
-        # set send_messages=False to prevent bypass.
-        try:
-            for target, prev_ow in list(original_overwrites.items()):
-                if isinstance(target, discord.Role):
-                    try:
-                        prev_allow = getattr(prev_ow, 'send_messages', None)
-                    except Exception:
-                        prev_allow = None
-                    if prev_allow:
-                        # check staff/admin
-                        is_staff = False
-                        try:
-                            if staff_role_ids and target.id in staff_role_ids:
-                                is_staff = True
-                            if target.permissions.administrator or target.permissions.manage_guild:
-                                is_staff = True
-                        except Exception:
-                            pass
-                        if not is_staff:
-                            # change to deny send_messages but preserve view_channel
-                            ow = discord.PermissionOverwrite()
-                            ow.send_messages = False
-                            try:
-                                if getattr(prev_ow, 'view_channel', None) is not None:
-                                    ow.view_channel = prev_ow.view_channel
-                            except Exception:
-                                pass
-                            new_overwrites[target] = ow
-        except Exception:
-            pass
-
-        # Apply in a single edit under the permission_op_lock for safety
-        start = time.time()
-        fallback_used = False
-        per_target_success = 0
-        per_target_fail = 0
-        async with permission_op_lock:
-            try:
-                await ch.edit(overwrites=new_overwrites)
-                logging.info(f"Channel {ch.id} locked (minimal changes).")
-            except Exception as e:
-                fallback_used = True
-                logging.warning(f"ch.edit failed during optimized lock in channel {ch.id}: {e}. Falling back to per-target set_permissions.")
-                for target, ow in new_overwrites.items():
-                    try:
-                        await ch.set_permissions(target, overwrite=ow)
-                        per_target_success += 1
-                    except Exception:
-                        per_target_fail += 1
-                        pass
-        elapsed = time.time() - start
-        if fallback_used:
-            logging.info(f"on_message .lock: Channel {ch.id} locked in {elapsed:.3f}s (fallback used). Per-target successes={per_target_success} failures={per_target_fail}")
-        else:
-            logging.info(f"on_message .lock: Channel {ch.id} locked in {elapsed:.3f}s (single edit).")
-
+        await apply_lock_channel(ch, guild, staff_role_ids=staff_role_ids)
         try:
             await ch.send("Channel locked: only staff can send messages. Viewing permissions were not changed.")
         except Exception:
@@ -2131,34 +1957,7 @@ async def on_message(message: discord.Message):
             except Exception:
                 pass
             return
-
-        # Restore the original overwrites in a single edit call
-        start = time.time()
-        fallback_used = False
-        per_target_success = 0
-        per_target_fail = 0
-        async with permission_op_lock:
-            try:
-                await ch.edit(overwrites=prev)
-                elapsed = time.time() - start
-                logging.info(f"Channel {ch.id} unlocked with {len(prev)} overwrites restored (single edit) in {elapsed:.3f}s.")
-            except Exception as e:
-                fallback_used = True
-                logging.warning(f"ch.edit failed during unlock in channel {ch.id}: {e}. Falling back to per-target restore.")
-                for target, ow in prev.items():
-                    try:
-                        await ch.set_permissions(target, overwrite=ow)
-                        per_target_success += 1
-                    except Exception:
-                        per_target_fail += 1
-                        pass
-                elapsed = time.time() - start
-                logging.info(f"on_message .unlock: Channel {ch.id} unlocked in {elapsed:.3f}s (fallback used). Per-target successes={per_target_success} failures={per_target_fail}")
-
-        try:
-            del locked_channels[ch.id]
-        except KeyError:
-            pass
+        await apply_unlock_channel(ch)
         try:
             await ch.send("Channel unlocked and previous send permissions restored.")
         except Exception:
@@ -6420,6 +6219,9 @@ async def custom_command_create(interaction: discord.Interaction, name: str, inf
     if not cmd_name or any(c in cmd_name for c in (' ', '\t', '\n')):
         await interaction.response.send_message("El nombre del comando debe ser una sola palabra sin espacios.", ephemeral=True)
         return
+    if len(info) > 1900:
+        await interaction.response.send_message("El contenido del comando es demasiado largo (máximo 1900 caracteres).", ephemeral=True)
+        return
     await _ensure_db_pool()
     async with db_pool.acquire() as conn:
         await conn.execute(
@@ -6473,6 +6275,12 @@ async def set_official_links_channel(interaction: discord.Interaction, channel: 
 async def add_official_link(interaction: discord.Interaction, name: str, url: str):
     if not interaction.guild:
         await interaction.response.send_message("Este comando solo se puede usar en un servidor.", ephemeral=True)
+        return
+    if not url.startswith(("http://", "https://")):
+        await interaction.response.send_message("La URL debe comenzar con http:// o https://", ephemeral=True)
+        return
+    if len(url) > 2000:
+        await interaction.response.send_message("La URL es demasiado larga.", ephemeral=True)
         return
     key = name.lower().strip()
     await _ensure_db_pool()
@@ -6558,244 +6366,6 @@ async def post_official_links(interaction: discord.Interaction):
         await interaction.response.send_message(f"Enlaces publicados en {dest.mention}", ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"Error al publicar enlaces: {e}", ephemeral=True)
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# EASTER EGG EVENT  (comentado — descomenta todo este bloque para reactivar)
-# ──────────────────────────────────────────────────────────────────────────────
-
-# # In-memory tracking: message_id -> {"guild_id": int, "claimed": bool}
-# _active_eggs: dict[int, dict] = {}
-# 
-# # Active event loops per guild: guild_id -> asyncio.Task
-# _easter_event_tasks: dict[int, asyncio.Task] = {}
-# 
-# # Eligible channels per active event: guild_id -> list[int] (channel ids)
-# _easter_event_channels: dict[int, list[int]] = {}
-# 
-# _EASTER_MIN_INTERVAL = 300   # 5 minutes
-# _EASTER_MAX_INTERVAL = 600   # 10 minutes
-# 
-# 
-# def _easter_add_egg(guild_id: int, user_id: int, username: str):
-#     conn = get_db_conn()
-#     cur = conn.cursor()
-#     try:
-#         cur.execute(
-#             """
-#             INSERT INTO easter_egg_scores (guild_id, user_id, username, egg_count)
-#             VALUES (%s, %s, %s, 1)
-#             ON CONFLICT (guild_id, user_id)
-#             DO UPDATE SET egg_count = easter_egg_scores.egg_count + 1,
-#                           username = EXCLUDED.username
-#             """,
-#             (guild_id, user_id, username),
-#         )
-#         conn.commit()
-#     finally:
-#         conn.close()
-# 
-# 
-# async def _spawn_single_egg(guild_id: int) -> bool:
-#     """Pick a random eligible channel and spawn one egg. Returns True if successful."""
-#     channel_ids = _easter_event_channels.get(guild_id, [])
-#     if not channel_ids:
-#         return False
-#     # Shuffle so each call is random
-#     pool = list(channel_ids)
-#     random.shuffle(pool)
-#     for ch_id in pool:
-#         ch = bot.get_channel(ch_id)
-#         if ch is None:
-#             continue
-#         embed = discord.Embed(
-#             title="🥚 An Easter Egg appeared!",
-#             description="Be the first to click the button and collect it!\n\n**Only one person can grab it!**",
-#             color=0xFFD700,
-#         )
-#         embed.set_footer(text="Easter Egg Event • First click wins!")
-#         view = EasterEggView()
-#         try:
-#             msg = await ch.send(embed=embed, view=view)
-#             _active_eggs[msg.id] = {"guild_id": guild_id, "claimed": False}
-#             return True
-#         except Exception:
-#             continue
-#     return False
-# 
-# 
-# async def _easter_loop(guild_id: int):
-#     """Background task that spawns eggs at random intervals until cancelled."""
-#     await bot.wait_until_ready()
-#     try:
-#         while True:
-#             delay = random.randint(_EASTER_MIN_INTERVAL, _EASTER_MAX_INTERVAL)
-#             await asyncio.sleep(delay)
-#             # Check event is still active
-#             if guild_id not in _easter_event_channels:
-#                 break
-#             await _spawn_single_egg(guild_id)
-#     except asyncio.CancelledError:
-#         pass
-# 
-# 
-# class EasterEggView(discord.ui.View):
-#     def __init__(self):
-#         super().__init__(timeout=None)
-# 
-#     @discord.ui.button(label="🥚 Collect Egg!", style=discord.ButtonStyle.success, custom_id="easter_egg_collect")
-#     async def collect(self, interaction: discord.Interaction, button: discord.ui.Button):
-#         msg_id = interaction.message.id if interaction.message else None
-#         if msg_id is None:
-#             try:
-#                 await interaction.response.send_message("Something went wrong.", ephemeral=True)
-#             except Exception:
-#                 pass
-#             return
-# 
-#         egg_data = _active_eggs.get(msg_id)
-#         if egg_data is None or egg_data.get("claimed"):
-#             try:
-#                 await interaction.response.send_message("This egg has already been collected! 🐣", ephemeral=True)
-#             except Exception:
-#                 pass
-#             return
-# 
-#         # Acknowledge immediately to beat the 3-second Discord deadline
-#         try:
-#             await interaction.response.defer()
-#         except Exception:
-#             return  # interaction already expired or used
-# 
-#         # Claim atomically in memory
-#         egg_data["claimed"] = True
-# 
-#         guild_id = egg_data["guild_id"]
-#         user = interaction.user
-#         _easter_add_egg(guild_id, user.id, str(user))
-# 
-#         # Update button appearance and edit the original message
-#         button.disabled = True
-#         button.label = f"🐣 Collected by {user.display_name}!"
-#         button.style = discord.ButtonStyle.secondary
-#         try:
-#             await interaction.message.edit(view=self)
-#         except Exception:
-#             pass
-# 
-# 
-# @bot.tree.command(name="start_easter_event", description="Start the Easter egg event — eggs will randomly appear every 5–10 min")
-# @app_commands.describe(role="The role whose visible channels can receive easter eggs")
-# @app_commands.checks.has_permissions(manage_guild=True)
-# async def start_easter_event(interaction: discord.Interaction, role: discord.Role):
-#     if not interaction.guild:
-#         await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
-#         return
-# 
-#     guild_id = interaction.guild.id
-# 
-#     if guild_id in _easter_event_tasks and not _easter_event_tasks[guild_id].done():
-#         await interaction.response.send_message(
-#             "An Easter egg event is already running! Use `/end_easter_event` to stop it first.",
-#             ephemeral=True,
-#         )
-#         return
-# 
-#     await interaction.response.defer(ephemeral=True)
-# 
-#     me = interaction.guild.me
-#     eligible: list[int] = []
-#     skipped = 0
-# 
-#     for channel in interaction.guild.text_channels:
-#         role_perms = channel.permissions_for(role)
-#         if not (role_perms.view_channel and role_perms.send_messages):
-#             continue
-#         bot_perms = channel.permissions_for(me)
-#         if not (bot_perms.send_messages and bot_perms.embed_links):
-#             skipped += 1
-#             continue
-#         eligible.append(channel.id)
-# 
-#     if not eligible:
-#         await interaction.followup.send(
-#             "No eligible channels found for that role (no channels where the role can view + interact and the bot can post).",
-#             ephemeral=True,
-#         )
-#         return
-# 
-#     _easter_event_channels[guild_id] = eligible
-# 
-#     # Spawn the very first egg immediately
-#     await _spawn_single_egg(guild_id)
-# 
-#     # Start background loop
-#     task = asyncio.create_task(_easter_loop(guild_id))
-#     _easter_event_tasks[guild_id] = task
-# 
-#     summary = (
-#         f"🥚 Easter egg event started! First egg has been spawned.\n"
-#         f"New eggs will appear randomly every **5–10 minutes** across **{len(eligible)}** eligible channel(s).\n"
-#         f"Use `/end_easter_event` to stop the event and see the leaderboard."
-#     )
-#     if skipped:
-#         summary += f"\n⚠️ Skipped **{skipped}** channel(s) — bot is missing permissions there."
-#     await interaction.followup.send(summary, ephemeral=True)
-# 
-# 
-# @bot.tree.command(name="end_easter_event", description="End the Easter egg event and show the leaderboard")
-# @app_commands.checks.has_permissions(manage_guild=True)
-# async def end_easter_event(interaction: discord.Interaction):
-#     if not interaction.guild:
-#         await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
-#         return
-# 
-#     guild_id = interaction.guild.id
-# 
-#     # Stop background loop
-#     task = _easter_event_tasks.pop(guild_id, None)
-#     if task and not task.done():
-#         task.cancel()
-# 
-#     # Remove eligible channels
-#     _easter_event_channels.pop(guild_id, None)
-# 
-#     # Clear unclaimed eggs from memory
-#     to_remove = [mid for mid, data in _active_eggs.items() if data["guild_id"] == guild_id]
-#     for mid in to_remove:
-#         _active_eggs.pop(mid, None)
-# 
-#     conn = get_db_conn()
-#     cur = conn.cursor()
-#     try:
-#         cur.execute(
-#             "SELECT user_id, username, egg_count FROM easter_egg_scores WHERE guild_id = %s ORDER BY egg_count DESC",
-#             (guild_id,),
-#         )
-#         rows = cur.fetchall()
-#         cur.execute("DELETE FROM easter_egg_scores WHERE guild_id = %s", (guild_id,))
-#         conn.commit()
-#     finally:
-#         conn.close()
-# 
-#     if not rows:
-#         await interaction.response.send_message("The Easter event has ended. No eggs were collected! 🐣", ephemeral=False)
-#         return
-# 
-#     embed = discord.Embed(
-#         title="🐣 Easter Egg Event — Final Results",
-#         color=0xFFD700,
-#     )
-#     lines = []
-#     medals = ["🥇", "🥈", "🥉"]
-#     for i, (user_id, username, count) in enumerate(rows):
-#         medal = medals[i] if i < 3 else f"**#{i+1}**"
-#         lines.append(f"{medal} <@{user_id}> (`{username}` · ID: `{user_id}`) — **{count}** egg{'s' if count != 1 else ''}")
-#     embed.description = "\n".join(lines)
-#     embed.set_footer(text=f"Total participants: {len(rows)}")
-# 
-#     await interaction.response.send_message(embed=embed)
-
 
 # ---------------- TIMEZONE COMMANDS (/time + /setmytime) ----------------
 
