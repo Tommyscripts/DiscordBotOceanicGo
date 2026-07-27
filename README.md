@@ -15,20 +15,16 @@
 ## 📋 Índice
 
 1. [¿Qué puede hacer Oceanic?](#-qué-puede-hacer-oceanic)
-2. [Instalación rápida](#-instalación-rápida)
-3. [Variables de entorno](#-variables-de-entorno)
-4. [Comandos — Juegos](#-comandos--juegos)
-5. [Comandos — Ocean Drops (Coleccionables)](#-comandos--ocean-drops-coleccionables)
-6. [Comandos — Economía y Tienda](#-comandos--economía-y-tienda)
-7. [Comandos — Ruletas](#-comandos--ruletas)
-8. [Comandos — Horarios](#-comandos--horarios)
-9. [Comandos — Moderación](#-comandos--moderación)
-10. [Comandos — Ajustes del servidor](#-comandos--ajustes-del-servidor)
-11. [Comandos — Utilidades generales](#-comandos--utilidades-generales)
-12. [Monopoly GO — Links automáticos](#-monopoly-go--links-automáticos)
-13. [Comandos — Hora mundial](#-comandos--hora-mundial)
-14. [Herramientas de desarrollo](#-herramientas-de-desarrollo)
-15. [Despliegue en Railway](#-despliegue-en-railway)
+2. [Comandos — Juegos](#-comandos--juegos)
+3. [Comandos — Ocean Drops (Coleccionables)](#-comandos--ocean-drops-coleccionables)
+4. [Comandos — Economía y Tienda](#-comandos--economía-y-tienda)
+5. [Comandos — Ruletas](#-comandos--ruletas)
+6. [Comandos — Horarios](#-comandos--horarios)
+7. [Comandos — Moderación](#-comandos--moderación)
+8. [Comandos — Ajustes del servidor](#-comandos--ajustes-del-servidor)
+9. [Comandos — Utilidades generales](#-comandos--utilidades-generales)
+10. [Monopoly GO — Links automáticos](#-monopoly-go--links-automáticos)
+11. [Comandos — Hora mundial](#-comandos--hora-mundial)
 
 ---
 
@@ -50,56 +46,6 @@
 | 🛡️ **Moderación** | Ban, kick, mute, lock/unlock de canales |
 | 🎲 **Monopoly GO** | Publicación automática de links de recompensas |
 | 🌐 **Traducciones** | Interfaz en inglés o español por servidor |
-
----
-
-## 🚀 Instalación rápida
-
-**Requisitos:** Python 3.10+, PostgreSQL, Git.
-
-```bash
-# 1. Clonar el repositorio
-git clone <url-del-repo>
-cd DiscordBotOceanicGo
-
-# 2. Crear entorno virtual
-python -m venv .venv
-source .venv/bin/activate      # Linux / Mac
-# .venv\Scripts\activate       # Windows
-
-# 3. Instalar dependencias
-pip install -r requirements.txt
-
-# 4. Crear archivo .env con tu configuración
-cp .env.example .env           # si existe, sino créalo manualmente
-
-# 5. Arrancar el bot
-python3 bot.py
-```
-
----
-
-## 🔑 Variables de entorno
-
-Crea un archivo `.env` en la raíz del proyecto:
-
-```env
-# Obligatorio
-DISCORD_TOKEN=tu_token_de_discord_aqui
-DATABASE_URL=postgresql://usuario:contraseña@host:5432/nombre_db
-
-# Opcionales
-GUILD_ID=123456789012345678        # Si se define, los comandos solo se sincronizan a este servidor (modo dev)
-APPLICATION_ID=123456789012345678
-PUBLIC_KEY=tu_clave_publica
-BOT_PERMISSIONS=3941734153713728
-
-# Auto-resync de comandos (opcional)
-AUTO_RESYNC=true                   # Activa el loop de resync automático
-AUTO_RESYNC_INTERVAL=300           # Intervalo en segundos (default: 300)
-```
-
-> **Nota:** El bot sincroniza automáticamente los comandos slash en cada arranque a todos los servidores donde está presente. No necesitas `/resync_commands` tras cada actualización.
 
 ---
 
@@ -364,82 +310,18 @@ Sistema para guardar y publicar links oficiales del servidor (ej: dados gratis, 
 
 ---
 
-## 🔧 Herramientas de desarrollo
+## 🐙 Lore — La Flota Friki del Abismo
 
-### Simulador Teddy Wars (sin Discord)
+Cuenta la leyenda que en las profundidades del servidor más caótico, un pato con casco y espada de plástico miró al horizonte digital y dijo: *"Alguien tiene que organizar esto."*
 
-```bash
-python3 -m oceanic_bot.games.teddy_war_sim -n 6
-```
+Así nació **Oceanic**.
 
-### Generar / actualizar assets de pato
+Los peluches llevan siglos en guerra (nadie recuerda ya por qué, probablemente por el último dado gratis de Monopoly GO). Los patos actúan como árbitros neutrales, aunque siempre acaban duelando entre ellos. Las conchas 🐚 son la moneda más valorada del océano, aunque los Snuggles 🦃 tienen mejor tipo de cambio en la tienda. La Casa Embrujada lleva abandonada desde los 90 y nadie ha encontrado la llave… todavía.
 
-```bash
-python assets/generate_duck_assets.py
-```
+> *"Un bot con brújula propia puede dirigir una flota entera."*
+> — Capitán Pato 🦆, fundador de la Flota Friki del Abismo
 
-### Ejecutar tests
-
-```bash
-python tools/run_tests.py
-```
-
-### Limpiar comandos de Ocean
-
-```bash
-python scripts/clear_ocean_commands.py
-```
-
----
-
-## 🚂 Despliegue en Railway
-
-1. Conecta tu repositorio en [Railway](https://railway.app)
-2. Añade las variables de entorno en el panel de Railway (mismas que `.env`)
-3. Railway detecta el `Procfile` y ejecuta `python bot.py` automáticamente
-4. Los comandos slash se sincronizan automáticamente en cada redeploy
-
-**Variables mínimas necesarias en Railway:**
-```
-DISCORD_TOKEN=...
-DATABASE_URL=...  # Railway proporciona una URL interna de PostgreSQL
-```
-
----
-
-## 📁 Estructura del proyecto
-
-```
-bot.py                  → Núcleo del bot y todos los comandos
-oceanic_bot/
-  games/
-    duck.py             → Lógica del minijuego de patos
-    ocean_drop.py       → Sistema de drops coleccionables
-    custom_wheels.py    → Ruletas personalizables por servidor
-    team_teddy_war.py   → Textos e imágenes del Team Teddy War
-    teddy_war_sim.py    → Simulador de Teddy Wars sin Discord
-  utils/
-    time_utils.py       → Utilidades de zonas horarias
-assets/                 → Imágenes base de los patos
-teddy_wars/             → Assets de imágenes para Teddy Wars
-docs/                   → Guías adicionales
-requirements.txt        → Dependencias Python
-Procfile                → Configuración de despliegue (Railway / Heroku)
-```
-
----
-
-## 📦 Dependencias principales
-
-| Librería | Uso |
-|---|---|
-| `discord.py >= 2.3` | Framework del bot |
-| `asyncpg` | Conexión asíncrona a PostgreSQL |
-| `Pillow` | Generación de imágenes (patos, ruletas) |
-| `aiohttp` | Peticiones HTTP asíncronas (Monopoly GO) |
-| `beautifulsoup4` | Parsing de páginas web (Monopoly GO) |
-| `python-dotenv` | Carga de variables de entorno desde `.env` |
-| `deep-translator` | Traducción de texto (`/translate`) |
+Si encuentras un bug, probablemente es un cangrejo que se coló en el código. Abre un issue y lo pescamos.
 
 ---
 
