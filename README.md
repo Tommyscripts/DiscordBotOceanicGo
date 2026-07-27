@@ -63,16 +63,6 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Configura variables de entorno en un archivo `.env` en la raíz:
-
-```
-DISCORD_TOKEN=tu_token_aqui
-GUILD_ID=123456789012345678   # opcional (registro de comandos en dev)
-APPLICATION_ID=123456789012345678  # opcional
-PUBLIC_KEY=...
-BOT_PERMISSIONS=3941734153713728
-```
-
 Ejecutar localmente
 -------------------
 
