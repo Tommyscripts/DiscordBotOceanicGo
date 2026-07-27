@@ -301,6 +301,22 @@ Sistema de horarios con soporte completo de zonas horarias. Cada usuario ve los 
 
 ---
 
+## � Apoya el bot — `/donate`
+
+Oceanic corre en servidores de pago. Si el bot te divierte o le da vida a tu servidor, puedes ayudar a mantenerlo en marcha con una donación:
+
+```
+/donate
+```
+
+El comando muestra el enlace de PayPal directamente en Discord (solo visible para ti). Cualquier cantidad ayuda a cubrir el hosting, la base de datos y los assets.
+
+> **PayPal:** https://paypal.me/Javicez ❤️
+
+Sin donaciones no hay patos, sin patos no hay duelos, sin duelos los peluches se aburren. Ya sabes.
+
+---
+
 ## 🛠️ Comandos — Utilidades generales
 
 | Comando | Descripción |
@@ -308,7 +324,7 @@ Sistema de horarios con soporte completo de zonas horarias. Cada usuario ve los 
 | `/mm` | Explica cómo jugar al minijuego 'mm' |
 | `/house howto` | Explica cómo jugar a la Haunted House |
 | `/invite` | Genera el enlace de invitación del bot |
-| `/donate` | Muestra información para apoyar el bot |
+| `/donate` | Muestra el enlace de PayPal para apoyar el bot (solo visible para ti) |
 | `/translate <texto> <idioma>` | Traduce texto a otro idioma usando Google Translate |
 | `/resync_commands` | **(Admin)** Fuerza la re-sincronización de comandos en el servidor |
 | `/custom <nombre> <info>` | **(Admin)** Crea un comando personalizado con prefijo `!` para el servidor |
@@ -440,6 +456,21 @@ Procfile                → Configuración de despliegue (Railway / Heroku)
 | `beautifulsoup4` | Parsing de páginas web (Monopoly GO) |
 | `python-dotenv` | Carga de variables de entorno desde `.env` |
 | `deep-translator` | Traducción de texto (`/translate`) |
+
+---
+
+## 🐙 Lore — La Flota Friki del Abismo
+
+Cuenta la leyenda que en las profundidades del servidor más caótico, un pato con casco y espada de plástico miró al horizonte digital y dijo: *"Alguien tiene que organizar esto."*
+
+Así nació **Oceanic**.
+
+Los peluches llevan siglos en guerra (nadie recuerda ya por qué, probablemente por el último dado gratis de Monopoly GO). Los patos actúan como árbitros neutrales, aunque siempre acaban duelando entre ellos. Las conchas 🐚 son la moneda más valorada del océano, aunque los Snuggles 🦃 tienen mejor tipo de cambio en la tienda. La Casa Embrujada lleva abandonada desde los 90 y nadie ha encontrado la llave… todavía.
+
+> *"Un bot con brújula propia puede dirigir una flota entera."*
+> — Capitán Pato 🦆, fundador de la Flota Friki del Abismo
+
+Si encuentras un bug, probablemente es un cangrejo que se coló en el código. Abre un issue y lo pescamos.
 
 ---
 
