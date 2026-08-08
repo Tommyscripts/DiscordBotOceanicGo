@@ -30,6 +30,9 @@ from oceanic_bot.games.ocean_drop import OceanDropCog, _init_ocean_tables
 # Custom Wheels game (per-server customizable roulettes)
 from oceanic_bot.games.custom_wheels import setup_custom_wheels
 
+# Social interaction commands (hug, pat, kiss, etc.)
+from oceanic_bot.social.interactions import SocialCog, _init_social_tables
+
 # Team Teddy War game (team battles)
 from oceanic_bot.games.team_teddy_war import (
     get_team_text, ensure_team_teddy_images, pick_random_team_image, 
@@ -1402,6 +1405,13 @@ async def on_connect():
             await setup_custom_wheels(bot, db_pool)
     except Exception:
         logging.exception("[CustomWheels] Failed to load CustomWheelsCog")
+    # load Social interactions cog
+    try:
+        if not bot.cogs.get("Social"):
+            await _init_social_tables(db_pool)
+            await bot.add_cog(SocialCog(bot, db_pool))
+    except Exception:
+        logging.exception("[Social] Failed to load SocialCog")
     # start Monopoly GO auto-poster
     try:
         asyncio.create_task(_monopoly_poster_loop())
