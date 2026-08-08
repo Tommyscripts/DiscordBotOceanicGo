@@ -6964,6 +6964,52 @@ async def cmd_time(interaction: discord.Interaction, timezone: str | None = None
     await interaction.followup.send(embed=embed)
 
 
+@bot.tree.command(name="install", description="Get the link to install the bot on your account (instant DM commands)")
+@app_commands.allowed_installs(guilds=True, users=True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
+async def slash_install(interaction: discord.Interaction) -> None:
+    app_id = APPLICATION_ID or (bot.application_id if bot.application_id else None)
+    if not app_id:
+        await interaction.response.send_message(
+            "❌ No se pudo generar el enlace (APPLICATION_ID no configurado).", ephemeral=True
+        )
+        return
+
+    guild_id = interaction.guild_id
+    lang = (await get_guild_language(guild_id)) if guild_id else (
+        "es" if str(interaction.locale).lower().startswith("es") else "en"
+    )
+
+    user_install_url = f"https://discord.com/oauth2/authorize?client_id={app_id}&integration_type=1&scope=applications.commands"
+
+    if lang == "es":
+        embed = discord.Embed(
+            title="📲 Instala el bot en tu cuenta",
+            description=(
+                "Al instalar el bot en tu **cuenta** (no solo en un servidor), "
+                "todos los comandos como `/hug`, `/pat`, `/social`, etc. aparecen **inmediatamente en tus DMs** "
+                "sin esperar propagación.\n\n"
+                f"👉 **[Haz clic aquí para instalar]({user_install_url})**"
+            ),
+            color=0x5865F2,
+        )
+        embed.set_footer(text="Solo necesitas hacerlo una vez. No da permisos extra en ningún servidor.")
+    else:
+        embed = discord.Embed(
+            title="📲 Install the bot on your account",
+            description=(
+                "Installing the bot on your **account** (not just a server) makes all commands "
+                "like `/hug`, `/pat`, `/social`, etc. appear **immediately in your DMs** "
+                "without waiting for propagation.\n\n"
+                f"👉 **[Click here to install]({user_install_url})**"
+            ),
+            color=0x5865F2,
+        )
+        embed.set_footer(text="Only needs to be done once. Grants no extra permissions in any server.")
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 @bot.tree.command(name="resync_commands", description="Force re-sync of commands in this guild (admins only)")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def resync_commands(interaction: discord.Interaction):
@@ -6989,27 +7035,24 @@ async def resync_commands(interaction: discord.Interaction):
     try:
         guild_obj = discord.Object(id=interaction.guild.id)
 
-        # Clear ALL global commands directly via Discord REST API.
-        # This is the most reliable way: it sends PUT /applications/{id}/commands with []
-        # which tells Discord to delete all global registrations immediately.
-        cleared_global = 0
-        try:
-            app_id = bot.application_id
-            await bot.http.bulk_upsert_global_commands(app_id, payload=[])
-            cleared_global = 1
-        except Exception as e:
-            print(f"Warning: could not clear global commands via API: {e}")
-
-        # Sync all commands to this guild only (no global registration)
+        # Sync to this guild (instant, for server commands)
         bot.tree.copy_global_to(guild=guild_obj)
         synced = await bot.tree.sync(guild=guild_obj)
 
+        # Also sync globally so commands appear in DMs/private channels
+        global_count = 0
+        try:
+            global_synced = await bot.tree.sync()
+            global_count = len(global_synced)
+        except Exception as e:
+            print(f"Warning: global sync failed: {e}")
+
         msg = (
             f"✅ {len(synced)} comandos sincronizados en este servidor.\n"
-            f"Comandos globales eliminados — los duplicados desaparecerán en breve."
-            if cleared_global else
+            f"🌐 {global_count} comandos globales actualizados (DMs — puede tardar ~1h en propagar)."
+            if global_count else
             f"✅ {len(synced)} comandos sincronizados en este servidor.\n"
-            f"⚠️ No se pudieron eliminar los comandos globales automáticamente."
+            f"⚠️ El sync global falló — los comandos en DMs pueden no actualizarse."
         )
         try:
             await interaction.followup.send(msg, ephemeral=True)
