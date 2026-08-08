@@ -1662,36 +1662,23 @@ async def on_ready():
         pass
 
     try:
-        if GUILD_ID:
-            gid = int(str(GUILD_ID).strip())
-            guild_obj = discord.Object(id=gid)
-            # Copy global commands (including cog-based ones like OceanDropCog) to
-            # the guild so they appear immediately instead of waiting Discord propagation
-            bot.tree.copy_global_to(guild=guild_obj)
-            synced = await bot.tree.sync(guild=guild_obj)
-            logging.info(f"Synced {len(synced)} commands to guild {gid}")
-        else:
-            # Sync to each guild individually (much faster than global sync)
-            # This ensures commands are available immediately after deploy/restart
-            synced_count = 0
-            for guild in bot.guilds:
-                try:
-                    bot.tree.copy_global_to(guild=guild)
-                    synced = await bot.tree.sync(guild=guild)
-                    synced_count += 1
-                    logging.info(f"Synced {len(synced)} commands to guild {guild.id} ({guild.name})")
-                except Exception as e:
-                    logging.error(f"Failed to sync commands to guild {guild.id}: {e}")
-            logging.info(f"Successfully synced commands to {synced_count}/{len(bot.guilds)} guilds")
+        # Global-only sync: avoids guild/global duplicates and enables DM commands.
+        global_synced = await bot.tree.sync()
+        logging.info(f"Global sync: {len(global_synced)} commands registered")
 
-        # Global sync: required so commands appear in DMs/private messages.
-        # Guild-only syncs never show up in DMs; global commands do.
-        # This may take up to 1 hour to propagate on Discord's side.
-        try:
-            global_synced = await bot.tree.sync()
-            logging.info(f"Global sync: {len(global_synced)} commands registered (visible in DMs)")
-        except Exception:
-            logging.exception("Failed to perform global command sync")
+        # Remove stale guild-specific command overrides that would cause duplicates
+        guilds_to_clear = list(bot.guilds)
+        if GUILD_ID:
+            try:
+                guilds_to_clear.append(discord.Object(id=int(str(GUILD_ID).strip())))
+            except Exception:
+                pass
+        for _g in guilds_to_clear:
+            try:
+                bot.tree.clear_commands(guild=_g)
+                await bot.tree.sync(guild=_g)
+            except Exception:
+                pass
     except Exception:
         logging.exception("Failed to sync application commands")
 
@@ -7035,11 +7022,10 @@ async def resync_commands(interaction: discord.Interaction):
     try:
         guild_obj = discord.Object(id=interaction.guild.id)
 
-        # Sync to this guild (instant, for server commands)
-        bot.tree.copy_global_to(guild=guild_obj)
-        synced = await bot.tree.sync(guild=guild_obj)
+        # Clear guild-specific commands (removes duplicates) then sync globally
+        bot.tree.clear_commands(guild=guild_obj)
+        await bot.tree.sync(guild=guild_obj)
 
-        # Also sync globally so commands appear in DMs/private channels
         global_count = 0
         try:
             global_synced = await bot.tree.sync()
@@ -7048,11 +7034,10 @@ async def resync_commands(interaction: discord.Interaction):
             print(f"Warning: global sync failed: {e}")
 
         msg = (
-            f"✅ {len(synced)} comandos sincronizados en este servidor.\n"
-            f"🌐 {global_count} comandos globales actualizados (DMs — puede tardar ~1h en propagar)."
+            f"🌐 {global_count} comandos sincronizados globalmente (DMs incluidos).\n"
+            f"Duplicados del servidor eliminados. Puede tardar ~1h en propagar a nuevos usuarios."
             if global_count else
-            f"✅ {len(synced)} comandos sincronizados en este servidor.\n"
-            f"⚠️ El sync global falló — los comandos en DMs pueden no actualizarse."
+            f"⚠️ El sync global falló — reintenta en un momento."
         )
         try:
             await interaction.followup.send(msg, ephemeral=True)
