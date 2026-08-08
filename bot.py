@@ -573,6 +573,12 @@ team_teddy_channel: dict[int, int] = {}  # channel_id -> msg_id for quick lookup
 wheels: dict[int, Set[int]] = {}
 wheels_meta: dict[int, dict] = {}
 
+# In-memory storage for giveaways (reaction-based)
+# msg_id -> {host_id, prize, emoji, channel_id, guild_id, lang}
+giveaway_meta: dict[int, dict] = {}
+# msg_id -> set of user_ids that reacted with the chosen emoji
+giveaway_participants: dict[int, Set[int]] = {}
+
 # PostgreSQL connection URL — set DATABASE_URL in your .env file.
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
@@ -898,6 +904,8 @@ COMMAND_DESCRIPTIONS: dict[str, dict[str, str]] = {
         "m.unlock": "Unlock the current text channel and restore previous permissions",
         "wheels.create": "Create a wheel post. Users who react with the bot's emoji will join.",
         "wheels.start": "Start the wheel and pick a random winner from reactors",
+        "giveaway": "Create a giveaway: users react with the chosen emoji to participate",
+        "giveaway_start": "Draw the giveaway winner (host or staff only)",
         "house.create": "Create a House game (creates a private channel).",
         "house.howto": "Quick explanation of how to play Haunted House",
         "house.invite": "Invite a user to your House game (host only).",
@@ -965,6 +973,8 @@ COMMAND_DESCRIPTIONS: dict[str, dict[str, str]] = {
         "m.unlock": "Desbloquea el canal de texto actual y restaura los permisos anteriores",
         "wheels.create": "Crea una ruleta. Los usuarios que reaccionen con el emoji del bot entrarán.",
         "wheels.start": "Inicia la ruleta y elige un ganador aleatorio entre los participantes",
+        "giveaway": "Crea un sorteo: los usuarios reaccionan con el emoji elegido para participar",
+        "giveaway_start": "Inicia el sorteo y elige al ganador/a (solo el creador o staff)",
         "house.create": "Crea una partida de Casa Embrujada (crea un canal privado).",
         "house.howto": "Explicación rápida de cómo jugar a Casa Embrujada",
         "house.invite": "Invita a un usuario a tu partida de Casa Embrujada (solo el host).",
@@ -1466,6 +1476,7 @@ _TRANSLATABLE_TOP_LEVEL = [
     "set_official_links_channel", "add_official_link", "remove_official_link",
     "list_official_links", "post_official_links", "resync_commands",
     "setmytime", "time",
+    "giveaway", "giveaway_start",
 ]
 
 # Subcommand names per group managed by _apply_guild_language
@@ -3913,23 +3924,21 @@ async def update_tournament_message(message: discord.Message):
 
 @bot.event
 async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
-    """Track users who react to a wheels message using the same emoji the bot reacted with.
-    We only add users who reacted with the emoji that the bot used as its own reaction (stored in wheels_meta[msg_id]['emoji']).
-    """
+    """Track users who react to a wheels or giveaway message using the chosen emoji."""
     try:
         msg_id = payload.message_id
-        if msg_id not in wheels_meta:
-            return
-        meta = wheels_meta[msg_id]
-        bot_emoji = meta.get("emoji")
-        # Compare emoji by str; payload.emoji can be custom or unicode
-        if str(payload.emoji) != str(bot_emoji):
-            return
-        # ignore reactions from the bot itself
-        if payload.user_id == bot.user.id:
-            return
-        participants = wheels.setdefault(msg_id, set())
-        participants.add(payload.user_id)
+        # Wheels tracking
+        if msg_id in wheels_meta:
+            meta = wheels_meta[msg_id]
+            bot_emoji = meta.get("emoji")
+            if str(payload.emoji) == str(bot_emoji) and payload.user_id != bot.user.id:
+                wheels.setdefault(msg_id, set()).add(payload.user_id)
+        # Giveaway tracking
+        if msg_id in giveaway_meta:
+            meta = giveaway_meta[msg_id]
+            gw_emoji = meta.get("emoji")
+            if str(payload.emoji) == str(gw_emoji) and payload.user_id != bot.user.id:
+                giveaway_participants.setdefault(msg_id, set()).add(payload.user_id)
     except Exception as e:
         print("Error in on_raw_reaction_add:", e)
 
@@ -3938,14 +3947,18 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
 async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
     try:
         msg_id = payload.message_id
-        if msg_id not in wheels_meta:
-            return
-        meta = wheels_meta[msg_id]
-        bot_emoji = meta.get("emoji")
-        if str(payload.emoji) != str(bot_emoji):
-            return
-        participants = wheels.setdefault(msg_id, set())
-        participants.discard(payload.user_id)
+        # Wheels tracking
+        if msg_id in wheels_meta:
+            meta = wheels_meta[msg_id]
+            bot_emoji = meta.get("emoji")
+            if str(payload.emoji) == str(bot_emoji):
+                wheels.setdefault(msg_id, set()).discard(payload.user_id)
+        # Giveaway tracking
+        if msg_id in giveaway_meta:
+            meta = giveaway_meta[msg_id]
+            gw_emoji = meta.get("emoji")
+            if str(payload.emoji) == str(gw_emoji):
+                giveaway_participants.setdefault(msg_id, set()).discard(payload.user_id)
     except Exception as e:
         print("Error in on_raw_reaction_remove:", e)
 
@@ -4313,6 +4326,172 @@ async def wheels_start(interaction: discord.Interaction):
     # cleanup wheel data
     wheels.pop(msg_id, None)
     wheels_meta.pop(msg_id, None)
+
+
+# --------- GIVEAWAY commands ---------
+
+@bot.tree.command(name="giveaway", description="Create a giveaway. Users react with the chosen emoji to participate.")
+@app_commands.describe(
+    prize="Nombre del premio / Name of the prize",
+    emote="Emoji que los participantes deben pulsar / Emoji participants click to join (e.g. 🎉)"
+)
+async def slash_giveaway(interaction: discord.Interaction, prize: str, emote: str = "🎉"):
+    guild_id = getattr(interaction.guild, 'id', None)
+    lang = await get_guild_language(guild_id) if guild_id else "en"
+
+    emote = emote.strip() or "🎉"
+
+    if lang == "es":
+        title = "🎁 ¡Sorteo!"
+        how_label = "Cómo participar"
+        how_text = f"Reacciona con {emote} para entrar en el sorteo."
+        prize_label = "Premio"
+        hosted_by = "Organizado por"
+        footer_text = "El organizador usará /giveaway_start para realizar el sorteo"
+    else:
+        title = "🎁 Giveaway!"
+        how_label = "How to join"
+        how_text = f"React with {emote} to enter the giveaway."
+        prize_label = "Prize"
+        hosted_by = "Hosted by"
+        footer_text = "The host will use /giveaway_start to draw the winner"
+
+    embed = discord.Embed(title=title, color=0xFF69B4)
+    embed.add_field(name=prize_label, value=prize, inline=False)
+    embed.add_field(name=how_label, value=how_text, inline=False)
+    embed.set_footer(text=f"{hosted_by}: {interaction.user.display_name} | {footer_text}")
+
+    await interaction.response.send_message(embed=embed)
+    sent = await interaction.original_response()
+
+    # React with the chosen emoji so participants know which one to click
+    actual_emote = emote
+    try:
+        await sent.add_reaction(emote)
+    except Exception:
+        # Fall back to default if the emoji is invalid
+        actual_emote = "🎉"
+        try:
+            await sent.add_reaction(actual_emote)
+        except Exception:
+            pass
+
+    giveaway_participants[sent.id] = set()
+    giveaway_meta[sent.id] = {
+        "host_id": interaction.user.id,
+        "prize": prize,
+        "emoji": actual_emote,
+        "channel_id": interaction.channel_id,
+        "guild_id": guild_id,
+        "lang": lang,
+    }
+
+
+@bot.tree.command(name="giveaway_start", description="Draw the giveaway winner (host or staff only).")
+async def slash_giveaway_start(interaction: discord.Interaction):
+    guild_id = getattr(interaction.guild, 'id', None)
+    lang = await get_guild_language(guild_id) if guild_id else "en"
+    user_id = interaction.user.id
+    channel = interaction.channel
+
+    is_staff = await is_staff_in_guild(interaction.guild, user_id)
+
+    # Find a giveaway in this channel that the user can start
+    candidate: tuple[int, dict] | None = None
+    for msg_id, meta in list(giveaway_meta.items()):
+        if meta.get("channel_id") != interaction.channel_id:
+            continue
+        if meta.get("host_id") == user_id or is_staff:
+            candidate = (msg_id, meta)
+            break
+
+    if not candidate:
+        if lang == "es":
+            err = "No hay ningún sorteo activo en este canal que puedas iniciar."
+        else:
+            err = "No active giveaway found in this channel that you can start."
+        await interaction.response.send_message(err, ephemeral=True)
+        return
+
+    msg_id, meta = candidate
+    participants = list(giveaway_participants.get(msg_id, set()))
+
+    if not participants:
+        if lang == "es":
+            err = "Todavía no hay participantes en el sorteo. 😔"
+        else:
+            err = "No participants in the giveaway yet. 😔"
+        await interaction.response.send_message(err, ephemeral=True)
+        return
+
+    prize = meta.get("prize", "?")
+    emoji = meta.get("emoji", "🎉")
+
+    if lang == "es":
+        start_txt = f"🎰 ¡Iniciando el sorteo de **{prize}**!"
+        counting_label = "Sorteando en..."
+    else:
+        start_txt = f"🎰 Starting the giveaway for **{prize}**!"
+        counting_label = "Drawing in..."
+
+    await interaction.response.send_message(start_txt, ephemeral=False)
+
+    # Fetch the original giveaway message for the countdown animation
+    try:
+        giveaway_msg = await channel.fetch_message(msg_id)
+    except Exception:
+        giveaway_msg = None
+
+    for frame in ["3️⃣", "2️⃣", "1️⃣"]:
+        if giveaway_msg:
+            try:
+                countdown_embed = discord.Embed(
+                    title=f"🎰 {counting_label} {frame}",
+                    description=f"**{prize}**",
+                    color=0xFF9900,
+                )
+                countdown_embed.set_footer(text=("✨ " * 8).strip())
+                await giveaway_msg.edit(embed=countdown_embed)
+            except Exception:
+                pass
+        await asyncio.sleep(1.5)
+
+    winner_id = random.choice(participants)
+    winner_mention = f"<@{winner_id}>"
+
+    # Update the giveaway embed with the winner
+    if giveaway_msg:
+        try:
+            if lang == "es":
+                result_embed = discord.Embed(title="🎉 ¡Sorteo terminado!", color=0x00FF7F)
+                result_embed.add_field(name="Premio", value=prize, inline=False)
+                result_embed.add_field(name="🏆 ¡Ganador/a!", value=winner_mention, inline=False)
+                result_embed.set_footer(text="¡Enhorabuena!")
+            else:
+                result_embed = discord.Embed(title="🎉 Giveaway ended!", color=0x00FF7F)
+                result_embed.add_field(name="Prize", value=prize, inline=False)
+                result_embed.add_field(name="🏆 Winner!", value=winner_mention, inline=False)
+                result_embed.set_footer(text="Congratulations!")
+            await giveaway_msg.edit(embed=result_embed)
+        except Exception:
+            pass
+
+    # Send the winner announcement
+    try:
+        if lang == "es":
+            await channel.send(
+                f"🎉🎊 ¡El ganador/a del sorteo de **{prize}** es {winner_mention}! ¡Enhorabuena! 🎊🎉"
+            )
+        else:
+            await channel.send(
+                f"🎉🎊 The winner of the **{prize}** giveaway is {winner_mention}! Congratulations! 🎊🎉"
+            )
+    except Exception:
+        pass
+
+    # Cleanup
+    giveaway_participants.pop(msg_id, None)
+    giveaway_meta.pop(msg_id, None)
 
 
 # ---------------- HAUNTED HOUSE (House) - Prototype ----------------
