@@ -2403,60 +2403,39 @@ class TeddyTournamentView(discord.ui.View):
 
     @discord.ui.button(label="Join Tournament", style=discord.ButtonStyle.success, emoji="🧸")
     async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            await interaction.response.send_message("You have joined the teddy war.", ephemeral=True)
-        except Exception:
-            try:
-                await interaction.followup.send("You have joined the teddy war.", ephemeral=True)
-            except Exception:
-                pass
         msg_id = interaction.message.id
         participants = tournaments.setdefault(msg_id, set())
         meta = tournaments_meta.get(msg_id, {})
         maxp = meta.get("max_participants", 50)
         if interaction.user.id in participants:
-            try:
-                await safe_reply(interaction, "You are already in the tournament.")
-            except Exception:
-                pass
+            await interaction.response.send_message("You are already in the tournament.", ephemeral=True)
             return
         if len(participants) >= maxp:
-            try:
-                await safe_reply(interaction, f"Tournament is full ({maxp} participants). You can't join.")
-            except Exception:
-                pass
+            await interaction.response.send_message(f"Tournament is full ({maxp} participants). You can't join.", ephemeral=True)
             return
         participants.add(interaction.user.id)
+        await interaction.response.send_message("You have joined the teddy war.", ephemeral=True)
         preview = "\n".join([f"<@{uid}>" for uid in list(participants)[:20]])
         try:
-            await safe_reply(interaction, f"{interaction.user.mention} just joined the teddy war.\nParticipants: {len(participants)}/{maxp}\n\n{preview}")
+            await interaction.followup.send(f"{interaction.user.mention} just joined the teddy war.\nParticipants: {len(participants)}/{maxp}\n\n{preview}")
         except Exception:
             pass
         await update_tournament_message(interaction.message)
 
     @discord.ui.button(label="Leave Tournament", style=discord.ButtonStyle.danger, emoji="🚪")
     async def leave_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            await interaction.response.send_message("You have left the tournament.", ephemeral=True)
-        except Exception:
-            try:
-                await interaction.followup.send("You have left the tournament.", ephemeral=True)
-            except Exception:
-                pass
         msg_id = interaction.message.id
         participants = tournaments.setdefault(msg_id, set())
         if interaction.user.id not in participants:
-            try:
-                await safe_reply(interaction, "You are not in the tournament.")
-            except Exception:
-                pass
+            await interaction.response.send_message("You are not in the tournament.", ephemeral=True)
             return
         participants.remove(interaction.user.id)
+        await interaction.response.send_message("You have left the tournament.", ephemeral=True)
         meta = tournaments_meta.get(msg_id, {})
         maxp = meta.get("max_participants", 50)
         preview = "\n".join([f"<@{uid}>" for uid in list(participants)[:20]])
         try:
-            await safe_reply(interaction, f"{interaction.user.mention} left the tournament.\nParticipants: {len(participants)}/{maxp}\n\n{preview if preview else 'No participants.'}")
+            await interaction.followup.send(f"{interaction.user.mention} left the tournament.\nParticipants: {len(participants)}/{maxp}\n\n{preview if preview else 'No participants.'}")
         except Exception:
             pass
         await update_tournament_message(interaction.message)
@@ -2483,10 +2462,6 @@ class TeddyTournamentView(discord.ui.View):
             return
         import random
         channel = interaction.channel
-        try:
-            await interaction.response.send_message("The teddy war battle begins! 🔥", ephemeral=False)
-        except Exception:
-            pass
         alive = list(participants)
         eliminated = []
         revived_once = set()
@@ -7047,7 +7022,13 @@ async def resync_commands(interaction: discord.Interaction):
                     await interaction.channel.send(msg)
             except Exception:
                 pass
-        print(f"Manual resync in guild {interaction.guild.id}: {[c.name for c in synced]}")
+        logging.info(f"Manual resync in guild {interaction.guild.id}: {global_count} global commands synced")
+        # Restore guild-specific language and custom balance command if set
+        try:
+            guild_lang = await get_guild_language(interaction.guild.id)
+            await _apply_guild_language(interaction.guild.id, guild_lang)
+        except Exception as _re:
+            logging.warning(f"resync: could not restore guild settings for {interaction.guild.id}: {_re}")
     except Exception as e:
         try:
             await interaction.followup.send(f"Resync failed: {e}", ephemeral=True)
