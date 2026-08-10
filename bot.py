@@ -604,6 +604,98 @@ async def _ensure_db_pool() -> None:
 
 # (SQLite file migration removed — using PostgreSQL)
 
+# ---- Giveaway DB helpers ----
+
+async def _db_giveaway_save(msg_id: int, meta: dict) -> None:
+    """Persist a giveaway's metadata to the database."""
+    try:
+        await _ensure_db_pool()
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO giveaways (msg_id, channel_id, guild_id, host_id, prize, emoji, lang)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                ON CONFLICT (msg_id) DO UPDATE SET
+                    channel_id = EXCLUDED.channel_id,
+                    guild_id   = EXCLUDED.guild_id,
+                    host_id    = EXCLUDED.host_id,
+                    prize      = EXCLUDED.prize,
+                    emoji      = EXCLUDED.emoji,
+                    lang       = EXCLUDED.lang
+                """,
+                msg_id,
+                meta["channel_id"],
+                meta.get("guild_id"),
+                meta["host_id"],
+                meta["prize"],
+                meta["emoji"],
+                meta.get("lang", "en"),
+            )
+    except Exception:
+        logging.exception("[DB] Error saving giveaway %s", msg_id)
+
+
+async def _db_giveaway_add_participant(msg_id: int, user_id: int) -> None:
+    try:
+        await _ensure_db_pool()
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO giveaway_participants (msg_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                msg_id, user_id,
+            )
+    except Exception:
+        logging.exception("[DB] Error adding participant %s to giveaway %s", user_id, msg_id)
+
+
+async def _db_giveaway_remove_participant(msg_id: int, user_id: int) -> None:
+    try:
+        await _ensure_db_pool()
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM giveaway_participants WHERE msg_id = $1 AND user_id = $2",
+                msg_id, user_id,
+            )
+    except Exception:
+        logging.exception("[DB] Error removing participant %s from giveaway %s", user_id, msg_id)
+
+
+async def _db_giveaway_delete(msg_id: int) -> None:
+    """Remove a finished giveaway from the database (does NOT touch the Discord message)."""
+    try:
+        await _ensure_db_pool()
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM giveaway_participants WHERE msg_id = $1", msg_id)
+            await conn.execute("DELETE FROM giveaways WHERE msg_id = $1", msg_id)
+    except Exception:
+        logging.exception("[DB] Error deleting giveaway %s", msg_id)
+
+
+async def _load_giveaways_from_db() -> None:
+    """On startup, restore active giveaways and their participants from the database."""
+    try:
+        await _ensure_db_pool()
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch("SELECT * FROM giveaways")
+            for row in rows:
+                mid = row["msg_id"]
+                giveaway_meta[mid] = {
+                    "host_id":    row["host_id"],
+                    "prize":      row["prize"],
+                    "emoji":      row["emoji"],
+                    "channel_id": row["channel_id"],
+                    "guild_id":   row["guild_id"],
+                    "lang":       row["lang"],
+                }
+                p_rows = await conn.fetch(
+                    "SELECT user_id FROM giveaway_participants WHERE msg_id = $1", mid
+                )
+                giveaway_participants[mid] = {r["user_id"] for r in p_rows}
+        logging.info("[Giveaway] Loaded %d active giveaway(s) from DB", len(giveaway_meta))
+    except Exception:
+        logging.exception("[DB] Error loading giveaways from DB")
+
+# ---- end Giveaway DB helpers ----
+
 async def init_db_async():
     """Async init/migrations using asyncpg pool."""
     await _ensure_db_pool()
@@ -763,6 +855,29 @@ async def init_db_async():
             """
             ALTER TABLE user_timezones
                 ADD COLUMN IF NOT EXISTS time_format TEXT NOT NULL DEFAULT '24h'
+            """
+        )
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS giveaways (
+                msg_id BIGINT PRIMARY KEY,
+                channel_id BIGINT NOT NULL,
+                guild_id BIGINT,
+                host_id BIGINT NOT NULL,
+                prize TEXT NOT NULL,
+                emoji TEXT NOT NULL,
+                lang TEXT NOT NULL DEFAULT 'en',
+                created_at TIMESTAMPTZ DEFAULT now()
+            )
+            """
+        )
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS giveaway_participants (
+                msg_id BIGINT NOT NULL,
+                user_id BIGINT NOT NULL,
+                PRIMARY KEY (msg_id, user_id)
+            )
             """
         )
 
@@ -1698,6 +1813,12 @@ async def on_ready():
         except Exception as _e:
             logging.warning(f"Could not restore language for guild {_gid}: {_e}")
 
+    # Restore active giveaways from the database (so restarts don't lose them)
+    try:
+        await _load_giveaways_from_db()
+    except Exception as _e:
+        logging.warning(f"Could not restore giveaways from DB: {_e}")
+
     # Optionally start automatic resync loop (controlled by AUTO_RESYNC env var)
     try:
         if os.getenv("AUTO_RESYNC", "false").lower() in ("1", "true", "yes"):
@@ -2403,60 +2524,39 @@ class TeddyTournamentView(discord.ui.View):
 
     @discord.ui.button(label="Join Tournament", style=discord.ButtonStyle.success, emoji="🧸")
     async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            await interaction.response.send_message("You have joined the teddy war.", ephemeral=True)
-        except Exception:
-            try:
-                await interaction.followup.send("You have joined the teddy war.", ephemeral=True)
-            except Exception:
-                pass
         msg_id = interaction.message.id
         participants = tournaments.setdefault(msg_id, set())
         meta = tournaments_meta.get(msg_id, {})
         maxp = meta.get("max_participants", 50)
         if interaction.user.id in participants:
-            try:
-                await safe_reply(interaction, "You are already in the tournament.")
-            except Exception:
-                pass
+            await interaction.response.send_message("You are already in the tournament.", ephemeral=True)
             return
         if len(participants) >= maxp:
-            try:
-                await safe_reply(interaction, f"Tournament is full ({maxp} participants). You can't join.")
-            except Exception:
-                pass
+            await interaction.response.send_message(f"Tournament is full ({maxp} participants). You can't join.", ephemeral=True)
             return
         participants.add(interaction.user.id)
+        await interaction.response.send_message("You have joined the teddy war.", ephemeral=True)
         preview = "\n".join([f"<@{uid}>" for uid in list(participants)[:20]])
         try:
-            await safe_reply(interaction, f"{interaction.user.mention} just joined the teddy war.\nParticipants: {len(participants)}/{maxp}\n\n{preview}")
+            await interaction.followup.send(f"{interaction.user.mention} just joined the teddy war.\nParticipants: {len(participants)}/{maxp}\n\n{preview}")
         except Exception:
             pass
         await update_tournament_message(interaction.message)
 
     @discord.ui.button(label="Leave Tournament", style=discord.ButtonStyle.danger, emoji="🚪")
     async def leave_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            await interaction.response.send_message("You have left the tournament.", ephemeral=True)
-        except Exception:
-            try:
-                await interaction.followup.send("You have left the tournament.", ephemeral=True)
-            except Exception:
-                pass
         msg_id = interaction.message.id
         participants = tournaments.setdefault(msg_id, set())
         if interaction.user.id not in participants:
-            try:
-                await safe_reply(interaction, "You are not in the tournament.")
-            except Exception:
-                pass
+            await interaction.response.send_message("You are not in the tournament.", ephemeral=True)
             return
         participants.remove(interaction.user.id)
+        await interaction.response.send_message("You have left the tournament.", ephemeral=True)
         meta = tournaments_meta.get(msg_id, {})
         maxp = meta.get("max_participants", 50)
         preview = "\n".join([f"<@{uid}>" for uid in list(participants)[:20]])
         try:
-            await safe_reply(interaction, f"{interaction.user.mention} left the tournament.\nParticipants: {len(participants)}/{maxp}\n\n{preview if preview else 'No participants.'}")
+            await interaction.followup.send(f"{interaction.user.mention} left the tournament.\nParticipants: {len(participants)}/{maxp}\n\n{preview if preview else 'No participants.'}")
         except Exception:
             pass
         await update_tournament_message(interaction.message)
@@ -2483,10 +2583,6 @@ class TeddyTournamentView(discord.ui.View):
             return
         import random
         channel = interaction.channel
-        try:
-            await interaction.response.send_message("The teddy war battle begins! 🔥", ephemeral=False)
-        except Exception:
-            pass
         alive = list(participants)
         eliminated = []
         revived_once = set()
@@ -3936,6 +4032,7 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
             gw_emoji = meta.get("emoji")
             if str(payload.emoji) == str(gw_emoji) and payload.user_id != bot.user.id:
                 giveaway_participants.setdefault(msg_id, set()).add(payload.user_id)
+                asyncio.create_task(_db_giveaway_add_participant(msg_id, payload.user_id))
     except Exception as e:
         print("Error in on_raw_reaction_add:", e)
 
@@ -3956,6 +4053,7 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
             gw_emoji = meta.get("emoji")
             if str(payload.emoji) == str(gw_emoji):
                 giveaway_participants.setdefault(msg_id, set()).discard(payload.user_id)
+                asyncio.create_task(_db_giveaway_remove_participant(msg_id, payload.user_id))
     except Exception as e:
         print("Error in on_raw_reaction_remove:", e)
 
@@ -4382,6 +4480,7 @@ async def slash_giveaway(interaction: discord.Interaction, prize: str, emote: st
         "guild_id": guild_id,
         "lang": lang,
     }
+    asyncio.create_task(_db_giveaway_save(sent.id, giveaway_meta[sent.id]))
 
 
 @bot.tree.command(name="giveaway_start", description="Draw the giveaway winner (host or staff only).")
@@ -4392,6 +4491,10 @@ async def slash_giveaway_start(interaction: discord.Interaction):
     channel = interaction.channel
 
     is_staff = await is_staff_in_guild(interaction.guild, user_id)
+
+    # If the in-memory cache is empty (e.g. after a bot restart), reload from DB
+    if not giveaway_meta:
+        await _load_giveaways_from_db()
 
     # Find a giveaway in this channel that the user can start
     candidate: tuple[int, dict] | None = None
@@ -4456,7 +4559,7 @@ async def slash_giveaway_start(interaction: discord.Interaction):
     winner_id = random.choice(participants)
     winner_mention = f"<@{winner_id}>"
 
-    # Update the giveaway embed with the winner
+    # Update the giveaway embed with the winner (stays in channel forever)
     if giveaway_msg:
         try:
             if lang == "es":
@@ -4473,7 +4576,7 @@ async def slash_giveaway_start(interaction: discord.Interaction):
         except Exception:
             pass
 
-    # Send the winner announcement
+    # Send the winner announcement (also stays in channel)
     try:
         if lang == "es":
             await channel.send(
@@ -4486,9 +4589,10 @@ async def slash_giveaway_start(interaction: discord.Interaction):
     except Exception:
         pass
 
-    # Cleanup
+    # Remove from in-memory cache and from DB (the Discord message stays untouched)
     giveaway_participants.pop(msg_id, None)
     giveaway_meta.pop(msg_id, None)
+    asyncio.create_task(_db_giveaway_delete(msg_id))
 
 
 # ---------------- HAUNTED HOUSE (House) - Prototype ----------------
@@ -7047,7 +7151,13 @@ async def resync_commands(interaction: discord.Interaction):
                     await interaction.channel.send(msg)
             except Exception:
                 pass
-        print(f"Manual resync in guild {interaction.guild.id}: {[c.name for c in synced]}")
+        logging.info(f"Manual resync in guild {interaction.guild.id}: {global_count} global commands synced")
+        # Restore guild-specific language and custom balance command if set
+        try:
+            guild_lang = await get_guild_language(interaction.guild.id)
+            await _apply_guild_language(interaction.guild.id, guild_lang)
+        except Exception as _re:
+            logging.warning(f"resync: could not restore guild settings for {interaction.guild.id}: {_re}")
     except Exception as e:
         try:
             await interaction.followup.send(f"Resync failed: {e}", ephemeral=True)
