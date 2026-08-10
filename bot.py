@@ -604,6 +604,98 @@ async def _ensure_db_pool() -> None:
 
 # (SQLite file migration removed — using PostgreSQL)
 
+# ---- Giveaway DB helpers ----
+
+async def _db_giveaway_save(msg_id: int, meta: dict) -> None:
+    """Persist a giveaway's metadata to the database."""
+    try:
+        await _ensure_db_pool()
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO giveaways (msg_id, channel_id, guild_id, host_id, prize, emoji, lang)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                ON CONFLICT (msg_id) DO UPDATE SET
+                    channel_id = EXCLUDED.channel_id,
+                    guild_id   = EXCLUDED.guild_id,
+                    host_id    = EXCLUDED.host_id,
+                    prize      = EXCLUDED.prize,
+                    emoji      = EXCLUDED.emoji,
+                    lang       = EXCLUDED.lang
+                """,
+                msg_id,
+                meta["channel_id"],
+                meta.get("guild_id"),
+                meta["host_id"],
+                meta["prize"],
+                meta["emoji"],
+                meta.get("lang", "en"),
+            )
+    except Exception:
+        logging.exception("[DB] Error saving giveaway %s", msg_id)
+
+
+async def _db_giveaway_add_participant(msg_id: int, user_id: int) -> None:
+    try:
+        await _ensure_db_pool()
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO giveaway_participants (msg_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                msg_id, user_id,
+            )
+    except Exception:
+        logging.exception("[DB] Error adding participant %s to giveaway %s", user_id, msg_id)
+
+
+async def _db_giveaway_remove_participant(msg_id: int, user_id: int) -> None:
+    try:
+        await _ensure_db_pool()
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM giveaway_participants WHERE msg_id = $1 AND user_id = $2",
+                msg_id, user_id,
+            )
+    except Exception:
+        logging.exception("[DB] Error removing participant %s from giveaway %s", user_id, msg_id)
+
+
+async def _db_giveaway_delete(msg_id: int) -> None:
+    """Remove a finished giveaway from the database (does NOT touch the Discord message)."""
+    try:
+        await _ensure_db_pool()
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM giveaway_participants WHERE msg_id = $1", msg_id)
+            await conn.execute("DELETE FROM giveaways WHERE msg_id = $1", msg_id)
+    except Exception:
+        logging.exception("[DB] Error deleting giveaway %s", msg_id)
+
+
+async def _load_giveaways_from_db() -> None:
+    """On startup, restore active giveaways and their participants from the database."""
+    try:
+        await _ensure_db_pool()
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch("SELECT * FROM giveaways")
+            for row in rows:
+                mid = row["msg_id"]
+                giveaway_meta[mid] = {
+                    "host_id":    row["host_id"],
+                    "prize":      row["prize"],
+                    "emoji":      row["emoji"],
+                    "channel_id": row["channel_id"],
+                    "guild_id":   row["guild_id"],
+                    "lang":       row["lang"],
+                }
+                p_rows = await conn.fetch(
+                    "SELECT user_id FROM giveaway_participants WHERE msg_id = $1", mid
+                )
+                giveaway_participants[mid] = {r["user_id"] for r in p_rows}
+        logging.info("[Giveaway] Loaded %d active giveaway(s) from DB", len(giveaway_meta))
+    except Exception:
+        logging.exception("[DB] Error loading giveaways from DB")
+
+# ---- end Giveaway DB helpers ----
+
 async def init_db_async():
     """Async init/migrations using asyncpg pool."""
     await _ensure_db_pool()
@@ -763,6 +855,29 @@ async def init_db_async():
             """
             ALTER TABLE user_timezones
                 ADD COLUMN IF NOT EXISTS time_format TEXT NOT NULL DEFAULT '24h'
+            """
+        )
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS giveaways (
+                msg_id BIGINT PRIMARY KEY,
+                channel_id BIGINT NOT NULL,
+                guild_id BIGINT,
+                host_id BIGINT NOT NULL,
+                prize TEXT NOT NULL,
+                emoji TEXT NOT NULL,
+                lang TEXT NOT NULL DEFAULT 'en',
+                created_at TIMESTAMPTZ DEFAULT now()
+            )
+            """
+        )
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS giveaway_participants (
+                msg_id BIGINT NOT NULL,
+                user_id BIGINT NOT NULL,
+                PRIMARY KEY (msg_id, user_id)
+            )
             """
         )
 
@@ -1697,6 +1812,12 @@ async def on_ready():
             logging.info(f"Restored language '{_lang}' for guild {_gid}")
         except Exception as _e:
             logging.warning(f"Could not restore language for guild {_gid}: {_e}")
+
+    # Restore active giveaways from the database (so restarts don't lose them)
+    try:
+        await _load_giveaways_from_db()
+    except Exception as _e:
+        logging.warning(f"Could not restore giveaways from DB: {_e}")
 
     # Optionally start automatic resync loop (controlled by AUTO_RESYNC env var)
     try:
@@ -3911,6 +4032,7 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
             gw_emoji = meta.get("emoji")
             if str(payload.emoji) == str(gw_emoji) and payload.user_id != bot.user.id:
                 giveaway_participants.setdefault(msg_id, set()).add(payload.user_id)
+                asyncio.create_task(_db_giveaway_add_participant(msg_id, payload.user_id))
     except Exception as e:
         print("Error in on_raw_reaction_add:", e)
 
@@ -3931,6 +4053,7 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
             gw_emoji = meta.get("emoji")
             if str(payload.emoji) == str(gw_emoji):
                 giveaway_participants.setdefault(msg_id, set()).discard(payload.user_id)
+                asyncio.create_task(_db_giveaway_remove_participant(msg_id, payload.user_id))
     except Exception as e:
         print("Error in on_raw_reaction_remove:", e)
 
@@ -4357,6 +4480,7 @@ async def slash_giveaway(interaction: discord.Interaction, prize: str, emote: st
         "guild_id": guild_id,
         "lang": lang,
     }
+    asyncio.create_task(_db_giveaway_save(sent.id, giveaway_meta[sent.id]))
 
 
 @bot.tree.command(name="giveaway_start", description="Draw the giveaway winner (host or staff only).")
@@ -4367,6 +4491,10 @@ async def slash_giveaway_start(interaction: discord.Interaction):
     channel = interaction.channel
 
     is_staff = await is_staff_in_guild(interaction.guild, user_id)
+
+    # If the in-memory cache is empty (e.g. after a bot restart), reload from DB
+    if not giveaway_meta:
+        await _load_giveaways_from_db()
 
     # Find a giveaway in this channel that the user can start
     candidate: tuple[int, dict] | None = None
@@ -4431,7 +4559,7 @@ async def slash_giveaway_start(interaction: discord.Interaction):
     winner_id = random.choice(participants)
     winner_mention = f"<@{winner_id}>"
 
-    # Update the giveaway embed with the winner
+    # Update the giveaway embed with the winner (stays in channel forever)
     if giveaway_msg:
         try:
             if lang == "es":
@@ -4448,7 +4576,7 @@ async def slash_giveaway_start(interaction: discord.Interaction):
         except Exception:
             pass
 
-    # Send the winner announcement
+    # Send the winner announcement (also stays in channel)
     try:
         if lang == "es":
             await channel.send(
@@ -4461,9 +4589,10 @@ async def slash_giveaway_start(interaction: discord.Interaction):
     except Exception:
         pass
 
-    # Cleanup
+    # Remove from in-memory cache and from DB (the Discord message stays untouched)
     giveaway_participants.pop(msg_id, None)
     giveaway_meta.pop(msg_id, None)
+    asyncio.create_task(_db_giveaway_delete(msg_id))
 
 
 # ---------------- HAUNTED HOUSE (House) - Prototype ----------------
