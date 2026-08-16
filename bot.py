@@ -1507,26 +1507,6 @@ async def on_connect():
         await init_db_async()
     except Exception:
         pass
-    # load Ocean Drop collectible game cog
-    try:
-        if not bot.cogs.get("OceanDropCog"):
-            await _init_ocean_tables(db_pool)
-            await bot.add_cog(OceanDropCog(bot, db_pool))
-    except Exception:
-        logging.exception("[OceanDrop] Failed to load OceanDropCog")
-    # load Custom Wheels game cog
-    try:
-        if not bot.cogs.get("CustomWheelsCog"):
-            await setup_custom_wheels(bot, db_pool)
-    except Exception:
-        logging.exception("[CustomWheels] Failed to load CustomWheelsCog")
-    # load Social interactions cog
-    try:
-        if not bot.cogs.get("Social"):
-            await _init_social_tables(db_pool)
-            await bot.add_cog(SocialCog(bot, db_pool))
-    except Exception:
-        logging.exception("[Social] Failed to load SocialCog")
     # start Monopoly GO auto-poster
     try:
         asyncio.create_task(_monopoly_poster_loop())
@@ -1775,6 +1755,30 @@ async def on_ready():
             logging.info(f"Invite URL: {invite}")
     except Exception:
         pass
+
+    # Ensure DB pool exists and cogs are loaded BEFORE syncing the command tree.
+    # (Cogs were previously loaded in on_connect which races with on_ready.)
+    try:
+        await _ensure_db_pool()
+    except Exception:
+        logging.exception("[on_ready] DB pool init failed")
+    if not bot.cogs.get("OceanDropCog"):
+        try:
+            await _init_ocean_tables(db_pool)
+            await bot.add_cog(OceanDropCog(bot, db_pool))
+        except Exception:
+            logging.exception("[OceanDrop] Failed to load OceanDropCog")
+    if not bot.cogs.get("CustomWheelsCog"):
+        try:
+            await setup_custom_wheels(bot, db_pool)
+        except Exception:
+            logging.exception("[CustomWheels] Failed to load CustomWheelsCog")
+    if not bot.cogs.get("Social"):
+        try:
+            await _init_social_tables(db_pool)
+            await bot.add_cog(SocialCog(bot, db_pool))
+        except Exception:
+            logging.exception("[Social] Failed to load SocialCog")
 
     try:
         # Global-only sync: avoids guild/global duplicates and enables DM commands.
