@@ -1,6 +1,9 @@
-"""Social interaction commands (hug, pat, kiss, etc.) powered by Nekos.best GIF API."""
+"""Social interaction commands (hug, pat, kiss, etc.) powered by Tenor GIF API."""
 from __future__ import annotations
+import asyncio
 import logging
+import os
+import random
 from typing import Optional
 
 import aiohttp
@@ -10,7 +13,31 @@ from discord.ext import commands
 
 log = logging.getLogger(__name__)
 
-NEKOS_BASE = "https://nekos.best/api/v2"
+TENOR_KEY: str = os.getenv("TENOR_API_KEY", "LIVDSRZULELA")
+TENOR_BASE: str = "https://g.tenor.com/v1/search"
+TENOR_REGISTER_URL: str = "https://g.tenor.com/v1/registershare"
+TENOR_LIMIT: int = 8
+
+# Términos de búsqueda en Tenor por acción
+TENOR_TERMS: dict[str, str] = {
+    "hug":             "anime hug",
+    "cuddle":          "anime cuddle",
+    "pat":             "anime pat head",
+    "kiss":            "anime kiss cheek",
+    "beso_apasionado": "anime passionate kiss lips",
+    "poke":            "anime poke",
+    "slap":            "anime slap",
+    "bite":            "anime bite",
+    "tickle":          "anime tickle",
+    "highfive":        "anime high five",
+    "handhold":        "anime hold hands",
+    "nom":             "anime nom",
+    "wave":            "anime wave",
+    "dance":           "anime dance",
+    "wink":            "anime wink",
+    "cry":             "anime cry",
+    "blush":           "anime blush",
+}
 
 # (action_key, nekos_endpoint, emoji, directed, embed_color)
 # directed=True -> requires a @user target; False -> target is optional or omitted
@@ -18,7 +45,8 @@ INTERACTIONS: list[tuple[str, str, str, bool, int]] = [
     ("hug",      "hug",      "🤗", True,  0xFFB6C1),
     ("cuddle",   "cuddle",   "🥰", True,  0xFF69B4),
     ("pat",      "pat",      "🥺", True,  0xFFD700),
-    ("kiss",     "kiss",     "💋", True,  0xFF1493),
+    ("kiss",            "kiss",            "💋", True,  0xFF1493),
+    ("beso_apasionado", "beso_apasionado", "💏", True,  0xC71585),
     ("poke",     "poke",     "👉", True,  0x87CEEB),
     ("slap",     "slap",     "💢", True,  0xFF4500),
     ("bite",     "bite",     "😬", True,  0x8B0000),
@@ -41,7 +69,8 @@ _VERBS: dict[str, tuple[str, str, str, str]] = {
     "hug":      ("hugs",            "hugged",          "abraza a",               "abrazó a"),
     "cuddle":   ("cuddles with",    "cuddled with",    "se acurruca con",         "se acurrucó con"),
     "pat":      ("pats",            "patted",          "le da palmaditas a",      "le dio palmaditas a"),
-    "kiss":     ("kisses",          "kissed",          "le da un beso a",         "le dio un beso a"),
+    "kiss":            ("kisses",             "kissed",             "le da un beso a",              "le dio un beso a"),
+    "beso_apasionado": ("kisses passionately", "kissed passionately", "le da un beso apasionado a",   "le dio un beso apasionado a"),
     "poke":     ("pokes",           "poked",           "le da un toque a",        "le dio un toque a"),
     "slap":     ("slaps",           "slapped",         "le da una bofetada a",    "le dio una bofetada a"),
     "bite":     ("bites",           "bitten",          "le da un mordisco a",     "le dio un mordisco a"),
@@ -69,7 +98,8 @@ _SELF_MSGS: dict[str, dict[str, str]] = {
     "hug":      {"en": "You hug yourself... it's okay! 🤗",          "es": "¡Te abrazas a ti mismo/a... está bien! 🤗"},
     "cuddle":   {"en": "You cuddle yourself... kinda wholesome.",     "es": "Te acurrucas solo/a... qué ternura."},
     "pat":      {"en": "You pat yourself. Good job!",                 "es": "Te das palmaditas. ¡Bien hecho!"},
-    "kiss":     {"en": "You kissed yourself in the mirror? 😏",       "es": "¿Te diste un beso en el espejo? 😏"},
+    "kiss":            {"en": "You kissed yourself in the mirror? 😏",          "es": "¿Te diste un beso en el espejo? 😏"},
+    "beso_apasionado": {"en": "You kissed yourself passionately?! 💋😳",        "es": "¿Te diste un beso apasionado a ti mismo/a? 💋😳"},
     "poke":     {"en": "You poke yourself... are you okay? 👉",       "es": "Te das un toque... ¿estás bien? 👉"},
     "slap":     {"en": "You slapped yourself. That's rough. 💢",      "es": "Te diste una bofetada. Eso duele. 💢"},
     "bite":     {"en": "You bit yourself? That can't feel great.",    "es": "¿Te mordiste? Eso no puede doler bien."},
@@ -86,7 +116,8 @@ _BOT_MSGS: dict[str, dict[str, str]] = {
     "hug":      {"en": "You hugged me! Thanks, I'm touched 🤗",             "es": "¡Me abrazaste! Gracias, me conmueve 🤗"},
     "cuddle":   {"en": "Cuddling a bot? I'll allow it 🥰",                  "es": "¿Acurrucarse con un bot? Lo permito 🥰"},
     "pat":      {"en": "A pat for the bot! I like it 🥺",                   "es": "¡Palmaditas al bot! Me gusta 🥺"},
-    "kiss":     {"en": "A kiss for the bot?! I'm flattered 💋",             "es": "¿Un beso al bot?! Me halaga 💋"},
+    "kiss":            {"en": "A kiss for the bot?! I'm flattered 💋",                 "es": "¿Un beso al bot?! Me halaga 💋"},
+    "beso_apasionado": {"en": "A passionate kiss for a bot?! I'm... processing... 💋", "es": "¿Un beso apasionado al bot?! Estoy... procesando... 💋"},
     "poke":     {"en": "Hey, I felt that! 👉",                              "es": "¡Oye, lo sentí! 👉"},
     "slap":     {"en": "Ouch! What did I do to deserve that? 💢",           "es": "¡Ay! ¿Qué hice para merecer eso? 💢"},
     "bite":     {"en": "You bit a bot. We don't taste good, I promise 😬",  "es": "Me mordiste. No sabemos bien, te lo juro 😬"},
@@ -103,7 +134,8 @@ _DESCRIPTIONS: dict[str, dict[str, str]] = {
     "hug":      {"en": "Give someone a warm hug",             "es": "Dale un abrazo cálido a alguien"},
     "cuddle":   {"en": "Cuddle with someone",                 "es": "Acurrúcate con alguien"},
     "pat":      {"en": "Pat someone on the head",             "es": "Dale palmaditas en la cabeza a alguien"},
-    "kiss":     {"en": "Give someone a kiss",                 "es": "Dale un beso a alguien"},
+    "kiss":            {"en": "Give someone a friendly kiss",          "es": "Dale un beso amistoso a alguien"},
+    "beso_apasionado": {"en": "Give someone a passionate kiss",        "es": "Dale un beso apasionado a alguien"},
     "poke":     {"en": "Poke someone",                        "es": "Toca a alguien"},
     "slap":     {"en": "Slap someone",                        "es": "Dale una bofetada a alguien"},
     "bite":     {"en": "Bite someone",                        "es": "Muerde a alguien"},
@@ -157,21 +189,51 @@ class SocialCog(commands.Cog, name="Social"):
                 pass
         return "es" if str(interaction_locale).lower().startswith("es") else "en"
 
-    async def _fetch_gif(self, endpoint: str) -> Optional[str]:
+    async def _fetch_tenor_gif(self, action: str) -> tuple[Optional[str], Optional[str]]:
+        """Returns (gif_url, gif_id), both None on failure."""
+        term = TENOR_TERMS.get(action, action)
         try:
             async with aiohttp.ClientSession() as session:
+                params = {
+                    "q": term,
+                    "key": TENOR_KEY,
+                    "limit": TENOR_LIMIT,
+                    "media_filter": "minimal",
+                }
                 async with session.get(
-                    f"{NEKOS_BASE}/{endpoint}",
-                    timeout=aiohttp.ClientTimeout(total=6),
+                    TENOR_BASE, params=params, timeout=aiohttp.ClientTimeout(total=6)
                 ) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         results = data.get("results", [])
                         if results:
-                            return results[0].get("url")
+                            result = random.choice(results)
+                            gif_id = result.get("id")
+                            media_list = result.get("media", [])
+                            if media_list:
+                                gif_data = media_list[0]
+                                gif_url = (
+                                    gif_data.get("tinygif", {}).get("url")
+                                    or gif_data.get("gif", {}).get("url")
+                                )
+                                if gif_url:
+                                    return gif_url, gif_id
         except Exception:
-            log.warning("[Social] Failed to fetch GIF for endpoint=%s", endpoint)
-        return None
+            log.warning("[Social] Failed to fetch Tenor GIF for action=%s", action)
+        return None, None
+
+    async def _register_tenor_share(self, gif_id: str, action: str) -> None:
+        term = TENOR_TERMS.get(action, action)
+        try:
+            async with aiohttp.ClientSession() as session:
+                params = {"id": gif_id, "key": TENOR_KEY, "q": term}
+                async with session.get(
+                    TENOR_REGISTER_URL, params=params, timeout=aiohttp.ClientTimeout(total=5)
+                ) as resp:
+                    if resp.status != 200:
+                        log.debug("[Social] registershare returned %s for id=%s", resp.status, gif_id)
+        except Exception:
+            log.debug("[Social] registershare failed for id=%s", gif_id)
 
     async def _get_and_bump_count(self, actor_id: int, target_id: int, action: str) -> int:
         try:
@@ -228,18 +290,20 @@ class SocialCog(commands.Cog, name="Social"):
             await interaction.followup.send(embed=self._build_embed(f"{emoji} {msg}", color))
             return
 
-        gif_url = await self._fetch_gif(endpoint)
+        gif_url, gif_id = await self._fetch_tenor_gif(action)
         count = await self._get_and_bump_count(interaction.user.id, target.id, action)
 
         verb_en, past_en, verb_es, past_es = _VERBS[action]
         if lang == "es":
             desc   = f"{emoji} **{actor_name}** {verb_es} **{target.display_name}**"
-            footer = f"🔁 Es la {count}ª vez que {actor_name} {past_es} {target.display_name}"
+            footer = f"🔁 Es la {count}ªvez que {actor_name} {past_es} {target.display_name}"
         else:
             desc   = f"{emoji} **{actor_name}** {verb_en} **{target.display_name}**"
             footer = f"🔁 {_ordinal_en(count)} time {actor_name} has {past_en} {target.display_name}"
 
         await interaction.followup.send(embed=self._build_embed(desc, color, gif_url, footer))
+        if gif_id:
+            asyncio.ensure_future(self._register_tenor_share(gif_id, action))
 
     async def _run_solo(
         self,
@@ -273,11 +337,13 @@ class SocialCog(commands.Cog, name="Social"):
             await interaction.followup.send(embed=self._build_embed(f"{emoji} {msg}", color))
             return
 
-        gif_url = await self._fetch_gif(endpoint)
+        gif_url, gif_id = await self._fetch_tenor_gif(action)
         solo = _SOLO_VERBS.get(action, {})
         verb = solo.get(lang) or solo.get("en") or (_VERBS[action][2] if lang == "es" else _VERBS[action][0])
         desc = f"{emoji} **{actor_name}** {verb}"
         await interaction.followup.send(embed=self._build_embed(desc, color, gif_url))
+        if gif_id:
+            asyncio.ensure_future(self._register_tenor_share(gif_id, action))
 
     # ------------------------------------------------------------------ #
     # Directed commands (require @user)
@@ -304,12 +370,19 @@ class SocialCog(commands.Cog, name="Social"):
     async def cmd_pat(self, interaction: discord.Interaction, target: discord.User) -> None:
         await self._run_directed(interaction, "pat", "pat", "🥺", 0xFFD700, target)
 
-    @app_commands.command(name="kiss", description="Give someone a kiss")
+    @app_commands.command(name="kiss", description="Give someone a friendly kiss")
     @app_commands.allowed_installs(guilds=True, users=True)
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     @app_commands.describe(target="User to kiss")
     async def cmd_kiss(self, interaction: discord.Interaction, target: discord.User) -> None:
         await self._run_directed(interaction, "kiss", "kiss", "💋", 0xFF1493, target)
+
+    @app_commands.command(name="beso_apasionado", description="Dale un beso apasionado a alguien")
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
+    @app_commands.describe(target="Usuario al que besar")
+    async def cmd_beso_apasionado(self, interaction: discord.Interaction, target: discord.User) -> None:
+        await self._run_directed(interaction, "beso_apasionado", "beso_apasionado", "💏", 0xC71585, target)
 
     @app_commands.command(name="poke", description="Poke someone")
     @app_commands.allowed_installs(guilds=True, users=True)

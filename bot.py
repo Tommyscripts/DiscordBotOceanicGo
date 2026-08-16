@@ -2536,9 +2536,8 @@ class TeddyTournamentView(discord.ui.View):
             return
         participants.add(interaction.user.id)
         await interaction.response.send_message("You have joined the teddy war.", ephemeral=True)
-        preview = "\n".join([f"<@{uid}>" for uid in list(participants)[:20]])
         try:
-            await interaction.followup.send(f"{interaction.user.mention} just joined the teddy war.\nParticipants: {len(participants)}/{maxp}\n\n{preview}")
+            await interaction.followup.send(f"{interaction.user.mention} just joined the teddy war.\nParticipants: {len(participants)}/{maxp}")
         except Exception:
             pass
         await update_tournament_message(interaction.message)
@@ -2554,9 +2553,8 @@ class TeddyTournamentView(discord.ui.View):
         await interaction.response.send_message("You have left the tournament.", ephemeral=True)
         meta = tournaments_meta.get(msg_id, {})
         maxp = meta.get("max_participants", 50)
-        preview = "\n".join([f"<@{uid}>" for uid in list(participants)[:20]])
         try:
-            await interaction.followup.send(f"{interaction.user.mention} left the tournament.\nParticipants: {len(participants)}/{maxp}\n\n{preview if preview else 'No participants.'}")
+            await interaction.followup.send(f"{interaction.user.mention} left the tournament.\nParticipants: {len(participants)}/{maxp}")
         except Exception:
             pass
         await update_tournament_message(interaction.message)
